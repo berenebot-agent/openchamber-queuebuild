@@ -245,6 +245,7 @@ export const getVisibleContextRailSurfaces = (options: VisibleRailSurfacesOption
     if (options.hiddenSurfaces?.includes(surface.id)) {
       return false;
     }
+    if (surface.id === 'build-queue' && options.isVSCode) return false;
     if (isPluginContextPanelMode(surface.mode) && options.isVSCode) {
       return false;
     }
