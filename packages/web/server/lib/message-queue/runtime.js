@@ -13,12 +13,17 @@
 
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+const runGit = promisify(execFile);
 import { assertPromptResponse } from '../opencode/prompt-response.js';
 import { unwrapOpenCodeResponse } from '../opencode/response-envelope.js';
 import { createSessionActivityProbe } from '../opencode/session-activity.js';
 
 const QUEUE_FILE_NAME = 'message-queue.json';
-const QUEUE_FILE_VERSION = 1;
+const QUEUE_FILE_VERSION = 2;
+const BUILD_RECHECK_MS = 5000;
+const BUILD_INSTRUCTION = 'This build is serialized with other builds in this repository. Implement the requested work, run appropriate tests, and commit only your own changes when complete. Do not stage unrelated files, force reset, or silently discard changes. If you cannot safely commit, explicitly explain why; the next queued build will wait for a clean working tree.';
 
 const MAX_SESSIONS = 50;
 const MAX_ITEMS_PER_SESSION = 20;
@@ -139,6 +144,7 @@ export const parseQueuedItemInput = (value) => {
   if (provenance && (!projectId || !taskId)) throw new TypeError('invalid scheduledTask provenance');
   if (!sendConfig && !provenance) throw new TypeError('item sendConfig with providerID and modelID is required');
   const item = { content, text };
+  if (raw.buildQueue === true) item.buildQueue = true;
   const agentMention = asNonEmptyString(raw.agentMention);
   if (agentMention) item.agentMention = agentMention;
   item.attachments = attachments;
@@ -159,7 +165,7 @@ const parseStoredItem = (value) => {
   const id = raw ? asNonEmptyString(raw.id) : '';
   if (!id) return null;
   try {
-    return { id, createdAt: asCount(raw.createdAt) ?? Date.now(), ...parseQueuedItemInput(raw) };
+    return { id, createdAt: asCount(raw.createdAt) ?? Date.now(), ...parseQueuedItemInput(raw), ...(raw.buildQueue === true ? { buildOrder: asCount(raw.buildOrder) ?? 0 } : {}) };
   } catch {
     return null;
   }
@@ -187,6 +193,7 @@ const toPublicItem = (item) => {
   }
   publicItem.sendConfig = { ...item.sendConfig };
   if (item.scheduledTask) publicItem.scheduledTask = { ...item.scheduledTask };
+  if (item.buildQueue) publicItem.buildQueue = true;
   return publicItem;
 };
 
@@ -255,6 +262,11 @@ export function createMessageQueueRuntime({
 
   /** sessionId → { directory, items } */
   const queues = new Map();
+  // One build lease per project directory, held through the entire agent turn.
+  const activeBuilds = new Map();
+  const buildProblems = new Map();
+  const buildMonitors = new Map();
+  let nextBuildOrder = 1;
   let revision = 0;
   let loadPromise = null;
   let writePromise = Promise.resolve();
@@ -283,6 +295,8 @@ export function createMessageQueueRuntime({
   const serialize = () => ({
     version: QUEUE_FILE_VERSION,
     revision,
+    nextBuildOrder,
+    activeBuilds: Object.fromEntries(activeBuilds),
     sessions: Object.fromEntries(
       Array.from(queues.entries()).map(([sessionId, queue]) => [sessionId, { directory: queue.directory, items: queue.items }]),
     ),
@@ -293,7 +307,7 @@ export function createMessageQueueRuntime({
     try {
       raw = await fs.promises.readFile(filePath, 'utf8');
     } catch (error) {
-      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0 };
+      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, nextBuildOrder: 1 };
       throw error;
     }
     let parsed;
@@ -305,7 +319,7 @@ export function createMessageQueueRuntime({
       const backup = `${filePath}.corrupt-${now()}`;
       await fs.promises.rename(filePath, backup).catch(() => undefined);
       console.warn(`[message-queue] queue file was unreadable and moved to ${backup}: ${error?.message ?? error}`);
-      return { sessions: {}, revision: 0 };
+      return { sessions: {}, revision: 0, activeBuilds: {}, nextBuildOrder: 1 };
     }
     const stored = asRecord(parsed) ?? {};
     const sessions = {};
@@ -317,7 +331,7 @@ export function createMessageQueueRuntime({
       if (!directory || items.length === 0) continue;
       sessions[sessionId] = { directory, items };
     }
-    return { sessions, revision: asCount(stored.revision) ?? 0 };
+    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1 };
   };
 
   const load = () => {
@@ -326,6 +340,11 @@ export function createMessageQueueRuntime({
         .then((stored) => {
           for (const [sessionId, entry] of Object.entries(stored.sessions)) queues.set(sessionId, entry);
           revision = Math.max(revision, stored.revision);
+          for (const [directory, value] of Object.entries(stored.activeBuilds)) {
+            if (asNonEmptyString(directory) && isValidSessionId(asRecord(value)?.sessionId)) activeBuilds.set(directory, value);
+          }
+          nextBuildOrder = Math.max(nextBuildOrder, stored.nextBuildOrder, ...Array.from(queues.values()).flatMap(q => q.items.map(i => (i.buildOrder ?? 0) + 1)));
+
         })
         .catch((error) => {
           // A read failure keeps the in-memory (empty) queue but must not be
@@ -369,6 +388,16 @@ export function createMessageQueueRuntime({
   const snapshot = () => ({
     revision,
     sessions: Array.from(queues.keys()).map(sessionSnapshot),
+  });
+  const pendingBuilds = (directory) => Array.from(queues.entries())
+    .flatMap(([sessionId, queue]) => queue.items.filter(item => item.buildQueue && (!directory || queue.directory === directory))
+      .map(item => ({ sessionId, directory: queue.directory, item })))
+    .sort((a, b) => a.item.buildOrder - b.item.buildOrder || a.item.createdAt - b.item.createdAt || a.item.id.localeCompare(b.item.id));
+  const buildSnapshot = () => ({
+    revision,
+    active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease })),
+    queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index })),
+    issues: Array.from(buildProblems.entries()).map(([directory, issue]) => ({ directory, issue })),
   });
 
   const broadcast = (sessionId) => {
@@ -559,7 +588,7 @@ export function createMessageQueueRuntime({
     // holds for a command too: its route takes file attachments only, and
     // sending "/name args" as a prompt instead would skip the template
     // OpenCode 2.x expands only on the command route.
-    const preamble = [...contextMessages];
+    const preamble = [...(item.buildQueue ? [{ text: BUILD_INSTRUCTION, resume: false }] : []), ...contextMessages];
     if (knowledge.text) preamble.push({ text: knowledge.text, resume: false });
     for (const synthetic of preamble) {
       await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/synthetic`, {
@@ -595,6 +624,59 @@ export function createMessageQueueRuntime({
       // After the send is accepted, so a rejected dispatch carries it again.
       await sessionKnowledgeRuntime.recordDelivered(sessionId, directory, knowledge.signature).catch(() => undefined);
     }
+  };
+
+  // --- project build leases ------------------------------------------------
+  const setBuildProblem = (directory, message) => {
+    if (buildProblems.get(directory) === message) return;
+    if (message) buildProblems.set(directory, message);
+    else buildProblems.delete(directory);
+    broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
+  };
+  const inspectGit = async (directory) => {
+    try {
+      const { stdout } = await runGit('git', ['-C', directory, 'status', '--porcelain=v1', '--untracked-files=normal'], { timeout: 12000, maxBuffer: 1024 * 1024 });
+      return stdout.trim() ? 'Repository has uncommitted or untracked changes. Commit or stash them to resume queued builds.' : null;
+    } catch (error) {
+      return 'Cannot verify Git working tree (' + String(error.message ?? error).slice(0, 160) + ').';
+    }
+  };
+  const wakeProject = (directory) => {
+    for (const [sessionId, queue] of queues) {
+      if (queue.directory === directory && queue.items.some(item => item.buildQueue)) armDispatch(sessionId);
+    }
+  };
+  const scheduleBuildMonitor = (directory, delay = 2500) => {
+    if (stopped || !activeBuilds.has(directory)) return;
+    clearTimeout(buildMonitors.get(directory));
+    const timer = setTimeout(() => { buildMonitors.delete(directory); void monitorBuild(directory); }, delay);
+    timer.unref?.();
+    buildMonitors.set(directory, timer);
+  };
+  async function monitorBuild(directory) {
+    const lease = activeBuilds.get(directory);
+    if (stopped || !lease) return;
+    // The API can acknowledge the prompt before the session becomes busy.
+    if (now() - lease.startedAt < 2500) { scheduleBuildMonitor(directory); return; }
+    const idle = await isSessionIdle(lease.sessionId, directory);
+    const children = idle === true ? await hasWorkingSubagents(lease.sessionId) : null;
+    if (activeBuilds.get(directory) !== lease) return;
+    if (idle !== true || children !== false) { scheduleBuildMonitor(directory, BUILD_RECHECK_MS); return; }
+    activeBuilds.delete(directory);
+    commit(lease.sessionId);
+    wakeProject(directory);
+  }
+  const reorderBuilds = async (directory, ids) => {
+    await load();
+    if (!asNonEmptyString(directory) || !Array.isArray(ids)) throw new TypeError('directory and ordered ids required');
+    const pending = pendingBuilds(directory);
+    if (ids.length !== pending.length || new Set(ids).size !== ids.length || pending.some(entry => !ids.includes(entry.item.id))) throw new TypeError('provide all queued build ids exactly once');
+    const byId = new Map(pending.map(entry => [entry.item.id, entry]));
+    const touched = new Set();
+    for (const id of ids) { const entry = byId.get(id); entry.item.buildOrder = nextBuildOrder++; touched.add(entry.sessionId); }
+    for (const sessionId of touched) commit(sessionId);
+    wakeProject(directory);
+    return buildSnapshot();
   };
 
   // --- dispatch loop -------------------------------------------------------
@@ -683,6 +765,18 @@ export function createMessageQueueRuntime({
     const item = current?.items[0];
     if (!item || item.id !== head.id || sending.has(sessionId)) return;
 
+    if (item.buildQueue) {
+      // Only the oldest head among all sessions for this project may start.
+      // The lease is claimed synchronously after the asynchronous probes.
+      if (activeBuilds.has(current.directory)) return;
+      if (pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
+      const problem = await inspectGit(current.directory);
+      if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, BUILD_RECHECK_MS); return; }
+      if (activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
+      setBuildProblem(current.directory, null);
+      activeBuilds.set(current.directory, { sessionId, itemId: item.id, startedAt: now() });
+      commit(sessionId);
+    }
     sending.set(sessionId, item.id);
     broadcast(sessionId);
     try {
@@ -711,8 +805,13 @@ export function createMessageQueueRuntime({
       } catch {
         // bookkeeping only
       }
+      if (item.buildQueue) scheduleBuildMonitor(current.directory);
       console.log(`[message-queue] sent queued message to ${sessionId}`);
     } catch (error) {
+      if (item.buildQueue && activeBuilds.get(current.directory)?.itemId === item.id) {
+        activeBuilds.delete(current.directory);
+        wakeProject(current.directory);
+      }
       sending.delete(sessionId);
       const count = (failure?.itemId === item.id ? failure.failures : 0) + 1;
       const nextAttemptAt = now() + retryDelayMs(count);
@@ -724,6 +823,7 @@ export function createMessageQueueRuntime({
   }
 
   const reconcileAll = () => {
+    for (const directory of activeBuilds.keys()) scheduleBuildMonitor(directory);
     for (const sessionId of queues.keys()) {
       if (!timers.has(sessionId)) armDispatch(sessionId, dispatchQuietMs);
     }
@@ -756,6 +856,7 @@ export function createMessageQueueRuntime({
       id: `queued-${now()}-${Math.random().toString(36).slice(2, 9)}`,
       createdAt: now(),
       ...parsed,
+      ...(parsed.buildQueue ? { buildOrder: nextBuildOrder++ } : {}),
     };
     const existing = queues.get(sessionId);
     const items = [...(existing?.items ?? []), item].slice(-MAX_ITEMS_PER_SESSION);
@@ -926,6 +1027,8 @@ export function createMessageQueueRuntime({
 
   const stop = () => {
     stopped = true;
+    for (const timer of buildMonitors.values()) clearTimeout(timer);
+    buildMonitors.clear();
     for (const timer of timers.values()) clearTimeout(timer);
     timers.clear();
   };
@@ -944,6 +1047,8 @@ export function createMessageQueueRuntime({
   return {
     load,
     snapshot,
+    buildSnapshot,
+    reorderBuilds,
     sessionSnapshot,
     enqueue,
     cancelScheduledTask,
@@ -966,6 +1071,19 @@ export function registerMessageQueueRoutes(app, runtime) {
     const status = error instanceof TypeError ? 400 : (Number.isInteger(error?.status) ? error.status : 500);
     res.status(status).json({ error: error?.message ?? fallback });
   };
+
+  app.get('/api/build-queue', async (_req, res) => {
+    try { await runtime.load(); res.json(runtime.buildSnapshot()); }
+    catch (error) { respondError(res, error, 'Failed to load build queue'); }
+  });
+  app.put('/api/build-queue/order', async (req, res) => {
+    try { res.json(await runtime.reorderBuilds(req.body?.directory, req.body?.ids)); }
+    catch (error) { respondError(res, error, 'Failed to reorder build queue'); }
+  });
+  app.delete('/api/build-queue/sessions/:sessionId/items/:itemId', async (req, res) => {
+    try { res.json(await runtime.remove(req.params.sessionId, req.params.itemId)); }
+    catch (error) { respondError(res, error, 'Failed to cancel queued build'); }
+  });
 
   app.get('/api/message-queue', async (_req, res) => {
     try {
