@@ -399,7 +399,7 @@ export const ContextPanelRail: React.FC = () => {
                 isActive={shownModes.has(surface.mode)}
                 showActivityDot={false}
                 label={label}
-                description={t(changeRequestCopy(surface.descriptionKey, repositoryProvider))}
+                description={surface.description ?? t(changeRequestCopy(surface.descriptionKey, repositoryProvider))}
                 badgeCount={badgeCount}
                 badgeAriaLabel={badgeCount !== null
                   ? t(
