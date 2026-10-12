@@ -109,10 +109,13 @@ export interface QueuedMessage {
     /** Send config captured at queue time — used as-is when auto-sending */
     sendConfig?: QueuedMessageSendConfig;
     scheduledTask?: z.infer<typeof scheduledTaskSchema>;
+    /** Serializes this turn with builds in other sessions of the same project. */
+    buildQueue?: boolean;
 }
 
 interface QueuedMessageInput {
     content: string;
+    buildQueue?: boolean;
     /** Defaults to `content`. */
     text?: string;
     agentMention?: string;
@@ -192,6 +195,7 @@ const serverItemBaseSchema = z.object({
     context: z.array(serverContextPartSchema).optional(),
     contextPreview: z.string().optional(),
     sendConfig: serverSendConfigSchema,
+    buildQueue: z.boolean().optional(),
 });
 
 const scheduledTaskSchema = z.object({
@@ -275,6 +279,7 @@ const toQueuedMessage = (item: ServerQueueItem): QueuedMessage => {
     const selection = serverSendConfigSchema.safeParse(item.sendConfig);
     if (selection.success) message.sendConfig = selection.data;
     if ('scheduledTask' in item) message.scheduledTask = item.scheduledTask;
+    if (item.buildQueue) message.buildQueue = true;
     if (item.agentMention) message.agentMention = item.agentMention;
     if (item.attachments.length > 0) message.attachments = item.attachments.map(toAttachedFile);
     if (item.context) message.context = item.context;
@@ -286,6 +291,7 @@ type ServerQueueAttachmentInput = Omit<ServerQueueAttachment, 'dataUrl'> & { dat
 
 type ServerQueueItemInput = {
     content: string;
+    buildQueue?: boolean;
     text: string;
     agentMention?: string;
     attachments: ServerQueueAttachmentInput[];
@@ -321,6 +327,7 @@ const toServerItemInput = (message: QueuedMessageInput, sendConfig: QueuedMessag
         sendConfig,
     };
     if (message.agentMention) item.agentMention = message.agentMention;
+    if (message.buildQueue) item.buildQueue = true;
     const contextPreview = getQueuedMessagePreview({ content: '', context: message.context });
     if (contextPreview) item.contextPreview = contextPreview;
     return item;
@@ -556,6 +563,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                             text: message.text ?? message.content,
                             createdAt: Date.now(),
                             sendConfig: message.sendConfig,
+                            ...(message.buildQueue ? { buildQueue: true } : {}),
                         };
                         if (message.agentMention) queuedMessage.agentMention = message.agentMention;
                         if (message.attachments && message.attachments.length > 0) queuedMessage.attachments = message.attachments;
