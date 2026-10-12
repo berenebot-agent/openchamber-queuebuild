@@ -957,8 +957,11 @@ export function createMessageQueueRuntime({
     if (!queue || !queue.items.some((item) => item.id === itemId)) {
       return { revision, session: sessionSnapshot(sessionId) };
     }
+    const wasBuild = queue.items.some(item => item.id === itemId && item.buildQueue);
     setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id !== itemId));
-    return commit(sessionId);
+    const updated = commit(sessionId);
+    if (wasBuild) wakeProject(queue.directory);
+    return updated;
   };
 
   /** Removes the item and hands its full payload (attachments included) back. */
@@ -1014,7 +1017,9 @@ export function createMessageQueueRuntime({
     const sendingId = sending.get(sessionId) ?? null;
     setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.buildQueue));
     clearTimer(sessionId);
-    return commit(sessionId);
+    const result = commit(sessionId);
+    wakeProject(queue.directory);
+    return result;
   };
 
   const setHold = (sessionIdInput, held, ttlMs = HOLD_DEFAULT_TTL_MS) => {
@@ -1074,7 +1079,11 @@ export function createMessageQueueRuntime({
         if (lease.sessionId !== abortedSessionId) continue;
         lease.needsReview = true;
         lease.reviewReason = 'aborted';
-        clearTimeout(buildMonitors.get(payload.properties?.directory));
+        for (const [directory, monitored] of activeBuilds) {
+          if (monitored !== lease) continue;
+          clearTimeout(buildMonitors.get(directory));
+          buildMonitors.delete(directory);
+        }
         commit(abortedSessionId);
       }
       return;
