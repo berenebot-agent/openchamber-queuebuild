@@ -162,6 +162,8 @@ export const QueuedMessagesStrip = memo(({ target, onEditMessage, onSendMessage 
             [queueKey]
         )
     );
+    // Build-queue turns have their own project-wide UI and must not expose a 'Send now' bypass.
+    const visibleMessages = React.useMemo(() => queuedMessages.filter(message => !message.buildQueue), [queuedMessages]);
     const popToInput = useMessageQueueStore((state) => state.popToInput);
     const reorderQueue = useMessageQueueStore((state) => state.reorderQueue);
 
@@ -200,13 +202,13 @@ export const QueuedMessagesStrip = memo(({ target, onEditMessage, onSendMessage 
         onSendMessage(message.id);
     }, [onSendMessage]);
 
-    if (!target || queuedMessages.length === 0) return null;
+    if (!target || visibleMessages.length === 0) return null;
 
-    if (queuedMessages.length === 1) {
+    if (visibleMessages.length === 1) {
         return (
             <div role="group" className={cn(ROW_CLASS, 'border-b border-border/60')} aria-label={t('chat.queuedMessage.title')}>
                 <QueuedMessageRow
-                    message={queuedMessages[0]}
+                    message={visibleMessages[0]}
                     target={target}
                     onEdit={handleEdit}
                     onSend={handleSend}
@@ -232,7 +234,7 @@ export const QueuedMessagesStrip = memo(({ target, onEditMessage, onSendMessage 
                 >
                     <Icon name="time" className="size-3.5 shrink-0" aria-hidden="true" />
                     <span className="min-w-0 flex-1 truncate text-start">
-                        {t('chat.queuedMessage.title')} {queuedMessages.length}
+                        {t('chat.queuedMessage.title')} {visibleMessages.length}
                     </span>
                     <Icon name={expanded ? 'arrow-up-s' : 'arrow-down-s'} className="size-4 shrink-0" aria-hidden="true" />
                 </Button>
@@ -244,13 +246,13 @@ export const QueuedMessagesStrip = memo(({ target, onEditMessage, onSendMessage 
                     onDragEnd={handleDragEnd}
                 >
                     <SortableContext
-                        items={queuedMessages.map((m) => m.id)}
+                        items={visibleMessages.map((m) => m.id)}
                         strategy={verticalListSortingStrategy}
                     >
                         {/* Four rows, then the list scrolls, so a long queue
                             cannot push the editor off a short screen. */}
                         <div id={listId} className="max-h-40 overflow-y-auto overscroll-contain">
-                            {queuedMessages.map((message) => (
+                            {visibleMessages.map((message) => (
                                 <SortableQueuedMessageRow
                                     key={message.id}
                                     message={message}
