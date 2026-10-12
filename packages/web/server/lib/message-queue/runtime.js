@@ -693,6 +693,12 @@ export function createMessageQueueRuntime({
     const pending = pendingBuilds(directory);
     if (ids.length !== pending.length || new Set(ids).size !== ids.length || pending.some(entry => !ids.includes(entry.item.id))) throw new TypeError('provide all queued build ids exactly once');
     const byId = new Map(pending.map(entry => [entry.item.id, entry]));
+    // Prevent a second build in one session from overtaking its own head.
+    for (const sessionId of new Set(pending.map(entry => entry.sessionId))) {
+      const before = pending.filter(entry => entry.sessionId === sessionId).map(entry => entry.item.id);
+      const after = ids.filter(id => byId.get(id)?.sessionId === sessionId);
+      if (before.some((id, index) => after[index] !== id)) throw httpError('Cannot reorder builds within a session', 409);
+    }
     const touched = new Set();
     for (const id of ids) { const entry = byId.get(id); entry.item.buildOrder = nextBuildOrder++; touched.add(entry.sessionId); }
     for (const sessionId of touched) commit(sessionId);
@@ -863,6 +869,9 @@ export function createMessageQueueRuntime({
     if (!directory) throw new TypeError('directory is required');
     const parsed = parseQueuedItemInput(itemInput);
     await load();
+    const originalQueue = queues.get(sessionId);
+    if (originalQueue && originalQueue.directory !== directory) throw httpError('session queue directory mismatch', 409);
+    if (originalQueue && originalQueue.items.length >= MAX_ITEMS_PER_SESSION && originalQueue.items.some(item => item.buildQueue || item.scheduledTask)) throw httpError('queue is full; managed jobs cannot be discarded', 409);
     if (parsed.scheduledTask) {
       for (const queue of queues.values()) {
         if (queue.items.some((entry) => entry.scheduledTask?.projectId === parsed.scheduledTask.projectId && entry.scheduledTask.taskId === parsed.scheduledTask.taskId)) {
@@ -951,6 +960,7 @@ export function createMessageQueueRuntime({
     await load();
     const queue = queues.get(sessionId);
     if (!queue) return { revision, session: sessionSnapshot(sessionId) };
+    if (queue.items.some(item => item.buildQueue)) throw httpError('Use the project build queue to reorder builds', 409);
     const byId = new Map(queue.items.map((item) => [item.id, item]));
     if (itemIds.length !== byId.size || new Set(itemIds).size !== itemIds.length || itemIds.some((id) => !byId.has(id))) {
       throw new TypeError('itemIds must list every queued message exactly once');
@@ -967,7 +977,7 @@ export function createMessageQueueRuntime({
     // Never drop a message already handed to OpenCode: its send resolves and
     // must find its entry.
     const sendingId = sending.get(sessionId) ?? null;
-    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId));
+    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.buildQueue));
     clearTimer(sessionId);
     return commit(sessionId);
   };
