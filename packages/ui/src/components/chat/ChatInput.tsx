@@ -1376,6 +1376,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }
         const queueRuntimeKey = getRuntimeKey();
         const queueTarget = messageQueueTarget;
+        const managedBuild = buildQueued === true || (isServerOwnedMessageQueue() && currentAgentName?.toLowerCase() === 'build' && useBuildQueuePreferences.getState().isEnabled(queueTarget.directory));
         const queueSessionId = currentSessionId;
         // Queueing is the same user intent as sending, so an archived session
         // comes back once the queue accepts the message, not at delivery.
@@ -1454,7 +1455,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             await addToQueue(queueTarget, {
                 content: messageToQueue,
                 text: textToQueue,
-                ...(buildQueued ? { buildQueue: true } : {}),
+                ...(managedBuild ? { buildQueue: true } : {}),
                 agentMention: mention?.name,
                 attachments: attachmentsToQueue.length > 0 ? attachmentsToQueue : undefined,
                 context: context.length > 0 ? context : undefined,
