@@ -41,7 +41,18 @@ This fork adds **project-wide serial Build execution** for OpenCode agent sessio
 
 **Initial scope:** This applies to existing sessions using the web/desktop OpenChamber composer with its queue preference enabled. New-session creation, external OpenCode API clients, and VS Code's separate queue implementation are not intercepted. Sessions from distinct worktree directories have separate queues. The enabled setting is local to each browser profile, while queued jobs live on the server.
 
-**Running this fork:** Build/deploy the server and frontend from this repository instead of using upstream's published OpenChamber Docker image. Keep the existing OpenChamber data directory mounted persistently so queue state is retained.
+**Running this fork:** Build/deploy the server and frontend from this repository instead of using upstream's published OpenChamber Docker image. Keep the existing OpenChamber data directory mounted persistently so queue state is retained. The included Docker Compose file builds this fork locally:
+
+```bash
+git clone https://github.com/berenebot-agent/openchamber-queuebuild.git
+cd openchamber-queuebuild
+# Until the pull request is merged:
+git switch feat/project-build-queue
+export OPENCHAMBER_UI_PASSWORD='replace-with-a-strong-password'
+docker compose up -d --build
+```
+
+After a successful build, open `http://localhost:3000`. Persist the included `./data` and `./workspaces` bind mounts, or change their paths in the Compose file before deploying.
 
 ## What you can do with OpenChamber
 
