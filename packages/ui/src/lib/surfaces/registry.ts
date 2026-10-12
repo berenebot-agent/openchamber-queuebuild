@@ -40,6 +40,8 @@ export type ContextSurfaceDescriptor = {
   availability: 'always' | 'has-content';
   /** Short tooltip explanation shown on the rail. */
   descriptionKey: I18nKey;
+  /** Optional built-in/fork-specific override before localisation is available. */
+  description?: string;
   /**
    * Default panel width in px, used until the user resizes this surface. The
    * panel never takes more than the chat area leaves after a minimum chat
@@ -136,6 +138,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'build-queue',
     descriptionKey: 'contextRail.surface.plan.description',
+    description: 'Run one Build session at a time per project',
     defaultWidth: 540,
     mode: 'build-queue',
     icon: 'route',
