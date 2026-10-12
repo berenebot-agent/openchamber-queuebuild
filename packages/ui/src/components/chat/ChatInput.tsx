@@ -3917,6 +3917,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             directory={currentSessionDirectoryForSync ?? currentDirectory}
         />
     ) : null;
+    const buildQueueRow = !isBtwActive && !newSessionDraftOpen ? (
+        <BuildQueueBanner sessionId={currentSessionId} directory={currentSessionDirectoryForSync ?? currentDirectory ?? null} />
+    ) : null;
     const queueRow = !isBtwActive && !newSessionDraftOpen ? (
         <QueuedMessagesStrip
             target={parentMessageQueueTarget}
@@ -3926,7 +3929,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ) : null;
     // Null exactly when the suggestion row alone would have been: the mobile
     // pill picks its shape from whether a top row exists.
-    const composerTopRows = worktreeSetupRow || spaceWaitRow || goalRow || autoReviewRow || backgroundShellsRow || revertRow || queueRow || doneHintRow || reviewHintRow || suggestionRow ? (
+    const composerTopRows = worktreeSetupRow || spaceWaitRow || goalRow || autoReviewRow || backgroundShellsRow || revertRow || buildQueueRow || queueRow || doneHintRow || reviewHintRow || suggestionRow ? (
         <>
             {worktreeSetupRow}
             {spaceWaitRow}
@@ -3934,6 +3937,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             {autoReviewRow}
             {backgroundShellsRow}
             {revertRow}
+            {buildQueueRow}
             {queueRow}
             {doneHintRow}
             {reviewHintRow}
