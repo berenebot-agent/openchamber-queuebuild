@@ -185,6 +185,8 @@ import {
     INLINE_SERVER_ATTACHMENT_ID_PREFIX,
     filterMissingInlineAttachments,
 } from './composer/attachments/inlineMentionAttachments';
+import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
+import { BuildQueueBanner } from './BuildQueueBanner';
 import { buildComposerContext, buildOutgoingMessage, expandCommentSnippets, selectComposerQueue } from './composer/submit/buildOutgoingMessage';
 import {
     buildCommandVariables,
@@ -1358,7 +1360,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleSubmitRef = React.useRef<(options?: SubmitOptions) => Promise<void>>(async () => {});
 
     // Add message to queue instead of sending
-    const handleQueueMessage = React.useCallback(async () => {
+    const handleQueueMessage = React.useCallback(async (buildQueued = false) => {
         // The comment's exit paths are attach/cancel; queueing a real prompt
         // underneath comment mode must never fire.
         if (isMobileCommentOpen()) return;
@@ -1452,6 +1454,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             await addToQueue(queueTarget, {
                 content: messageToQueue,
                 text: textToQueue,
+                ...(buildQueued ? { buildQueue: true } : {}),
                 agentMention: mention?.name,
                 attachments: attachmentsToQueue.length > 0 ? attachmentsToQueue : undefined,
                 context: context.length > 0 ? context : undefined,
@@ -1623,6 +1626,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 hasContent: options.presetText.trim().length > 0 || attachedFiles.length > 0 || hasDrafts || (!isBtwActive && hasLinkedReferences),
             }
             : getCurrentInputSnapshot();
+        // Build turns are accepted immediately and dispatched server-side, one
+        // session at a time per project. Plan turns are never intercepted.
+        if (!queuedOnly && !options?.presetText && !delivery && isServerOwnedMessageQueue() &&
+            !isBtwActive && inputMode === 'normal' && currentSessionId && messageQueueTarget &&
+            currentAgentName?.toLowerCase() === 'build' &&
+            useBuildQueuePreferences.getState().isEnabled(messageQueueTarget.directory) &&
+            inputSnapshot.hasContent && !inputSnapshot.message.trimStart().startsWith('/')) {
+            await handleQueueMessage(true);
+            return;
+        }
         if (queuedOnly && autoReviewRunning) {
             return;
         }
