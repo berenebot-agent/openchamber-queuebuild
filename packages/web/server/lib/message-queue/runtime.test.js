@@ -81,7 +81,7 @@ const createOpenCode = () => {
   return { state, fetchImpl };
 };
 
-const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult } = {}) => {
+const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, buildMonitorDelayMs, buildRecheckMs } = {}) => {
   let eventHandler = () => {};
   let statusHandler = () => {};
   const broadcasts = [];
@@ -106,6 +106,9 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   if (retryDelayMs) options.retryDelayMs = retryDelayMs;
   if (resolveAutoSelection) options.resolveAutoSelection = resolveAutoSelection;
   if (now) options.now = now;
+  if (checkBuildGit) options.checkBuildGit = checkBuildGit;
+  if (buildMonitorDelayMs !== undefined) options.buildMonitorDelayMs = buildMonitorDelayMs;
+  if (buildRecheckMs !== undefined) options.buildRecheckMs = buildRecheckMs;
   const runtime = createMessageQueueRuntime(options);
   return {
     runtime,
@@ -845,5 +848,80 @@ describe('message queue runtime', () => {
       agents: [{ name: 'reviewer' }],
     });
     expect(recorded).toEqual([{ sessionId: SESSION, directory: DIRECTORY, signature: 'sig-1' }]);
+  });
+});
+
+describe('project-wide build queue', () => {
+  const SECOND = 'ses_queue_test_2';
+  const promptCalls = (openCode) => openCode.state.sent.filter(entry => entry.path.endsWith('/prompt'));
+
+  it('enforces FIFO across sessions until the first Build turn finishes', async () => {
+    const harness = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 150, buildRecheckMs: 30 });
+    const { runtime, openCode } = harness;
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await settle(80);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+    expect(runtime.buildSnapshot().active).toHaveLength(1);
+    expect(runtime.buildSnapshot().queued.map(entry => entry.sessionId)).toEqual([SECOND]);
+    openCode.state.active[SESSION] = { type: 'running' };
+    await settle(230);
+    expect(promptCalls(openCode)).toHaveLength(1);
+    delete openCode.state.active[SESSION];
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(160);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('pauses dirty repositories without making commits or dropping queued builds', async () => {
+    let dirty = true;
+    const { runtime, openCode } = createRuntime({
+      checkBuildGit: async () => dirty ? 'Uncommitted changes' : null,
+      buildMonitorDelayMs: 100,
+      buildRecheckMs: 30,
+    });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(70);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.buildSnapshot().issues[0]?.issue).toBe('Uncommitted changes');
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    dirty = false;
+    await settle(130);
+    expect(promptCalls(openCode)).toHaveLength(1);
+    expect(openCode.state.sent.find(call => call.path.endsWith('/synthetic'))?.body.text).toMatch(/commit only your own changes/i);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does not allow the ordinary queue take endpoints to bypass queued builds', async () => {
+    const { runtime, openCode } = createRuntime();
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    const queued = runtime.sessionSnapshot(SESSION).items[0];
+    await expect(runtime.take(SESSION, queued.id)).rejects.toMatchObject({ status: 409 });
+    expect((await runtime.takeAll(SESSION)).items).toHaveLength(0);
+    expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('persists cross-session order and leases on disk', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null });
+    first.openCode.state.active[SESSION] = { type: 'running' };
+    first.openCode.state.active[SECOND] = { type: 'running' };
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'one' }));
+    await first.runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'two' }));
+    const order = first.runtime.buildSnapshot().queued.map(entry => entry.id).reverse();
+    await first.runtime.reorderBuilds(DIRECTORY, order);
+    expect(first.runtime.buildSnapshot().queued.map(entry => entry.id)).toEqual(order);
+    first.runtime.stop();
+    await first.runtime.flush();
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null });
+    await second.runtime.load();
+    expect(second.runtime.buildSnapshot().queued.map(entry => entry.id)).toEqual(order);
+    second.runtime.stop();
+    await second.runtime.flush();
   });
 });
