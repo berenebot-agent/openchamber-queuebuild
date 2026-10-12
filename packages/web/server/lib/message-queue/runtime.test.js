@@ -985,4 +985,19 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('pauses instead of retrying when an OpenCode build prompt errors ambiguously', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, retryDelayMs: () => 10 });
+    openCode.state.failNext = /\/prompt$/;
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.buildSnapshot().active[0]?.needsReview).toBe(true);
+    expect(runtime.buildSnapshot().active[0]?.reviewReason).toBe('dispatch-failed');
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+
 });
