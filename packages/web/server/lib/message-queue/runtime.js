@@ -415,7 +415,9 @@ export function createMessageQueueRuntime({
           ? 'The previous build was stopped. Review its changes before continuing.'
           : lease.reviewReason === 'persistence-failed'
             ? 'Build queue storage failed. Repair server storage, then review this build.'
-            : 'Server restarted during build dispatch. Review the original session to prevent a duplicate execution.' })),
+            : lease.reviewReason === 'dispatch-failed'
+              ? 'Build dispatch returned an error, but the prompt may have started. Review the original session before retrying.'
+              : 'Server restarted during build dispatch. Review the original session to prevent a duplicate execution.' })),
     ],
   });
 
@@ -886,9 +888,16 @@ export function createMessageQueueRuntime({
       }
       console.log(`[message-queue] sent queued message to ${sessionId}`);
     } catch (error) {
+      // A timed-out or rejected prompt may nevertheless have been accepted.
+      // Do not retry a build automatically: it could execute the same changes twice.
       if (item.buildQueue && activeBuilds.get(current.directory)?.itemId === item.id) {
-        activeBuilds.delete(current.directory);
-        wakeProject(current.directory);
+        const lease = activeBuilds.get(current.directory);
+        lease.needsReview = true;
+        lease.reviewReason = 'dispatch-failed';
+        sending.delete(sessionId);
+        console.warn(`[build-queue] dispatch uncertain for ${sessionId}:`, error?.message ?? error);
+        commit(sessionId);
+        return;
       }
       sending.delete(sessionId);
       const count = (failure?.itemId === item.id ? failure.failures : 0) + 1;
