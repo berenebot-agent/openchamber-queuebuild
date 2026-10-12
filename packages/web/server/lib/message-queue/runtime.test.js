@@ -924,4 +924,65 @@ describe('project-wide build queue', () => {
     second.runtime.stop();
     await second.runtime.flush();
   });
+  it('rejects within-session reversal that would deadlock dispatch', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ text: 'first', buildQueue: true }));
+    await runtime.enqueue(SESSION, DIRECTORY, item({ text: 'second', buildQueue: true }));
+    const ids = runtime.buildSnapshot().queued.map(entry => entry.id);
+    await expect(runtime.reorderBuilds(DIRECTORY, ids.reverse())).rejects.toMatchObject({ status: 409 });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('cancellation wakes the next project build', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 100 });
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'cancel me', text: 'cancel me', buildQueue: true }));
+    await runtime.enqueue('ses_other', DIRECTORY, item({ content: 'start me', text: 'start me', buildQueue: true }));
+    await settle(50);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    await runtime.remove(SESSION, runtime.buildSnapshot().queued[0].id);
+    await settle(80);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['start me']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('holds an uncertain dispatch after restart until the owner resolves it', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null });
+    first.openCode.state.active[SESSION] = { type: 'running' };
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    // Persist an in-flight lease and its pending item, as after a crash
+    // following admission but before the send acknowledgement.
+    const file = path.join(first.dataDir, 'message-queue.json');
+    await first.runtime.flush();
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const originalItem = first.runtime.sessionSnapshot(SESSION).items[0];
+    data.activeBuilds = { [DIRECTORY]: { sessionId: SESSION, itemId: originalItem.id, startedAt: Date.now(), phase: 'dispatching' } };
+    fs.writeFileSync(file, JSON.stringify(data));
+    first.runtime.stop();
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null });
+    await second.runtime.load();
+    expect(second.runtime.buildSnapshot().active[0].needsReview).toBe(true);
+    expect(second.runtime.buildSnapshot().active[0].retryAvailable).toBe(true);
+    second.runtime.start();
+    await settle(75);
+    expect(promptCalls(second.openCode)).toHaveLength(0);
+    await second.runtime.resolveBuild(DIRECTORY, 'retry');
+    await settle(65);
+    expect(promptCalls(second.openCode)).toHaveLength(1);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
+  it('rejects a project directory change in an existing queue', async () => {
+    const { runtime, openCode } = createRuntime();
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await expect(runtime.enqueue(SESSION, '/other-repo', item({ buildQueue: true }))).rejects.toMatchObject({ status: 409 });
+    runtime.stop();
+    await runtime.flush();
+  });
+
 });
