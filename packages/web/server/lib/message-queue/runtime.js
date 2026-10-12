@@ -863,12 +863,15 @@ export function createMessageQueueRuntime({
     if (!directory) throw new TypeError('directory is required');
     const parsed = parseQueuedItemInput(itemInput);
     await load();
-    if (parsed.scheduledTask || parsed.buildQueue) {
+    if (parsed.scheduledTask) {
       for (const queue of queues.values()) {
         if (queue.items.some((entry) => entry.scheduledTask?.projectId === parsed.scheduledTask.projectId && entry.scheduledTask.taskId === parsed.scheduledTask.taskId)) {
           throw httpError('task is already queued', 409);
         }
       }
+    }
+    // Managed jobs must never be truncated or evicted to make room.
+    if (parsed.scheduledTask || parsed.buildQueue) {
       if ((queues.get(sessionId)?.items.length ?? 0) >= MAX_ITEMS_PER_SESSION || (!queues.has(sessionId) && queues.size >= MAX_SESSIONS)) {
         throw httpError('message queue is full', 409);
       }
