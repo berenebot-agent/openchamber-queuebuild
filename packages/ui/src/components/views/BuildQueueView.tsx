@@ -1,4 +1,5 @@
 import React from 'react';
+import { toast } from '@/components/ui';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
@@ -59,7 +60,7 @@ export const BuildQueueView: React.FC = () => {
         '/items/' + encodeURIComponent(item.id), { method: 'DELETE' });
       if (!response.ok) throw new Error('Could not cancel queued build');
       await refresh();
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setWorking(false); }
   };
   const move = async (index: number, change: number) => {
@@ -75,7 +76,7 @@ export const BuildQueueView: React.FC = () => {
       });
       if (!response.ok) throw new Error('Could not reorder builds');
       await refresh();
-    } catch (e) { window.alert(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     finally { setWorking(false); }
   };
   const openSession = (sessionId: string) => useSessionUIStore.getState().setCurrentSession(sessionId, directory);
