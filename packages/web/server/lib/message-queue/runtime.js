@@ -344,7 +344,11 @@ export function createMessageQueueRuntime({
           for (const [sessionId, entry] of Object.entries(stored.sessions)) queues.set(sessionId, entry);
           revision = Math.max(revision, stored.revision);
           for (const [directory, value] of Object.entries(stored.activeBuilds)) {
-            if (asNonEmptyString(directory) && isValidSessionId(asRecord(value)?.sessionId)) activeBuilds.set(directory, value);
+            if (asNonEmptyString(directory) && isValidSessionId(asRecord(value)?.sessionId)) {
+              // A restored lease represents a prompt dispatched before restart.
+              // The live status probe still prevents releasing external runs that survived.
+              activeBuilds.set(directory, { ...value, observedBusy: true });
+            }
           }
           nextBuildOrder = Math.max(nextBuildOrder, stored.nextBuildOrder, ...Array.from(queues.values()).flatMap(q => q.items.map(i => (i.buildOrder ?? 0) + 1)));
 
@@ -400,7 +404,7 @@ export function createMessageQueueRuntime({
     revision,
     active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease })),
     queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index })),
-    issues: Array.from(buildProblems.entries()).map(([directory, issue]) => ({ directory, issue })),
+    issues: Array.from(buildProblems.entries()).filter(([directory]) => pendingBuilds(directory).length > 0).map(([directory, issue]) => ({ directory, issue })),
   });
 
   const broadcast = (sessionId) => {
@@ -859,7 +863,7 @@ export function createMessageQueueRuntime({
     if (!directory) throw new TypeError('directory is required');
     const parsed = parseQueuedItemInput(itemInput);
     await load();
-    if (parsed.scheduledTask) {
+    if (parsed.scheduledTask || parsed.buildQueue) {
       for (const queue of queues.values()) {
         if (queue.items.some((entry) => entry.scheduledTask?.projectId === parsed.scheduledTask.projectId && entry.scheduledTask.taskId === parsed.scheduledTask.taskId)) {
           throw httpError('task is already queued', 409);
@@ -881,7 +885,7 @@ export function createMessageQueueRuntime({
     directories.set(sessionId, directory);
     if (queues.size > MAX_SESSIONS) {
       const oldest = Array.from(queues.entries())
-        .filter(([id]) => id !== sessionId && !sending.has(id))
+        .filter(([id, queue]) => id !== sessionId && !sending.has(id) && !queue.items.some(item => item.buildQueue || item.scheduledTask))
         .sort((left, right) => (left[1].items[0]?.createdAt ?? 0) - (right[1].items[0]?.createdAt ?? 0))
         .slice(0, queues.size - MAX_SESSIONS);
       for (const [staleId] of oldest) {
