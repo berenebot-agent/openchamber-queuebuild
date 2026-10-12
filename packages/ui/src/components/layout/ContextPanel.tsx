@@ -14,6 +14,7 @@ import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 const GitView = lazyWithChunkRecovery(() => import('@/components/views/GitView').then((m) => ({ default: m.GitView })));
 // The Linear rail icon stays hidden until a workspace is connected, so most
 // users never render this panel; keep it out of the main bundle.
+const BuildQueueView = lazyWithChunkRecovery(() => import('@/components/views/BuildQueueView').then((m) => ({ default: m.BuildQueueView })));
 const PlanView = lazyWithChunkRecovery(() => import('@/components/views/PlanView').then((m) => ({ default: m.PlanView })));
 import { areTitleMapsEqual, buildSessionTitleMap, EMPTY_SESSION_TITLE_MAP, getSessionIDFromDedupeKey } from './contextPanelSessionTitles';
 import { ProjectContextPanel } from './RightSidebarTabs';
@@ -112,6 +113,7 @@ const getModeLabel = (
   if (mode === 'diff') return t('contextPanel.mode.diff');
   if (mode === 'walkthrough') return t('contextPanel.mode.walkthrough');
   if (mode === 'plan') return t('contextPanel.mode.plan');
+  if (mode === 'build-queue') return 'Build queue';
   if (mode === 'browser') return t('contextPanel.mode.browser');
   if (mode === 'git') return t('layout.rightSidebar.git');
   if (mode === 'pr') return t('contextPanel.mode.pr');
@@ -219,6 +221,10 @@ const getTabIcon = (
     return <Icon name="github" className="h-3.5 w-3.5" />;
   }
 
+  if (tab.mode === 'build-queue') {
+    return <Icon name="route" className="h-3.5 w-3.5" />;
+  }
+
   if (tab.mode === 'notes') {
     return <Icon name="sticky-note" className="h-3.5 w-3.5" />;
   }
@@ -310,7 +316,7 @@ const HEADER_DRAG_EXCLUDED = 'button, a, input, textarea, select, label, [role="
 // Surfaces rendered by the zone itself and remounted on every switch; the
 // rest stay alive in ContextSurfacePanes.
 const isRemountedSurface = (mode: ContextPanelMode): boolean => (
-  mode === 'context' || mode === 'git' || mode === 'pr' || mode === 'notes' || mode === 'plan'
+  mode === 'context' || mode === 'git' || mode === 'pr' || mode === 'notes' || mode === 'plan' || mode === 'build-queue'
 );
 
 const CONTEXT_PANEL_DEFAULT_HEIGHT = 320;
@@ -743,6 +749,8 @@ export const ContextPanel: React.FC<{ zone?: ContextZone }> = ({ zone = 'right' 
                 ? <PullRequestView />
             : activeTab?.mode === 'notes'
                 ? <ContextPanelHeaderSlotProvider value={headerSlotEl}><ProjectContextPanel visible={isOpen} /></ContextPanelHeaderSlotProvider>
+        : activeTab?.mode === 'build-queue'
+            ? <React.Suspense fallback={null}><BuildQueueView /></React.Suspense>
         : activeTab?.mode === 'plan'
             ? <React.Suspense fallback={null}><ContextPanelHeaderSlotProvider value={headerSlotEl}><PlanView
                 targetPath={activeTab.targetPath}
