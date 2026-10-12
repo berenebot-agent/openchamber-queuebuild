@@ -16,7 +16,8 @@ type BuiltInContextSurfaceId =
   | 'notes'
   | 'context'
   | 'browser'
-  | 'chat';
+  | 'chat'
+  | 'build-queue';
 
 export type ContextSurfaceId = BuiltInContextSurfaceId | `plugin:${string}`;
 
@@ -130,6 +131,16 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     mode: 'plan',
     icon: 'file-text',
     labelKey: 'contextPanel.mode.plan',
+    availability: 'always',
+  },
+  {
+    id: 'build-queue',
+    descriptionKey: 'contextRail.surface.plan.description',
+    defaultWidth: 540,
+    mode: 'build-queue',
+    icon: 'route',
+    label: 'Build queue',
+    labelKey: 'contextPanel.mode.context',
     availability: 'always',
   },
   {
