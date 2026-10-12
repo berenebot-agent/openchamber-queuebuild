@@ -901,7 +901,7 @@ export function createMessageQueueRuntime({
     const queue = queues.get(sessionId);
     const item = queue?.items.find((entry) => entry.id === itemId);
     if (!queue || !item) throw httpError('queued message not found', 404);
-    if (item.scheduledTask) throw httpError('scheduled messages cannot be taken', 409);
+    if (item.scheduledTask || item.buildQueue) throw httpError('managed queued builds cannot be taken', 409);
     setQueueItems(sessionId, queue.directory, queue.items.filter((entry) => entry.id !== itemId));
     return { ...commit(sessionId), item };
   };
@@ -913,9 +913,9 @@ export function createMessageQueueRuntime({
     const queue = queues.get(sessionId);
     if (!queue) return { revision, session: sessionSnapshot(sessionId), items: [] };
     const sendingId = sending.get(sessionId) ?? null;
-    const items = queue.items.filter((item) => item.id !== sendingId && !item.scheduledTask);
+    const items = queue.items.filter((item) => item.id !== sendingId && !item.scheduledTask && !item.buildQueue);
     if (items.length === 0) return { revision, session: sessionSnapshot(sessionId), items: [] };
-    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.scheduledTask));
+    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.scheduledTask || item.buildQueue));
     return { ...commit(sessionId), items };
   };
 
