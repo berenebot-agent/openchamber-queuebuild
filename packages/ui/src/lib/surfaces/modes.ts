@@ -10,6 +10,7 @@ const BUILT_IN_CONTEXT_PANEL_MODES = [
   'pr',
   'notes',
   'terminal',
+  'build-queue',
 ] as const;
 
 type BuiltInContextPanelMode = (typeof BUILT_IN_CONTEXT_PANEL_MODES)[number];
