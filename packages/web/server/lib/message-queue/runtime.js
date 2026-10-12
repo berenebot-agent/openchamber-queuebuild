@@ -257,6 +257,9 @@ export function createMessageQueueRuntime({
   dispatchQuietMs = DISPATCH_QUIET_MS,
   abortHoldMs = ABORT_HOLD_MS,
   retryDelayMs = getQueuedSendRetryDelayMs,
+  checkBuildGit = null,
+  buildMonitorDelayMs = 2500,
+  buildRecheckMs = BUILD_RECHECK_MS,
 }) {
   const filePath = path.join(dataDir, QUEUE_FILE_NAME);
 
@@ -646,7 +649,7 @@ export function createMessageQueueRuntime({
       if (queue.directory === directory && queue.items.some(item => item.buildQueue)) armDispatch(sessionId);
     }
   };
-  const scheduleBuildMonitor = (directory, delay = 2500) => {
+  const scheduleBuildMonitor = (directory, delay = buildMonitorDelayMs) => {
     if (stopped || !activeBuilds.has(directory)) return;
     clearTimeout(buildMonitors.get(directory));
     const timer = setTimeout(() => { buildMonitors.delete(directory); void monitorBuild(directory); }, delay);
@@ -657,11 +660,25 @@ export function createMessageQueueRuntime({
     const lease = activeBuilds.get(directory);
     if (stopped || !lease) return;
     // The API can acknowledge the prompt before the session becomes busy.
-    if (now() - lease.startedAt < 2500) { scheduleBuildMonitor(directory); return; }
+    if (now() - lease.startedAt < buildMonitorDelayMs) { scheduleBuildMonitor(directory); return; }
     const idle = await isSessionIdle(lease.sessionId, directory);
+    if (idle === false) lease.observedBusy = true;
     const children = idle === true ? await hasWorkingSubagents(lease.sessionId) : null;
+    // Do not release a lease based on an idle snapshot before OpenCode has
+    // actually started this prompt (the POST acknowledgement can precede it).
+    let completed = lease.observedBusy === true;
+    if (idle === true && children === false && !completed) {
+      const page = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
+        directory, query: { limit: '5' },
+      }).catch(() => null);
+      completed = (asList(asRecord(page)?.data) ?? []).some(value => {
+        const message = asRecord(value);
+        return (message?.type === 'assistant' || message?.role === 'assistant')
+          && (asCount(asRecord(message.time)?.completed) ?? 0) >= lease.startedAt;
+      });
+    }
     if (activeBuilds.get(directory) !== lease) return;
-    if (idle !== true || children !== false) { scheduleBuildMonitor(directory, BUILD_RECHECK_MS); return; }
+    if (idle !== true || children !== false || !completed) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
     activeBuilds.delete(directory);
     commit(lease.sessionId);
     wakeProject(directory);
@@ -770,8 +787,8 @@ export function createMessageQueueRuntime({
       // The lease is claimed synchronously after the asynchronous probes.
       if (activeBuilds.has(current.directory)) return;
       if (pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
-      const problem = await inspectGit(current.directory);
-      if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, BUILD_RECHECK_MS); return; }
+      const problem = checkBuildGit ? await checkBuildGit(current.directory) : await inspectGit(current.directory);
+      if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
       if (activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
       setBuildProblem(current.directory, null);
       activeBuilds.set(current.directory, { sessionId, itemId: item.id, startedAt: now() });
@@ -970,6 +987,14 @@ export function createMessageQueueRuntime({
 
     const deletedSessionId = extractDeletedSessionId(payload);
     if (deletedSessionId) {
+      for (const [directory, lease] of activeBuilds) {
+        if (lease.sessionId !== deletedSessionId) continue;
+        activeBuilds.delete(directory);
+        clearTimeout(buildMonitors.get(directory));
+        buildMonitors.delete(directory);
+        commit(deletedSessionId);
+        wakeProject(directory);
+      }
       if (!queues.has(deletedSessionId)) return;
       setQueueItems(deletedSessionId, directories.get(deletedSessionId), []);
       clearTimer(deletedSessionId);
@@ -981,6 +1006,9 @@ export function createMessageQueueRuntime({
 
     const status = extractSessionStatus(payload);
     if (status) {
+      if (status.type !== 'idle') {
+        for (const lease of activeBuilds.values()) if (lease.sessionId === status.sessionId) lease.observedBusy = true;
+      }
       if (!queues.has(status.sessionId)) return;
       if (status.type === 'idle') armDispatch(status.sessionId);
       else clearTimer(status.sessionId);
