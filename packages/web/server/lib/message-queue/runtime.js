@@ -347,7 +347,8 @@ export function createMessageQueueRuntime({
             if (asNonEmptyString(directory) && isValidSessionId(asRecord(value)?.sessionId)) {
               // A restored lease represents a prompt dispatched before restart.
               // The live status probe still prevents releasing external runs that survived.
-              activeBuilds.set(directory, { ...value, observedBusy: true });
+              const hasQueuedItem = queues.get(value.sessionId)?.items.some(item => item.id === value.itemId);
+              activeBuilds.set(directory, { ...value, observedBusy: true, ...(hasQueuedItem ? { needsReview: true, reviewReason: 'restart-during-dispatch' } : {}) });
             }
           }
           nextBuildOrder = Math.max(nextBuildOrder, stored.nextBuildOrder, ...Array.from(queues.values()).flatMap(q => q.items.map(i => (i.buildOrder ?? 0) + 1)));
@@ -402,9 +403,15 @@ export function createMessageQueueRuntime({
     .sort((a, b) => a.item.buildOrder - b.item.buildOrder || a.item.createdAt - b.item.createdAt || a.item.id.localeCompare(b.item.id));
   const buildSnapshot = () => ({
     revision,
-    active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease })),
+    active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease, retryAvailable: queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId) === true })),
     queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index })),
-    issues: Array.from(buildProblems.entries()).filter(([directory]) => pendingBuilds(directory).length > 0).map(([directory, issue]) => ({ directory, issue })),
+    issues: [
+      ...Array.from(buildProblems.entries()).filter(([directory]) => pendingBuilds(directory).length > 0).map(([directory, issue]) => ({ directory, issue })),
+      ...Array.from(activeBuilds.entries()).filter(([, lease]) => lease.needsReview)
+        .map(([directory, lease]) => ({ directory, issue: lease.reviewReason === 'aborted'
+          ? 'The previous build was stopped. Review its changes before continuing.'
+          : 'Server restarted during build dispatch. Review the original session to prevent a duplicate execution.' })),
+    ],
   });
 
   const broadcast = (sessionId) => {
@@ -654,7 +661,7 @@ export function createMessageQueueRuntime({
     }
   };
   const scheduleBuildMonitor = (directory, delay = buildMonitorDelayMs) => {
-    if (stopped || !activeBuilds.has(directory)) return;
+    if (stopped || !activeBuilds.has(directory) || activeBuilds.get(directory).needsReview) return;
     clearTimeout(buildMonitors.get(directory));
     const timer = setTimeout(() => { buildMonitors.delete(directory); void monitorBuild(directory); }, delay);
     timer.unref?.();
@@ -662,7 +669,7 @@ export function createMessageQueueRuntime({
   };
   async function monitorBuild(directory) {
     const lease = activeBuilds.get(directory);
-    if (stopped || !lease) return;
+    if (stopped || !lease || lease.needsReview) return;
     // The API can acknowledge the prompt before the session becomes busy.
     if (now() - lease.startedAt < buildMonitorDelayMs) { scheduleBuildMonitor(directory); return; }
     const idle = await isSessionIdle(lease.sessionId, directory);
@@ -687,6 +694,24 @@ export function createMessageQueueRuntime({
     commit(lease.sessionId);
     wakeProject(directory);
   }
+  const resolveBuild = async (directory, action) => {
+    await load();
+    const lease = activeBuilds.get(directory);
+    if (!lease?.needsReview || (action !== 'skip' && action !== 'retry')) throw httpError('No recoverable build or invalid action', 409);
+    const idle = await isSessionIdle(lease.sessionId, directory);
+    const children = idle === true ? await hasWorkingSubagents(lease.sessionId) : null;
+    if (idle !== true || children !== false) throw httpError('Build session may still be running; cannot resolve yet', 409);
+    const queue = queues.get(lease.sessionId);
+    const queuedItem = queue?.items.find(item => item.id === lease.itemId);
+    if (action === 'retry' && !queuedItem) throw httpError('Build was already dispatched. Resubmit from its chat if needed; choose Continue to release queue', 409);
+    if (action === 'skip' && queuedItem) setQueueItems(lease.sessionId, directory, queue.items.filter(item => item.id !== lease.itemId));
+    activeBuilds.delete(directory);
+    buildProblems.delete(directory);
+    commit(lease.sessionId);
+    wakeProject(directory);
+    return buildSnapshot();
+  };
+
   const reorderBuilds = async (directory, ids) => {
     await load();
     if (!asNonEmptyString(directory) || !Array.isArray(ids)) throw new TypeError('directory and ordered ids required');
@@ -801,8 +826,11 @@ export function createMessageQueueRuntime({
       if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
       if (activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
       setBuildProblem(current.directory, null);
-      activeBuilds.set(current.directory, { sessionId, itemId: item.id, startedAt: now() });
+      activeBuilds.set(current.directory, { sessionId, itemId: item.id, startedAt: now(), phase: 'dispatching' });
       commit(sessionId);
+      // The dispatch lease must be durable BEFORE the prompt can be accepted.
+      // Otherwise a crash could replay a build without any record of it.
+      await writePromise;
     }
     sending.set(sessionId, item.id);
     broadcast(sessionId);
@@ -832,7 +860,14 @@ export function createMessageQueueRuntime({
       } catch {
         // bookkeeping only
       }
-      if (item.buildQueue) scheduleBuildMonitor(current.directory);
+      if (item.buildQueue) {
+        const lease = activeBuilds.get(current.directory);
+        if (lease?.itemId === item.id) {
+          lease.phase = 'running';
+          commit(sessionId);
+        }
+        scheduleBuildMonitor(current.directory);
+      }
       console.log(`[message-queue] sent queued message to ${sessionId}`);
     } catch (error) {
       if (item.buildQueue && activeBuilds.get(current.directory)?.itemId === item.id) {
@@ -917,7 +952,7 @@ export function createMessageQueueRuntime({
   const remove = async (sessionIdInput, itemId) => {
     const sessionId = requireSessionId(sessionIdInput);
     await load();
-    if (sending.get(sessionId) === itemId) throw httpError('message is being sent', 409);
+    if (sending.get(sessionId) === itemId || Array.from(activeBuilds.values()).some(lease => lease.sessionId === sessionId && lease.itemId === itemId)) throw httpError('build is active or awaiting review', 409);
     const queue = queues.get(sessionId);
     if (!queue || !queue.items.some((item) => item.id === itemId)) {
       return { revision, session: sessionSnapshot(sessionId) };
@@ -1035,6 +1070,13 @@ export function createMessageQueueRuntime({
     const abortedSessionId = extractAbortedSessionId(payload);
     if (abortedSessionId) {
       if (queues.has(abortedSessionId)) abortedAt.set(abortedSessionId, now());
+      for (const lease of activeBuilds.values()) {
+        if (lease.sessionId !== abortedSessionId) continue;
+        lease.needsReview = true;
+        lease.reviewReason = 'aborted';
+        clearTimeout(buildMonitors.get(payload.properties?.directory));
+        commit(abortedSessionId);
+      }
       return;
     }
 
@@ -1094,6 +1136,7 @@ export function createMessageQueueRuntime({
     snapshot,
     buildSnapshot,
     reorderBuilds,
+    resolveBuild,
     sessionSnapshot,
     enqueue,
     cancelScheduledTask,
@@ -1120,6 +1163,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.get('/api/build-queue', async (_req, res) => {
     try { await runtime.load(); res.json(runtime.buildSnapshot()); }
     catch (error) { respondError(res, error, 'Failed to load build queue'); }
+  });
+  app.post('/api/build-queue/resolve', async (req, res) => {
+    try { res.json(await runtime.resolveBuild(req.body?.directory, req.body?.action)); }
+    catch (error) { respondError(res, error, 'Failed to resolve build queue'); }
   });
   app.put('/api/build-queue/order', async (req, res) => {
     try { res.json(await runtime.reorderBuilds(req.body?.directory, req.body?.ids)); }
