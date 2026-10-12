@@ -27,6 +27,22 @@ Start agent work, see what changed, and take it through review and release. Your
 
 </details>
 
+## Berenebot fork: Queue Build
+
+This fork adds **project-wide serial Build execution** for OpenCode agent sessions. You can plan different features in multiple sessions and enqueue the implementation turns without waiting for each previous one to finish.
+
+1. Open your project, then select **Build queue** from the right-hand context rail and turn on **Enabled** for that project.
+2. Continue using **Plan** mode freely in as many existing sessions as you need.
+3. Select the **Build** agent in a session and send your implementation prompt. Its submission is added to the project queue; it does not start while another managed build is running.
+4. Repeat from other sessions. The composer shows each session's queue position. Use the right-hand queue panel to reorder, cancel, or open those sessions.
+5. When the active Build turn finishes, the server checks Git status. A clean repository starts the next turn; uncommitted or untracked changes pause the queue and require manual cleanup.
+
+**Safety:** Builds receive a reminder to run tests and commit *only their own changes*. The server never automatically stages, commits, stashes, resets, or deletes unrelated working-tree files. Queue state and active leases survive browser disconnects and server restarts (subject to an accessible OpenCode backend).
+
+**Initial scope:** This applies to existing sessions using the web/desktop OpenChamber composer with its queue preference enabled. New-session creation, external OpenCode API clients, and VS Code's separate queue implementation are not intercepted. Sessions from distinct worktree directories have separate queues. The enabled setting is local to each browser profile, while queued jobs live on the server.
+
+**Running this fork:** Build/deploy the server and frontend from this repository instead of using upstream's published OpenChamber Docker image. Keep the existing OpenChamber data directory mounted persistently so queue state is retained.
+
 ## What you can do with OpenChamber
 
 ### Goals that continue on their own
