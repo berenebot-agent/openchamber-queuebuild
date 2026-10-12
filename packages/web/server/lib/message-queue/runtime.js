@@ -273,6 +273,7 @@ export function createMessageQueueRuntime({
   let revision = 0;
   let loadPromise = null;
   let writePromise = Promise.resolve();
+  let persistenceError = null;
   let stopped = false;
 
   // An unfinished assistant message older than this marker is a run that died
@@ -374,8 +375,10 @@ export function createMessageQueueRuntime({
         // Queued prompts are conversation content: readable by the owner only.
         await fs.promises.writeFile(tmpPath, payload, { encoding: 'utf8', mode: 0o600 });
         await fs.promises.rename(tmpPath, filePath);
+        persistenceError = null;
       })
       .catch((error) => {
+        persistenceError = error;
         console.warn('[message-queue] failed to persist queue:', error?.message ?? error);
       });
     return writePromise;
@@ -410,7 +413,9 @@ export function createMessageQueueRuntime({
       ...Array.from(activeBuilds.entries()).filter(([, lease]) => lease.needsReview)
         .map(([directory, lease]) => ({ directory, issue: lease.reviewReason === 'aborted'
           ? 'The previous build was stopped. Review its changes before continuing.'
-          : 'Server restarted during build dispatch. Review the original session to prevent a duplicate execution.' })),
+          : lease.reviewReason === 'persistence-failed'
+            ? 'Build queue storage failed. Repair server storage, then review this build.'
+            : 'Server restarted during build dispatch. Review the original session to prevent a duplicate execution.' })),
     ],
   });
 
@@ -831,6 +836,17 @@ export function createMessageQueueRuntime({
       // The dispatch lease must be durable BEFORE the prompt can be accepted.
       // Otherwise a crash could replay a build without any record of it.
       await writePromise;
+      const lease = activeBuilds.get(current.directory);
+      if (persistenceError) {
+        // Never send without an on-disk lease: a crash here risks replay.
+        if (lease?.itemId === item.id) {
+          lease.needsReview = true;
+          lease.reviewReason = 'persistence-failed';
+        }
+        setBuildProblem(current.directory, 'Cannot persist the build queue. Check server storage before continuing.');
+        return;
+      }
+      if (stopped || lease?.itemId !== item.id || queues.get(sessionId)?.items[0]?.id !== item.id) return;
     }
     sending.set(sessionId, item.id);
     broadcast(sessionId);
