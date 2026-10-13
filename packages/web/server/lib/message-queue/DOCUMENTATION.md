@@ -171,8 +171,12 @@ persisted "sending" flag would strand a message forever.
 ### Project build queue
 
 The fork extends this queue with a project-wide lane for `build`-agent prompts
-(`item.buildQueue`, a `buildOrder`, one lease per directory). When the head of a
-session's queue is a managed build, admission additionally requires:
+(`item.buildQueue`, a `buildOrder`, one lease per directory). The composer
+captures those prompts, including the first prompt of a new session, which it
+queues against a session it creates first
+(`packages/ui/src/components/chat/composer/submit/buildQueueRouting.ts`).
+When the head of a session's queue is a managed build, admission additionally
+requires:
 
 - no other session in the same directory currently holds the project's build
   lease (`activeBuilds`), and

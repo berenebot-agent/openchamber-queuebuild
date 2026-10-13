@@ -120,6 +120,15 @@ nothing, so a stray keystroke cannot push the queue into a running turn
 (#4749). Scheduled items stay visible in the
 queue rows with reorder and remove, but no edit or send action.
 
+A Build-agent prompt for a directory that opted into the project build queue
+routes to that queue instead of sending, so the server can run one build at a
+time per project. The rule is `shouldQueueBuildPrompt` in
+`submit/buildQueueRouting.ts`, read the same way for a send into an existing
+session and for the first message of a new one. The first message has no
+session id yet, so its draft is materialized first and the prompt is queued
+against the created session. Plan-agent prompts, shell mode, the BTW composer,
+and local slash commands are not intercepted.
+
 `BackgroundShellsStrip` lists the commands that went to the background (not the ones
 a turn is waiting for, see `background` in `sync/background-shells.ts`) of
 the session and of its

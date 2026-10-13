@@ -5,10 +5,10 @@ import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { filterVisibleAgents } from '@/stores/useAgentsStore';
 import { useUIStore } from '@/stores/useUIStore';
-import { isServerOwnedMessageQueue, createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedContextPart, type QueuedMessage } from '@/stores/messageQueueStore';
+import { isServerOwnedMessageQueue, createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedContextPart, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { useSessionGoalArmStore } from '@/stores/useSessionGoalArmStore';
-import { useSessionUIStore } from '@/sync/session-ui-store';
+import { materializeOpenDraftSession, useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { prepareUserMessageResume } from '@/sync/user-message-resume';
 import { prepareLocalAttachments, useDraftAttachedFiles, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
@@ -196,6 +196,7 @@ import {
     planLocalSlashCommand,
 } from './composer/submit/slashCommands';
 import { runForkCommand } from './composer/submit/forkCommand';
+import { shouldQueueBuildPrompt } from './composer/submit/buildQueueRouting';
 import { useAutocompletePosition } from './composer/state/useAutocompletePosition';
 import { useMessageHistory } from './composer/state/useMessageHistory';
 import { useComposerDraft } from './composer/state/useComposerDraft';
@@ -1363,12 +1364,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleSubmitRef = React.useRef<(options?: SubmitOptions) => Promise<void>>(async () => {});
 
     // Add message to queue instead of sending
-    const handleQueueMessage = React.useCallback(async (buildQueued = false) => {
+    const handleQueueMessage = React.useCallback(async (
+        buildQueued = false,
+        targetOverride?: MessageQueueTarget,
+        inputOverride?: { message: string; hasContent: boolean },
+    ) => {
         // The comment's exit paths are attach/cancel; queueing a real prompt
         // underneath comment mode must never fire.
         if (isMobileCommentOpen()) return;
-        const inputSnapshot = getCurrentInputSnapshot();
-        if (!inputSnapshot.hasContent || !currentSessionId || !messageQueueTarget) return;
+        const inputSnapshot = inputOverride ?? getCurrentInputSnapshot();
+        const queueTarget = targetOverride ?? messageQueueTarget;
+        if (!inputSnapshot.hasContent || !queueTarget) return;
 
         // A local or extension command is run, not queued: the queue delivers
         // text to the model, and `/compact`, `/btw`, or `/task` mean nothing there.
@@ -1378,9 +1384,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
         const queueRuntimeKey = getRuntimeKey();
-        const queueTarget = messageQueueTarget;
         const managedBuild = buildQueued === true || (isServerOwnedMessageQueue() && currentAgentName?.toLowerCase() === 'build' && useBuildQueuePreferences.getState().isEnabled(queueTarget.directory));
-        const queueSessionId = currentSessionId;
+        const queueSessionId = queueTarget.sessionId;
         // Queueing is the same user intent as sending, so an archived session
         // comes back once the queue accepts the message, not at delivery.
         const resumeAfterQueue = prepareUserMessageResume(queueSessionId, queueRuntimeKey);
@@ -1495,7 +1500,33 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }
         void resumeAfterQueue().catch(console.warn);
         recordLinkedReferences(queueSessionId, queueTarget.directory, linked);
-    }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareReadOnSendMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
+    }, [getCurrentInputSnapshot, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareReadOnSendMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
+
+    /**
+     * The first build prompt of a session has no session id yet: the composer
+     * holds a draft. Create the session the queue needs, then hand the prompt
+     * over. Without this, the first build of a project runs outside the lane
+     * that serializes builds.
+     */
+    const queueBuildFromDraft = React.useCallback(async (inputSnapshot: { message: string; hasContent: boolean }): Promise<void> => {
+        if (!currentProviderId || !currentModelId) {
+            toast.error(t('chat.chatInput.toast.noModelSelected'));
+            return;
+        }
+        const created = await materializeOpenDraftSession({
+            providerID: currentProviderId,
+            modelID: currentModelId,
+            agent: currentAgentName,
+            variant: currentVariant,
+        }).catch((error) => {
+            toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.messageSendFailed'));
+            return null;
+        });
+        if (!created) return;
+        const target = createMessageQueueTarget(created.sessionId, created.directory, getRuntimeKey());
+        if (!target) return;
+        await handleQueueMessage(true, target, inputSnapshot);
+    }, [currentProviderId, currentModelId, currentAgentName, currentVariant, handleQueueMessage, t]);
 
     /** Put the context a queued message was captured with back on the composer chips. */
     const restoreQueuedContext = React.useCallback((context: readonly QueuedContextPart[]) => {
@@ -1631,14 +1662,29 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             }
             : getCurrentInputSnapshot();
         // Build turns are accepted immediately and dispatched server-side, one
-        // session at a time per project. Plan turns are never intercepted.
-        if (!queuedOnly && !options?.presetText && !delivery && isServerOwnedMessageQueue() &&
-            !isBtwActive && inputMode === 'normal' && currentSessionId && messageQueueTarget &&
-            currentAgentName?.toLowerCase() === 'build' &&
-            useBuildQueuePreferences.getState().isEnabled(messageQueueTarget.directory) &&
-            inputSnapshot.hasContent && !inputSnapshot.message.trimStart().startsWith('/')) {
-            await handleQueueMessage(true);
-            return;
+        // session at a time per project. A first build prompt has no session
+        // yet, so its draft is materialized before the queue can hold it. Plan
+        // turns are never intercepted.
+        const buildQueueDirectory = messageQueueTarget?.directory ?? currentSessionDirectoryForSync ?? currentDirectory ?? null;
+        if (shouldQueueBuildPrompt({
+            serverOwnedQueue: isServerOwnedMessageQueue(),
+            inputMode,
+            isBtwActive,
+            agentName: currentAgentName,
+            directoryEnabled: useBuildQueuePreferences.getState().isEnabled(buildQueueDirectory ?? ''),
+            hasContent: inputSnapshot.hasContent,
+            message: inputSnapshot.message,
+            queuedOnly,
+            hasDelivery: Boolean(delivery),
+        })) {
+            if (currentSessionId && messageQueueTarget) {
+                await handleQueueMessage(true, undefined, inputSnapshot);
+                return;
+            }
+            if (!currentSessionId && newSessionDraftOpen) {
+                await queueBuildFromDraft(inputSnapshot);
+                return;
+            }
         }
         if (queuedOnly && autoReviewRunning) {
             return;
