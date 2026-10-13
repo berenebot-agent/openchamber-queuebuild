@@ -1,0 +1,21 @@
+services:
+  openchamber-pr-review:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openchamber-queuebuild:pr-review
+    container_name: openchamber-pr1-review
+    ports:
+      - "3001:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data/pr-review/openchamber:/home/openchamber/.config/openchamber
+      - ./data/pr-review/opencode/config:/home/openchamber/.config/opencode
+      - ./data/pr-review/opencode/share:/home/openchamber/.local/share/opencode
+      - ./data/pr-review/opencode/state:/home/openchamber/.local/state/opencode
+      - ./data/pr-review/ssh:/home/openchamber/.ssh
+      - ./workspaces/pr-review:/home/openchamber/workspaces
+    environment:
+      OPENCHAMBER_UI_PASSWORD: ${OPENCHAMBER_REVIEW_UI_PASSWORD:?Set OPENCHAMBER_REVIEW_UI_PASSWORD before starting the PR review container}
+    restart: unless-stopped
