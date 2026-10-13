@@ -81,7 +81,7 @@ const createOpenCode = () => {
   return { state, fetchImpl };
 };
 
-const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, buildMonitorDelayMs, buildRecheckMs } = {}) => {
+const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, buildMonitorDelayMs, buildRecheckMs, settingsFilePath } = {}) => {
   let eventHandler = () => {};
   let statusHandler = () => {};
   const broadcasts = [];
@@ -109,6 +109,7 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   if (checkBuildGit) options.checkBuildGit = checkBuildGit;
   if (buildMonitorDelayMs !== undefined) options.buildMonitorDelayMs = buildMonitorDelayMs;
   if (buildRecheckMs !== undefined) options.buildRecheckMs = buildRecheckMs;
+  if (settingsFilePath !== undefined) options.settingsFilePath = settingsFilePath;
   const runtime = createMessageQueueRuntime(options);
   return {
     runtime,
@@ -891,6 +892,32 @@ describe('project-wide build queue', () => {
     await settle(130);
     expect(promptCalls(openCode)).toHaveLength(1);
     expect(openCode.state.sent.find(call => call.path.endsWith('/synthetic'))?.body.text).toMatch(/commit only your own changes/i);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('runs a build without a Git check when the clean-tree requirement is off', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueRequireCleanGit: false }));
+    // No `checkBuildGit` seam and no real Git repository here: only skipping the
+    // check lets the build start.
+    const { runtime, openCode } = createRuntime({ buildMonitorDelayMs: 50, settingsFilePath });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(1);
+    expect(runtime.buildSnapshot().issues).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('holds a build in a non-repository directory while the clean-tree requirement is on', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueRequireCleanGit: true }));
+    const { runtime, openCode } = createRuntime({ buildMonitorDelayMs: 50, buildRecheckMs: 30, settingsFilePath });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.buildSnapshot().issues[0]?.issue).toMatch(/may not be a Git repository/i);
     runtime.stop();
     await runtime.flush();
   });

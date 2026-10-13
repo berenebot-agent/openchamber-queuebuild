@@ -1098,6 +1098,8 @@ interface UIStore {
   showOpenCodeUpdateNotifications: boolean;
   agentControlToolEnabled: boolean;
   agentWebToolEnabled: boolean;
+  /** Project build queue Git gate (fork feature). On: a queued build waits for a clean working tree. */
+  buildQueueRequireCleanGit: boolean;
   /** Full-text message search (server index). Opt-in: off keeps every part of it idle. */
   messageSearchEnabled: boolean;
   /** Also index the agent's reasoning. Opt-in: it can make the index much bigger. */
@@ -1356,6 +1358,7 @@ interface UIStore {
   setShowOpenCodeUpdateNotifications: (value: boolean) => void;
   setAgentControlToolEnabled: (value: boolean) => void;
   setAgentWebToolEnabled: (value: boolean) => void;
+  setBuildQueueRequireCleanGit: (value: boolean) => void;
   setMessageSearchEnabled: (value: boolean) => void;
   setMessageSearchReasoningEnabled: (value: boolean) => void;
   setBrowserProvider: (value: string) => void;
@@ -1562,6 +1565,7 @@ export const useUIStore = create<UIStore>()(
         showOpenCodeUpdateNotifications: true,
         agentControlToolEnabled: true,
         agentWebToolEnabled: true,
+        buildQueueRequireCleanGit: true,
         messageSearchEnabled: false,
         messageSearchReasoningEnabled: false,
         browserProvider: 'builtin',
@@ -3082,6 +3086,9 @@ export const useUIStore = create<UIStore>()(
         setAgentWebToolEnabled: (value) => {
           set({ agentWebToolEnabled: value });
         },
+        setBuildQueueRequireCleanGit: (value) => {
+          set({ buildQueueRequireCleanGit: value });
+        },
         setMessageSearchEnabled: (value) => {
           set({ messageSearchEnabled: value });
         },
@@ -3602,6 +3609,7 @@ export const useUIStore = create<UIStore>()(
           showOpenCodeUpdateNotifications: state.showOpenCodeUpdateNotifications,
           agentControlToolEnabled: state.agentControlToolEnabled,
           agentWebToolEnabled: state.agentWebToolEnabled,
+          buildQueueRequireCleanGit: state.buildQueueRequireCleanGit,
           messageSearchEnabled: state.messageSearchEnabled,
           messageSearchReasoningEnabled: state.messageSearchReasoningEnabled,
           browserProvider: state.browserProvider,

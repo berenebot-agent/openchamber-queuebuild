@@ -450,6 +450,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    id: 'chat.build-queue-clean-git',
+    page: 'chat',
+    titleKey: 'settings.openchamber.buildQueue.cleanGit.field',
+    keywords: ['build queue', 'queue', 'build', 'git', 'clean', 'working tree', 'repository'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'chat.persist-drafts',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.field.persistDraftMessages',

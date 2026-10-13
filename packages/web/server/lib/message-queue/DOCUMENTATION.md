@@ -162,6 +162,29 @@ persisted "sending" flag would strand a message forever.
    2 s → 60 s (doubling per consecutive failure of that item), and re-arms.
 6. The next item goes out after the next busy → idle cycle.
 
+### Project build queue
+
+The fork extends this queue with a project-wide lane for `build`-agent prompts
+(`item.buildQueue`, a `buildOrder`, one lease per directory). When the head of a
+session's queue is a managed build, admission additionally requires:
+
+- no other session in the same directory currently holds the project's build
+  lease (`activeBuilds`), and
+- this item is the oldest pending build across every session of that directory
+  (`pendingBuilds(directory)[0]`), and
+- **the working tree passes the Git gate** — Settings → Chat → Build queue →
+  *Require a clean Git working tree*, read from the merged settings document at
+  each admission (`readMergedSettingsSync`), default on. On, `git status
+  --porcelain` must report nothing to commit; a directory that is not a Git
+  repository, or one where Git cannot run, can never be verified clean and is
+  reported as a build problem that pauses the queue. Off, the check is skipped
+  and builds start regardless of the working tree.
+
+The gate reads `buildQueueRequireCleanGit` from `<data-dir>/settings.json`
+(plus `preferences.json` through the merged read), so a saved change applies to
+the next admission without a restart. `createMessageQueueRuntime` takes
+`settingsFilePath` to point at another instance's file (tests, embedders).
+
 A 2xx HTML app-shell response is a failed dispatch, not acceptance. The queued item stays persisted and uses the existing retry backoff. Project knowledge is recorded as delivered only after the prompt or command is accepted.
 
 ## Holds

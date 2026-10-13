@@ -12,6 +12,7 @@
 // into it instead of starting the next one.
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -19,11 +20,23 @@ const runGit = promisify(execFile);
 import { assertPromptResponse } from '../opencode/prompt-response.js';
 import { unwrapOpenCodeResponse } from '../opencode/response-envelope.js';
 import { createSessionActivityProbe } from '../opencode/session-activity.js';
+import { readMergedSettingsSync } from '../opencode/settings-files.js';
 
 const QUEUE_FILE_NAME = 'message-queue.json';
 const QUEUE_FILE_VERSION = 2;
 const BUILD_RECHECK_MS = 5000;
 const BUILD_INSTRUCTION = 'This build is serialized with other builds in this repository. Implement the requested work, run appropriate tests, and commit only your own changes when complete. Do not stage unrelated files, force reset, or silently discard changes. If you cannot safely commit, explicitly explain why; the next queued build will wait for a clean working tree.';
+
+// Where the instance keeps `settings.json`; the build queue's Git gate is read
+// from it off the disk at dispatch, the same way the other server modules that
+// consult one profile key on a hot path do. `createMessageQueueRuntime` may
+// override it (tests, or an embedder with another data dir).
+const defaultBuildQueueSettingsFile = path.join(
+  process.env.OPENCHAMBER_DATA_DIR
+    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
+    : path.join(os.homedir(), '.config', 'openchamber'),
+  'settings.json',
+);
 
 const MAX_SESSIONS = 50;
 const MAX_ITEMS_PER_SESSION = 20;
@@ -260,6 +273,7 @@ export function createMessageQueueRuntime({
   checkBuildGit = null,
   buildMonitorDelayMs = 2500,
   buildRecheckMs = BUILD_RECHECK_MS,
+  settingsFilePath = defaultBuildQueueSettingsFile,
 }) {
   const filePath = path.join(dataDir, QUEUE_FILE_NAME);
 
@@ -654,12 +668,26 @@ export function createMessageQueueRuntime({
     else buildProblems.delete(directory);
     broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
   };
+  // Settings → Chat → Build queue → "Require a clean Git working tree". On by
+  // default. Read fresh at each admission so a saved change applies to the next
+  // build; a missing or unreadable file is the default. A directory that is not
+  // a Git repository cannot be verified clean, so it is treated as dirty while
+  // this is on.
+  const requiresCleanGit = () => {
+    try {
+      return readMergedSettingsSync({ fs, path, settingsFilePath })?.buildQueueRequireCleanGit !== false;
+    } catch {
+      return true;
+    }
+  };
   const inspectGit = async (directory) => {
     try {
       const { stdout } = await runGit('git', ['-C', directory, 'status', '--porcelain=v1', '--untracked-files=normal'], { timeout: 12000, maxBuffer: 1024 * 1024 });
       return stdout.trim() ? 'Repository has uncommitted or untracked changes. Commit or stash them to resume queued builds.' : null;
     } catch (error) {
-      return 'Cannot verify Git working tree (' + String(error.message ?? error).slice(0, 160) + ').';
+      // A directory that is not a Git repository, or one where Git cannot run,
+      // never satisfies the gate: name it plainly instead of a bare command error.
+      return 'Cannot verify the Git working tree; this directory may not be a Git repository. Turn off "Require a clean Git working tree" in Settings → Chat → Build queue to run builds here. (' + String(error.message ?? error).slice(0, 160) + ')';
     }
   };
   const wakeProject = (directory) => {
@@ -829,8 +857,15 @@ export function createMessageQueueRuntime({
       // The lease is claimed synchronously after the asynchronous probes.
       if (activeBuilds.has(current.directory)) return;
       if (pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
-      const problem = checkBuildGit ? await checkBuildGit(current.directory) : await inspectGit(current.directory);
-      if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
+      // Settings → Chat → Build queue. `checkBuildGit` is the test seam that
+      // replaces the real check; the live setting gates it first so off skips
+      // the check entirely.
+      if (requiresCleanGit()) {
+        const problem = checkBuildGit ? await checkBuildGit(current.directory) : await inspectGit(current.directory);
+        if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
+      } else if (buildProblems.has(current.directory)) {
+        setBuildProblem(current.directory, null);
+      }
       if (activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
       setBuildProblem(current.directory, null);
       activeBuilds.set(current.directory, { sessionId, itemId: item.id, startedAt: now(), phase: 'dispatching' });

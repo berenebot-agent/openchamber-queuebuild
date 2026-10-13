@@ -290,6 +290,16 @@ export const SETTINGS_REGISTRY = {
   }),
   agentControlToolEnabled: field({ scope: 'instance', parse: parseBoolean, ui: uiStore('agentControlToolEnabled', (v) => useUIStore.getState().setAgentControlToolEnabled(v)) }),
   agentWebToolEnabled: field({ scope: 'instance', parse: parseBoolean, ui: uiStore('agentWebToolEnabled', (v) => useUIStore.getState().setAgentWebToolEnabled(v)) }),
+  // The project build queue's Git gate (fork feature). On, a queued build starts
+  // only from a clean working tree, and a directory that is not a Git repository
+  // cannot satisfy that. Off skips the check, so queue builds run anywhere. The
+  // server reads it off disk at dispatch, so a change applies without a restart.
+  buildQueueRequireCleanGit: field({
+    scope: 'instance',
+    surfaces: ['web', 'desktop', 'mobile'],
+    parse: parseBoolean,
+    ui: uiStore('buildQueueRequireCleanGit', (v) => useUIStore.getState().setBuildQueueRequireCleanGit(v)),
+  }),
   // `builtin` or an installed extension id; the server falls back to `builtin` when that extension cannot serve.
   browserProvider: field({ scope: 'instance', parse: parseNonEmptyString, ui: uiStore('browserProvider', (v) => useUIStore.getState().setBrowserProvider(v)) }),
   agentNotifyToolEnabled: field({ scope: 'instance', parse: parseBoolean, ui: uiStore('agentNotifyToolEnabled', (v) => useUIStore.getState().setAgentNotifyToolEnabled(v)) }),

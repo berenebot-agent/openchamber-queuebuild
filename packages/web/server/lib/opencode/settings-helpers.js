@@ -333,6 +333,12 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.messageSearchReasoningEnabled === 'boolean') {
       result.messageSearchReasoningEnabled = candidate.messageSearchReasoningEnabled;
     }
+    // Project build queue Git gate (fork feature): on means a queued build waits
+    // for a clean working tree; the message-queue runtime reads this key off the
+    // merged settings document at dispatch.
+    if (typeof candidate.buildQueueRequireCleanGit === 'boolean') {
+      result.buildQueueRequireCleanGit = candidate.buildQueueRequireCleanGit;
+    }
     if (typeof candidate.desktopUiPassword === 'string') {
       result.desktopUiPassword = candidate.desktopUiPassword.trim();
     }
