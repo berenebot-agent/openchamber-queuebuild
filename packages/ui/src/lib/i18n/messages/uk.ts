@@ -12,6 +12,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -147,6 +148,7 @@ export const dict: Record<I18nKey, string> = {
   ...webSearchI18n.uk,
   ...isolatedSpacesI18n.uk,
   ...sourceBoardI18n.uk,
+  ...projectActionsI18n.uk,
   ...environmentI18n.uk,
   ...providersI18n.uk,
   ...mcpGridI18n.uk,
@@ -476,6 +478,8 @@ export const dict: Record<I18nKey, string> = {
   "sessions.scheduledTasks.editor.existingSession": "Наявна сесія",
   "sessions.scheduledTasks.editor.targetSession": "Цільова сесія",
   "sessions.scheduledTasks.editor.targetHint": "Очікує в черзі повідомлень, доки сесія стане неактивною. Типові налаштування зберігають вибір цільової сесії.",
+  "sessions.scheduledTasks.editor.targetLoadFailed": "Не вдалося завантажити сесії цього проєкту.",
+  "sessions.scheduledTasks.editor.targetRetry": "Спробувати ще раз",
   "sessions.scheduledTasks.editor.targetRequired": "Виберіть цільову сесію.",
   "sessions.scheduledTasks.editor.taskName.label": "Назва завдання",
   "sessions.scheduledTasks.editor.taskName.placeholder": "Щоденна синхронізація",
@@ -1002,6 +1006,7 @@ export const dict: Record<I18nKey, string> = {
   "gitView.header.repositoryViews": "Перегляди репозиторію",
   "gitView.header.updateBranch": "Оновити гілку",
   "gitView.header.openPullRequest": "Відкрити pull request",
+  "gitView.header.openRepository": "Переглянути репозиторій на {provider}",
   "gitView.header.removeRemoteAria": "Видалити remote",
   "gitView.header.removeRemoteTitle": "Видалити remote",
   "gitView.header.upstreamSynced": "синхронізовано",
@@ -1356,6 +1361,10 @@ export const dict: Record<I18nKey, string> = {
   "contextPanel.mode.browser": "Браузер",
   "contextRail.configure.open": "Налаштувати панелі",
   "contextRail.configure.dialogTitle": "Панелі рейки",
+  'contextRail.configure.reorder': 'Перетягніть {label}, щоб змінити порядок',
+  'contextRail.configure.dragInstructions': 'Натисніть пробіл, щоб підняти панель, перемістіть її стрілками й натисніть пробіл, щоб відпустити. Escape скасовує переміщення.',
+  'contextRail.configure.position': '{label}, позиція {position} з {count}.',
+  'contextRail.configure.dragCancelled': 'Зміну порядку скасовано.',
   "contextRail.configure.dialogDescription": "Обери, які панелі показує рейка. Приховані панелі зберігають дані й доступні з палітри команд.",
   "contextRail.configure.showAll": "Показати всі",
   "contextRail.configure.noneWarning": "Усі панелі приховано.",
@@ -1801,6 +1810,8 @@ export const dict: Record<I18nKey, string> = {
   "diffView.actions.enableLineWrap": "Увімкнути перенос рядків",
   "diffView.actions.hideWhitespace": "Приховати зміни пробілів",
   "diffView.whitespace.hidden": "Зміни пробілів приховано",
+  "diffView.layout.switchToUnified": "Перейти до єдиного вигляду",
+  "diffView.layout.switchToSideBySide": "Перейти до вигляду поруч",
   "diffView.whitespace.shown": "Зміни пробілів показано",
   "diffView.actions.openFileInEditorAtChange": "Відкрити цей файл у редакторі на зміні",
   "diffView.actions.openFileAtFirstChangedLine": "Відкрити цей файл у першому зміненому рядку",
@@ -3233,6 +3244,7 @@ export const dict: Record<I18nKey, string> = {
   "updateDialog.status.waitingForServer": "Очікування сервера...",
   "updateDialog.status.autoReloadHint": "Після завершення оновлення сторінка автоматично перезавантажиться.",
   "updateDialog.fallback.updateViaTerminal": "Або оновіть через термінал:",
+  "updateDialog.desktopHostInstall": "Доступний OpenChamber {version}. Оновіть його на комп’ютері, де він працює.",
   "updateDialog.actions.copyCommand": "Копіювати команду",
   "updateDialog.actions.copied": "Скопійовано!",
   "updateDialog.status.downloadingPayload": "Завантаження пакета оновлення...",

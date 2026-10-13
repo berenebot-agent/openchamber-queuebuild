@@ -12,6 +12,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -137,6 +138,7 @@ export const dict: Record<I18nKey, string> = {
   ...webSearchI18n['zh-CN'],
   ...isolatedSpacesI18n['zh-CN'],
   ...sourceBoardI18n['zh-CN'],
+  ...projectActionsI18n['zh-CN'],
   ...environmentI18n['zh-CN'],
   ...providersI18n['zh-CN'],
   ...mcpGridI18n['zh-CN'],
@@ -467,6 +469,8 @@ export const dict: Record<I18nKey, string> = {
   'sessions.scheduledTasks.editor.existingSession': '现有会话',
   'sessions.scheduledTasks.editor.targetSession': '目标会话',
   'sessions.scheduledTasks.editor.targetHint': '在消息队列中等待会话空闲。使用默认值会保留目标会话的选择。',
+  'sessions.scheduledTasks.editor.targetLoadFailed': '无法加载此项目的会话。',
+  'sessions.scheduledTasks.editor.targetRetry': '重试',
   'sessions.scheduledTasks.editor.targetRequired': '请选择目标会话。',
   'sessions.scheduledTasks.editor.taskName.label': '任务名称',
   'sessions.scheduledTasks.editor.taskName.placeholder': '每日同步',
@@ -1011,6 +1015,7 @@ export const dict: Record<I18nKey, string> = {
   'gitView.header.repositoryViews': '仓库视图',
   'gitView.header.updateBranch': '更新分支',
   'gitView.header.openPullRequest': '打开拉取请求',
+  'gitView.header.openRepository': '在 {provider} 上查看仓库',
   'gitView.header.removeRemoteAria': '移除远程 {name}',
   'gitView.header.removeRemoteTitle': '移除 {name}',
   'gitView.header.upstreamSynced': '已同步',
@@ -1368,6 +1373,10 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.browser': '浏览器',
   'contextRail.configure.open': '配置面板',
   'contextRail.configure.dialogTitle': '侧栏面板',
+  'contextRail.configure.reorder': '拖动{label}以调整顺序',
+  'contextRail.configure.dragInstructions': '按空格键选取面板，使用方向键移动，再按空格键放下。按 Escape 键取消。',
+  'contextRail.configure.position': '{label}，第{position}项，共{count}项。',
+  'contextRail.configure.dragCancelled': '已取消排序。',
   'contextRail.configure.dialogDescription': '选择侧栏显示哪些面板。隐藏的面板会保留数据，仍可通过命令面板打开。',
   'contextRail.configure.showAll': '全部显示',
   'contextRail.configure.noneWarning': '所有面板均已隐藏。',
@@ -1813,6 +1822,8 @@ export const dict: Record<I18nKey, string> = {
   'diffView.actions.enableLineWrap': '开启自动换行',
   'diffView.actions.hideWhitespace': '隐藏空白更改',
   'diffView.whitespace.hidden': '已隐藏空白更改',
+  'diffView.layout.switchToUnified': '切换到统一视图',
+  'diffView.layout.switchToSideBySide': '切换到并排视图',
   'diffView.whitespace.shown': '正在显示空白更改',
   'diffView.actions.openFileInEditorAtChange': '在编辑器中打开此文件并定位变更',
   'diffView.actions.openFileAtFirstChangedLine': '在首个变更行打开此文件',
@@ -3245,6 +3256,7 @@ export const dict: Record<I18nKey, string> = {
   'updateDialog.status.waitingForServer': '正在等待服务器...',
   'updateDialog.status.autoReloadHint': '更新完成后页面将自动重新加载。',
   'updateDialog.fallback.updateViaTerminal': '或通过终端更新：',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} 已可用。请在运行它的电脑上更新。',
   'updateDialog.actions.copyCommand': '复制命令',
   'updateDialog.actions.copied': '已复制！',
   'updateDialog.status.downloadingPayload': '正在下载更新包...',

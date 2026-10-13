@@ -118,7 +118,7 @@ export const BuildQueueView: React.FC = () => {
             </span>}
           </div>
           {active ? <button type="button" onClick={() => openSession(active.sessionId)}
-            className="group w-full rounded-lg border border-border bg-surface-elevated px-4 py-3.5 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            className="group w-full rounded-lg border border-border bg-surface-elevated px-4 py-3.5 text-start transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <div className="flex items-center gap-2">
               <span className="flex size-8 items-center justify-center rounded-md bg-[var(--interactive-selection)]">
                 <Icon name="terminal-box" className="size-4" />
@@ -152,7 +152,7 @@ export const BuildQueueView: React.FC = () => {
                 <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-border/70 text-xs font-semibold tabular-nums text-muted-foreground">
                   {index + 1}
                 </span>
-                <button type="button" onClick={() => openSession(item.sessionId)} className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:underline">
+                <button type="button" onClick={() => openSession(item.sessionId)} className="min-w-0 flex-1 text-start focus-visible:outline-none focus-visible:underline">
                   <div className="text-xs font-semibold truncate">{sessionTitle(item.sessionId)}</div>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground line-clamp-2 break-words">{snippet(item.content)}</p>
                 </button>

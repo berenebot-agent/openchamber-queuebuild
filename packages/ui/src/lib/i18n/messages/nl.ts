@@ -11,6 +11,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -136,6 +137,7 @@ export const dict = {
   ...webSearchI18n.nl,
   ...isolatedSpacesI18n.nl,
   ...sourceBoardI18n.nl,
+  ...projectActionsI18n.nl,
   ...environmentI18n.nl,
   ...providersI18n.nl,
   ...mcpGridI18n.nl,
@@ -466,6 +468,8 @@ export const dict = {
   'sessions.scheduledTasks.editor.existingSession': 'Bestaande sessie',
   'sessions.scheduledTasks.editor.targetSession': 'Doelsessie',
   'sessions.scheduledTasks.editor.targetHint': 'Wacht in de berichtenwachtrij tot de sessie niet actief is. Standaardwaarden behouden de selectie van de doelsessie.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'Kan de sessies van dit project niet laden.',
+  'sessions.scheduledTasks.editor.targetRetry': 'Opnieuw proberen',
   'sessions.scheduledTasks.editor.targetRequired': 'Selecteer een doelsessie.',
   'sessions.scheduledTasks.editor.taskName.label': 'Taaknaam',
   'sessions.scheduledTasks.editor.taskName.placeholder': 'Dagelijkse synchronisatie',
@@ -1002,6 +1006,7 @@ export const dict = {
   'gitView.header.repositoryViews': 'Repositoryweergaven',
   'gitView.header.updateBranch': 'Branch bijwerken',
   'gitView.header.openPullRequest': 'Pull request openen',
+  'gitView.header.openRepository': 'Repository bekijken op {provider}',
   'gitView.header.removeRemoteAria': 'Remote {name} verwijderen',
   'gitView.header.removeRemoteTitle': 'Remote {name} verwijderen',
   'gitView.header.upstreamSynced': 'gesynchroniseerd',
@@ -1359,6 +1364,10 @@ export const dict = {
   'contextPanel.mode.browser': 'Browser',
   'contextRail.configure.open': 'Panelen configureren',
   'contextRail.configure.dialogTitle': 'Panelen in de rail',
+  'contextRail.configure.reorder': 'Sleep {label} om de volgorde te wijzigen',
+  'contextRail.configure.dragInstructions': 'Druk op Space om een paneel op te pakken, gebruik de pijltoetsen om het te verplaatsen en druk op Space om het neer te zetten. Druk op Escape om te annuleren.',
+  'contextRail.configure.position': '{label}, positie {position} van {count}.',
+  'contextRail.configure.dragCancelled': 'Volgorde wijzigen geannuleerd.',
   'contextRail.configure.dialogDescription': 'Kies welke panelen de rail toont. Verborgen panelen behouden hun gegevens en blijven bereikbaar via het opdrachtpalet.',
   'contextRail.configure.showAll': 'Alles tonen',
   'contextRail.configure.noneWarning': 'Alle panelen zijn verborgen.',
@@ -1839,6 +1848,8 @@ export const dict = {
   'diffView.actions.enableLineWrap': 'Regelafbreking aanzetten',
   'diffView.actions.hideWhitespace': 'Witruimtewijzigingen verbergen',
   'diffView.whitespace.hidden': 'Witruimtewijzigingen verborgen',
+  'diffView.layout.switchToUnified': 'Overschakelen naar samengevoegde weergave',
+  'diffView.layout.switchToSideBySide': 'Overschakelen naar weergave naast elkaar',
   'diffView.whitespace.shown': 'Witruimtewijzigingen zichtbaar',
   'diffView.actions.openFileInEditorAtChange': 'Dit bestand in de editor openen op de wijziging',
   'diffView.actions.openFileAtFirstChangedLine': 'Dit bestand openen bij de eerste gewijzigde regel',
@@ -3280,6 +3291,7 @@ export const dict = {
   'updateDialog.status.waitingForServer': 'Wachten op server...',
   'updateDialog.status.autoReloadHint': 'De pagina wordt automatisch herladen zodra de update voltooid is.',
   'updateDialog.fallback.updateViaTerminal': 'Of werk bij via de terminal:',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} is beschikbaar. Werk het bij op de computer waarop het draait.',
   'updateDialog.actions.copyCommand': 'Opdracht kopiëren',
   'updateDialog.actions.copied': 'Gekopieerd!',
   'updateDialog.status.downloadingPayload': 'Update-payload downloaden...',

@@ -11,6 +11,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -75,6 +76,7 @@ export const dict = {
   ...webSearchI18n.tr,
   ...isolatedSpacesI18n.tr,
   ...sourceBoardI18n.tr,
+  ...projectActionsI18n.tr,
   ...environmentI18n.tr,
   ...providersI18n.tr,
   ...mcpGridI18n.tr,
@@ -389,6 +391,8 @@ export const dict = {
   'sessions.scheduledTasks.editor.existingSession': 'Mevcut oturum',
   'sessions.scheduledTasks.editor.targetSession': 'Hedef oturum',
   'sessions.scheduledTasks.editor.targetHint': 'Oturum boşta olana kadar ileti kuyruğunda bekler. Varsayılanlar hedef oturumun seçimini korur.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'Bu projenin oturumları yüklenemedi.',
+  'sessions.scheduledTasks.editor.targetRetry': 'Tekrar dene',
   'sessions.scheduledTasks.editor.targetRequired': 'Bir hedef oturum seçin.',
   'sessions.scheduledTasks.editor.taskName.label': 'Görev adı',
   'sessions.scheduledTasks.editor.taskName.placeholder': 'Günlük eşitleme',
@@ -912,6 +916,7 @@ export const dict = {
   'gitView.header.repositoryViews': 'Repository görünümleri',
   'gitView.header.updateBranch': 'Branch\'i güncelle',
   'gitView.header.openPullRequest': 'Pull request aç',
+  'gitView.header.openRepository': 'Depoyu {provider} üzerinde görüntüle',
   'gitView.header.removeRemoteAria': '{name} remote\'unu kaldır',
   'gitView.header.removeRemoteTitle': '{name} remote\'unu kaldır',
   'gitView.header.upstreamSynced': 'senkronize',
@@ -1716,6 +1721,8 @@ export const dict = {
   'diffView.actions.enableLineWrap': 'Satır kaydırmayı etkinleştir',
   'diffView.actions.hideWhitespace': 'Boşluk değişikliklerini gizle',
   'diffView.whitespace.hidden': 'Boşluk değişiklikleri gizli',
+  'diffView.layout.switchToUnified': 'Birleşik görünüme geç',
+  'diffView.layout.switchToSideBySide': 'Yan yana görünüme geç',
   'diffView.whitespace.shown': 'Boşluk değişiklikleri gösteriliyor',
   'diffView.actions.openFileInEditorAtChange': 'Bu dosyayı değişiklik konumunda editörde aç',
   'diffView.actions.openFileAtFirstChangedLine': 'Bu dosyayı ilk değişen satırda aç',
@@ -3098,6 +3105,7 @@ export const dict = {
   'updateDialog.status.waitingForServer': 'Sunucu bekleniyor...',
   'updateDialog.status.autoReloadHint': 'Güncelleme tamamlandığında sayfa otomatik olarak yeniden yüklenecek.',
   'updateDialog.fallback.updateViaTerminal': 'Ya da terminalden güncelleyin:',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} kullanılabilir. Çalıştığı bilgisayarda güncelleyin.',
   'updateDialog.actions.copyCommand': 'Komutu kopyala',
   'updateDialog.actions.copied': 'Kopyalandı!',
   'updateDialog.status.downloadingPayload': 'Güncelleme paketi indiriliyor...',
@@ -3427,6 +3435,10 @@ export const dict = {
   'header.sessionTabs.closeOtherTabs': 'Diğer sekmeleri kapat',
   'contextRail.configure.open': 'Panelleri yapılandır',
   'contextRail.configure.dialogTitle': 'Rail panelleri',
+  'contextRail.configure.reorder': 'Sıralamayı değiştirmek için {label} öğesini sürükleyin',
+  'contextRail.configure.dragInstructions': 'Bir paneli seçmek için Boşluk tuşuna basın, ok tuşlarıyla taşıyın ve bırakmak için Boşluk tuşuna basın. İptal etmek için Escape tuşuna basın.',
+  'contextRail.configure.position': '{label}, {count} öğe içinde {position}. sırada.',
+  'contextRail.configure.dragCancelled': 'Sıralama değişikliği iptal edildi.',
   'contextRail.configure.dialogDescription': 'Rail\'in hangi panelleri göstereceğini seçin. Gizlenen paneller verilerini korur ve komut paletinden erişilebilir kalır.',
   'contextRail.configure.showAll': 'Tümünü göster',
   'contextRail.configure.noneWarning': 'Tüm paneller gizli.',

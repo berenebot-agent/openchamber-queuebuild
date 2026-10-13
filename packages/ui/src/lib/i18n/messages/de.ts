@@ -11,6 +11,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -136,6 +137,7 @@ export const dict = {
   ...webSearchI18n.de,
   ...isolatedSpacesI18n.de,
   ...sourceBoardI18n.de,
+  ...projectActionsI18n.de,
   ...environmentI18n.de,
   ...providersI18n.de,
   ...mcpGridI18n.de,
@@ -419,6 +421,8 @@ export const dict = {
   'sessions.scheduledTasks.editor.existingSession': 'Bestehende Sitzung',
   'sessions.scheduledTasks.editor.targetSession': 'Zielsitzung',
   'sessions.scheduledTasks.editor.targetHint': 'Wartet in der Nachrichtenwarteschlange, bis die Sitzung inaktiv ist. Standardwerte beibehalten übernimmt die Auswahl der Zielsitzung.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'Die Sitzungen dieses Projekts konnten nicht geladen werden.',
+  'sessions.scheduledTasks.editor.targetRetry': 'Erneut versuchen',
   'sessions.scheduledTasks.editor.targetRequired': 'Wählen Sie eine Zielsitzung.',
   'sessions.scheduledTasks.editor.taskName.label': 'Aufgabenname',
   'sessions.scheduledTasks.editor.taskName.placeholder': 'Tägliche Synchronisierung',
@@ -1607,6 +1611,8 @@ export const dict = {
   'diffView.actions.enableLineWrap': 'Zeilenumbruch aktivieren',
   'diffView.actions.hideWhitespace': 'Leerzeichenänderungen ausblenden',
   'diffView.whitespace.hidden': 'Leerzeichenänderungen ausgeblendet',
+  'diffView.layout.switchToUnified': 'Zur einheitlichen Ansicht wechseln',
+  'diffView.layout.switchToSideBySide': 'Zur Ansicht nebeneinander wechseln',
   'diffView.whitespace.shown': 'Leerzeichenänderungen sichtbar',
   'diffView.actions.openFileInEditorAtChange': 'Diese Datei im Editor bei der Änderung öffnen',
   'diffView.actions.openFileAtFirstChangedLine': 'Diese Datei an erster geänderter Zeile öffnen',
@@ -3011,6 +3017,7 @@ export const dict = {
   'updateDialog.status.waitingForServer': 'Warten auf Server...',
   'updateDialog.status.autoReloadHint': 'Die Seite wird automatisch neu geladen, wenn das Update abgeschlossen ist.',
   'updateDialog.fallback.updateViaTerminal': 'Oder aktualisieren über Terminal:',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} ist verfügbar. Aktualisiere es auf dem Computer, auf dem es läuft.',
   'updateDialog.actions.copyCommand': 'Befehl kopieren',
   'updateDialog.actions.copied': 'Kopiert!',
   'updateDialog.status.downloadingPayload': 'Update-Payload wird heruntergeladen...',
@@ -3260,6 +3267,7 @@ export const dict = {
   'sessions.sidebar.session.status.movingToWorktree': 'Sitzung wird in einen neuen Worktree verschoben',
   'gitView.header.updateBranch': 'Branch aktualisieren',
   'gitView.header.openPullRequest': 'Pull Request öffnen',
+  'gitView.header.openRepository': 'Repository auf {provider} ansehen',
   'gitView.history.refresh': 'Verlauf aktualisieren',
   'gitView.operation.inProgressTitleManyConflicts': 'Operation {operation} läuft: {count} Konflikte',
   'gitView.operation.inProgressTitleOneConflict': 'Operation {operation} läuft: {count} Konflikt',
@@ -3316,6 +3324,10 @@ export const dict = {
   'header.gitlab.accountsTitle': 'GitLab-Konten',
   'contextRail.configure.open': 'Panels konfigurieren',
   'contextRail.configure.dialogTitle': 'Leisten-Panels',
+  'contextRail.configure.reorder': 'Ziehe {label}, um die Reihenfolge zu ändern',
+  'contextRail.configure.dragInstructions': 'Drücke die Leertaste, um ein Panel aufzunehmen, verschiebe es mit den Pfeiltasten und drücke die Leertaste zum Ablegen. Escape bricht ab.',
+  'contextRail.configure.position': '{label}, Position {position} von {count}.',
+  'contextRail.configure.dragCancelled': 'Änderung der Reihenfolge abgebrochen.',
   'contextRail.configure.dialogDescription': 'Wähle, welche Panels die Leiste zeigt. Ausgeblendete Panels behalten ihre Daten und bleiben über die Befehlspalette erreichbar.',
   'contextRail.configure.showAll': 'Alle anzeigen',
   'contextRail.configure.noneWarning': 'Alle Panels sind ausgeblendet.',

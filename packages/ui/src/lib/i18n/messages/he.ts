@@ -11,6 +11,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -445,6 +446,8 @@ export const dict = {
   'sessions.scheduledTasks.editor.existingSession': 'הפעלה קיימת',
   'sessions.scheduledTasks.editor.targetSession': 'הפעלת יעד',
   'sessions.scheduledTasks.editor.targetHint': 'ממתינה בתור ההודעות עד שההפעלה פנויה. האפשרות „השתמש בברירות מחדל” שומרת את הבחירות של הפעלת היעד.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'לא ניתן לטעון את ההפעלות של הפרויקט הזה.',
+  'sessions.scheduledTasks.editor.targetRetry': 'נסה שוב',
   'sessions.scheduledTasks.editor.targetRequired': 'יש לבחור הפעלת יעד.',
   'sessions.scheduledTasks.editor.taskName.label': 'שם המשימה',
   'sessions.scheduledTasks.editor.taskName.placeholder': 'סנכרון יומי',
@@ -988,6 +991,7 @@ export const dict = {
   'gitView.header.repositoryViews': 'תצוגות מאגר',
   'gitView.header.updateBranch': 'עדכן ענף',
   'gitView.header.openPullRequest': 'פתח בקשת משיכה',
+  'gitView.header.openRepository': 'הצג את המאגר ב-{provider}',
   'gitView.header.removeRemoteAria': 'הסר את המאגר המרוחק {name}',
   'gitView.header.removeRemoteTitle': 'הסר את המאגר המרוחק {name}',
   'gitView.header.upstreamSynced': 'מסונכרן',
@@ -1344,6 +1348,10 @@ export const dict = {
   'contextPanel.mode.browser': 'דפדפן',
   'contextRail.configure.open': 'הגדר חלוניות',
   'contextRail.configure.dialogTitle': 'חלוניות בסרגל',
+  'contextRail.configure.reorder': 'גרור את {label} כדי לשנות את הסדר',
+  'contextRail.configure.dragInstructions': 'הקש רווח כדי להרים לוח, השתמש במקשי החצים כדי להזיז אותו, והקש רווח כדי לשחרר. הקש Escape כדי לבטל.',
+  'contextRail.configure.position': '{label}, מיקום {position} מתוך {count}.',
+  'contextRail.configure.dragCancelled': 'שינוי הסדר בוטל.',
   'contextRail.configure.dialogDescription': 'אפשר לבחור אילו חלוניות יוצגו בסרגל. חלוניות מוסתרות שומרות על הנתונים שלהן ונשארות זמינות מלוח הפקודות.',
   'contextRail.configure.showAll': 'הצג הכול',
   'contextRail.configure.noneWarning': 'כל החלוניות מוסתרות.',
@@ -3241,6 +3249,7 @@ export const dict = {
   'updateDialog.status.waitingForServer': 'ממתין לשרת…',
   'updateDialog.status.autoReloadHint': 'הדף ייטען מחדש אוטומטית כשהעדכון יסתיים.',
   'updateDialog.fallback.updateViaTerminal': 'או לעדכן דרך המסוף:',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} זמין. יש לעדכן אותו במחשב שבו הוא פועל.',
   'updateDialog.actions.copyCommand': 'העתק פקודה',
   'updateDialog.actions.copied': 'הועתק!',
   'updateDialog.status.downloadingPayload': 'מוריד את חבילת העדכון…',
@@ -3756,6 +3765,7 @@ export const dict = {
   ...webSearchI18n.he,
   ...isolatedSpacesI18n.he,
   ...sourceBoardI18n.he,
+  ...projectActionsI18n.he,
   ...environmentI18n.he,
   ...providersI18n.he,
   ...mcpGridI18n.he,
@@ -3766,6 +3776,10 @@ export const dict = {
   'settings.openchamber.visual.field.layoutAnimations': 'הנפשת חלוניות',
   'settings.openchamber.visual.field.layoutAnimationsAria': "הנפשת סרגל הצד והחלוניות סביב הצ'אט בזמן פתיחה וסגירה",
   'settings.openchamber.visual.field.layoutAnimationsInfo': "סרגל הצד, החלוניות סביב הצ'אט וכרטיס מצב העבודה מחליקים בזמן פתיחה וסגירה. כיבוי האפשרות מציג ומסתיר אותם מיד.",
+  'settings.openchamber.visual.field.openLinksInBrowserPanel': 'פתיחת קישורים בדפדפן המובנה',
+  'settings.openchamber.visual.field.openLinksInBrowserPanelInfo': 'קישורים בצ׳אט נפתחים בכרטיסיית דפדפן לצד הצ׳אט. Cmd+לחיצה או Ctrl+לחיצה פותחת אותם בדפדפן ברירת המחדל.',
+  'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'פתיחת בעיות ובקשות משיכה ב-OpenChamber',
+  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': 'קישורים לבעיות, בקשות משיכה ובקשות מיזוג ב-GitHub וב-GitLab ולבעיות Linear נפתחים בלוח בעיות ו-PR כשהפרויקט שלהם פתוח כאן. Cmd+לחיצה או Ctrl+לחיצה פותחת את הקישור עצמו.',
   'settings.openchamber.visual.field.fileTreeSide': 'צד עץ הקבצים',
   'settings.openchamber.visual.option.fileTreeSide.left': 'ימין',
   'settings.openchamber.visual.option.fileTreeSide.right': 'שמאל',
@@ -3801,6 +3815,8 @@ export const dict = {
   'filesView.editor.moreActions': 'פעולות נוספות',
   'filesView.editor.toast.contentsCopied': 'תוכן הקובץ הועתק',
   'diffView.whitespace.hidden': 'שינויי רווחים מוסתרים',
+  'diffView.layout.switchToUnified': 'מעבר לתצוגה מאוחדת',
+  'diffView.layout.switchToSideBySide': 'מעבר לתצוגה זה לצד זה',
   'diffView.whitespace.shown': 'שינויי רווחים מוצגים',
   'session.newWorktree.trust.skip': 'דילוג',
   'chat.revertPopover.toast.restoreFailed': 'לא ניתן היה לשחזר את ההודעות שבוטלו',

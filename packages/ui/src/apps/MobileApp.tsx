@@ -1041,7 +1041,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
       cancelled = true;
     };
     // Run once on mount — auto-connect is a cold-launch concern only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cold launch with a PERSISTED runtime endpoint (the auto-connect effect
@@ -1100,7 +1100,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
     };
     // Run once on mount — a cold-launch classification only; live drops are
     // handled by the resume/online re-probe paths.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   React.useEffect(() => {
@@ -1449,6 +1449,12 @@ export function MobileApp(props: MobileAppProps) {
     getRuntimeApiBaseUrl,
   );
   // Native connection selection must mount before there is a server to probe.
-  if (isCapacitorMobileApp() && !endpoint) return <MobileAppContent {...props} />;
-  return <OpenCodeCompatibilityGate><MobileAppContent {...props} /></OpenCodeCompatibilityGate>;
+  // The tree keeps one shape across connect/disconnect: a remount on every
+  // connect re-ran the cold-launch re-probe, and its fast-timeout verdict on a
+  // slow server dropped the runtime again, looping connect → drop → connect.
+  return (
+    <OpenCodeCompatibilityGate enabled={!isCapacitorMobileApp() || Boolean(endpoint)}>
+      <MobileAppContent {...props} />
+    </OpenCodeCompatibilityGate>
+  );
 }

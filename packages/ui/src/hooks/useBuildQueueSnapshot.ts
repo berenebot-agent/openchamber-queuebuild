@@ -10,7 +10,7 @@ export interface BuildQueueEntry {
   order: number;
 }
 
-export interface BuildQueueLease {
+interface BuildQueueLease {
   directory: string;
   sessionId: string;
   itemId: string;

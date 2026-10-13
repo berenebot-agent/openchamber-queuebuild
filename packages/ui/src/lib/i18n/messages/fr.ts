@@ -11,6 +11,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -136,6 +137,7 @@ export const dict = {
   ...webSearchI18n.fr,
   ...isolatedSpacesI18n.fr,
   ...sourceBoardI18n.fr,
+  ...projectActionsI18n.fr,
   ...environmentI18n.fr,
   ...providersI18n.fr,
   ...mcpGridI18n.fr,
@@ -292,6 +294,8 @@ export const dict = {
   'sessions.scheduledTasks.editor.existingSession': 'Session existante',
   'sessions.scheduledTasks.editor.targetSession': 'Session cible',
   'sessions.scheduledTasks.editor.targetHint': 'Attend dans la file de messages que la session soit inactive. Les valeurs par défaut conservent la sélection de la session cible.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'Impossible de charger les sessions de ce projet.',
+  'sessions.scheduledTasks.editor.targetRetry': 'Réessayer',
   'sessions.scheduledTasks.editor.targetRequired': 'Sélectionnez une session cible.',
   'sessions.scheduledTasks.editor.taskName.label': 'Nom de la tâche',
   'sessions.scheduledTasks.editor.taskName.placeholder': 'Synchronisation quotidienne',
@@ -828,6 +832,7 @@ export const dict = {
   'gitView.header.repositoryViews': 'Vues du dépôt',
   'gitView.header.updateBranch': 'Mettre à jour la branche',
   'gitView.header.openPullRequest': 'Ouvrir la pull request',
+  'gitView.header.openRepository': 'Voir le dépôt sur {provider}',
   'gitView.header.removeRemoteAria': 'Supprimer le remote',
   'gitView.header.removeRemoteTitle': 'Supprimer le remote',
   'gitView.header.upstreamSynced': 'synchronisé',
@@ -1176,6 +1181,10 @@ export const dict = {
   'contextPanel.mode.browser': 'Navigateur',
   'contextRail.configure.open': 'Configurer les panneaux',
   'contextRail.configure.dialogTitle': 'Panneaux de la barre',
+  'contextRail.configure.reorder': 'Faites glisser {label} pour réorganiser',
+  'contextRail.configure.dragInstructions': 'Appuyez sur Espace pour saisir un panneau, déplacez-le avec les flèches et appuyez sur Espace pour le déposer. Appuyez sur Échap pour annuler.',
+  'contextRail.configure.position': '{label}, position {position} sur {count}.',
+  'contextRail.configure.dragCancelled': 'Réorganisation annulée.',
   'contextRail.configure.dialogDescription': 'Choisissez les panneaux affichés par la barre. Les panneaux masqués conservent leurs données et restent accessibles via la palette de commandes.',
   'contextRail.configure.showAll': 'Tout afficher',
   'contextRail.configure.noneWarning': 'Tous les panneaux sont masqués.',
@@ -1593,6 +1602,8 @@ export const dict = {
   'diffView.actions.enableLineWrap': 'Activer le retour à la ligne',
   'diffView.actions.hideWhitespace': 'Masquer les changements d’espacement',
   'diffView.whitespace.hidden': 'Changements d’espacement masqués',
+  'diffView.layout.switchToUnified': 'Passer à la vue unifiée',
+  'diffView.layout.switchToSideBySide': 'Passer à la vue côte à côte',
   'diffView.whitespace.shown': 'Changements d’espacement affichés',
   'diffView.actions.openFileInEditorAtChange': 'Ouvrez ce fichier dans l\'éditeur lors du changement',
   'diffView.actions.openFileAtFirstChangedLine': 'Ouvrez ce fichier à la première ligne modifiée',
@@ -2939,6 +2950,7 @@ export const dict = {
   'updateDialog.status.waitingForServer': 'En attente du serveur...',
   'updateDialog.status.autoReloadHint': 'La page se rechargera automatiquement une fois la mise à jour terminée.',
   'updateDialog.fallback.updateViaTerminal': 'Ou mettre à jour via le terminal :',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} est disponible. Mettez-le à jour sur l’ordinateur où il s’exécute.',
   'updateDialog.actions.copyCommand': 'Commande Copier',
   'updateDialog.actions.copied': 'Copié!',
   'updateDialog.status.downloadingPayload': 'Téléchargement de la charge utile de la mise à jour...',

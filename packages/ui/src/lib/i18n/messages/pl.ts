@@ -12,6 +12,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -137,6 +138,7 @@ export const dict: Record<I18nKey, string> = {
   ...webSearchI18n.pl,
   ...isolatedSpacesI18n.pl,
   ...sourceBoardI18n.pl,
+  ...projectActionsI18n.pl,
   ...environmentI18n.pl,
   ...providersI18n.pl,
   ...mcpGridI18n.pl,
@@ -638,6 +640,8 @@ export const dict: Record<I18nKey, string> = {
   'sessions.scheduledTasks.editor.existingSession': 'Istniejąca sesja',
   'sessions.scheduledTasks.editor.targetSession': 'Sesja docelowa',
   'sessions.scheduledTasks.editor.targetHint': 'Czeka w kolejce wiadomości, aż sesja będzie bezczynna. Wartości domyślne zachowują wybór sesji docelowej.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'Nie udało się wczytać sesji tego projektu.',
+  'sessions.scheduledTasks.editor.targetRetry': 'Spróbuj ponownie',
   'sessions.scheduledTasks.editor.targetRequired': 'Wybierz sesję docelową.',
   'sessions.scheduledTasks.editor.taskName.label': 'Nazwa zadania',
   'sessions.scheduledTasks.editor.taskName.placeholder': 'Codzienna synchronizacja',
@@ -1733,6 +1737,10 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.browser': 'Przeglądarka',
   'contextRail.configure.open': 'Konfiguruj panele',
   'contextRail.configure.dialogTitle': 'Panele paska',
+  'contextRail.configure.reorder': 'Przeciągnij {label}, aby zmienić kolejność',
+  'contextRail.configure.dragInstructions': 'Naciśnij spację, aby chwycić panel, przesuń go strzałkami i naciśnij spację, aby go upuścić. Escape anuluje zmianę.',
+  'contextRail.configure.position': '{label}, pozycja {position} z {count}.',
+  'contextRail.configure.dragCancelled': 'Zmiana kolejności anulowana.',
   'contextRail.configure.dialogDescription': 'Wybierz, które panele pokazuje pasek. Ukryte panele zachowują dane i pozostają dostępne z palety poleceń.',
   'contextRail.configure.showAll': 'Pokaż wszystkie',
   'contextRail.configure.noneWarning': 'Wszystkie panele są ukryte.',
@@ -2050,6 +2058,8 @@ export const dict: Record<I18nKey, string> = {
   'diffView.actions.enableLineWrap': 'Włącz zawijanie linii',
   'diffView.actions.hideWhitespace': 'Ukryj zmiany białych znaków',
   'diffView.whitespace.hidden': 'Zmiany białych znaków ukryte',
+  'diffView.layout.switchToUnified': 'Przełącz na widok ujednolicony',
+  'diffView.layout.switchToSideBySide': 'Przełącz na widok obok siebie',
   'diffView.whitespace.shown': 'Zmiany białych znaków widoczne',
   'diffView.actions.expandAll': 'Rozwiń wszystko',
   'diffView.actions.collapseAll': 'Zwiń wszystko',
@@ -2461,6 +2471,7 @@ export const dict: Record<I18nKey, string> = {
   'gitView.header.repositoryViews': 'Widoki repozytorium',
   'gitView.header.updateBranch': 'Zaktualizuj gałąź',
   'gitView.header.openPullRequest': 'Otwórz pull request',
+  'gitView.header.openRepository': 'Zobacz repozytorium w {provider}',
   'gitView.header.removeRemoteAria': 'Usuń remote {name}',
   'gitView.header.removeRemoteTitle': 'Usuń remote {name}',
   'gitView.header.upstreamSynced': 'zsynchronizowano',
@@ -3293,6 +3304,7 @@ export const dict: Record<I18nKey, string> = {
   'mobileUpdate.toast.actions.download': 'Pobierz',
   'mobileUpdate.toast.actions.dismiss': 'Odrzuć',
   'updateDialog.fallback.updateViaTerminal': 'Lub zaktualizuj przez terminal:',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} jest dostępny. Zaktualizuj go na komputerze, na którym działa.',
   'updateDialog.header.updateAvailable': 'Dostępna aktualizacja',
   'updateDialog.header.updating': 'Aktualizowanie OpenChamber...',
   'updateDialog.status.autoReloadHint': 'Strona automatycznie odświeży się po zakończeniu aktualizacji.',

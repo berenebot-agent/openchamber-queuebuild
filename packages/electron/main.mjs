@@ -66,7 +66,9 @@ import { settleMainProcessCompileCache } from './compile-cache.mjs';
 import { probeDirectHostWithRetry } from './host-probe-policy.mjs';
 import { probeElectronHostWithDeadline } from './electron-host-probe.mjs';
 import { requestRemoteHostUpdate } from './remote-host-update.mjs';
-import { assertUpdaterCapability } from './updater-capability.mjs';
+import { assertUpdaterCapability, readLinuxPackageType } from './updater-capability.mjs';
+import { relaunchAfterExit } from './linux-relaunch.mjs';
+import { installLinuxPackage } from './linux-package-install.mjs';
 import { checkForDesktopUpdate } from './updater-check.mjs';
 import { resolveUpdaterChannel } from './updater-channel.mjs';
 import { convertShortcutComboToAccelerator, MINI_CHAT_GLOBAL_SHORTCUT_SETTING_KEY, normalizeStoredShortcutCombo, selectMiniChatGlobalShortcutAction } from './mini-chat-global-shortcut.mjs';
@@ -93,6 +95,7 @@ import {
   readLinuxAutostartEnabled,
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
+import { reconcileAppImageDesktopEntry } from './linux-desktop-entry.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
 import {
   browserPanelPermissionAuditDetails,
@@ -484,6 +487,17 @@ const prepareForQuit = () => {
   return Promise.all([flushRendererStorage(), shutdownBackgroundServices()]);
 };
 
+// An installed .deb or .rpm updates through pkexec, which app.relaunch()'s
+// no_new_privs process can no longer run; see linux-relaunch.mjs.
+const isLinuxPackageInstall = () => process.platform === 'linux'
+  && app.isPackaged
+  && ['deb', 'rpm'].includes(readLinuxPackageType());
+
+const relaunchApp = () => {
+  if (isLinuxPackageInstall()) relaunchAfterExit();
+  else app.relaunch();
+};
+
 const performConfirmedQuit = async ({ relaunch = false } = {}) => {
   if (state.updateInstallPending) {
     log.info('[electron] quit suppressed: update install owns the exit');
@@ -497,7 +511,7 @@ const performConfirmedQuit = async ({ relaunch = false } = {}) => {
   } catch (error) {
     log.warn('[electron] background shutdown failed:', error);
   } finally {
-    if (relaunch) app.relaunch();
+    if (relaunch) relaunchApp();
     app.exit(0);
   }
 };
@@ -1591,11 +1605,18 @@ const spawnLocalServer = async () => {
       apiBaseUrl: state.apiBaseUrl || '',
       requestHeaders: sanitizeRuntimeRequestHeaders(state.requestHeaders || {}),
     }),
+    // Remote clients only. A package install asks for the administrator
+    // password on this machine's screen, so nobody at a phone could answer it
+    // and the server would stay down until someone at the desk did.
     desktopUpdater: {
-      check: () => handleInvoke(null, 'desktop_check_for_updates'),
+      check: async () => {
+        const updateInfo = await handleInvoke(null, 'desktop_check_for_updates');
+        return isLinuxPackageInstall() ? { ...updateInfo, installBlocked: 'desktop-host' } : updateInfo;
+      },
       install: async () => {
         const updateInfo = await handleInvoke(null, 'desktop_check_for_updates');
         if (!updateInfo.available) return updateInfo;
+        if (isLinuxPackageInstall()) return { ...updateInfo, installBlocked: 'desktop-host' };
         await handleInvoke(null, 'desktop_download_and_install_update');
         return updateInfo;
       },
@@ -3160,7 +3181,9 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
   browserWindow.__ocInitScript = buildInitScript(desktopLocalOrigin, state.bootOutcome, desktopApiBaseUrl, desktopClientToken, desktopRequestHeaders);
   browserWindow.__ocMiniChat = true;
   browserWindow.__ocMiniChatSessionId = sessionWindowKey;
-  browserWindow.__ocPinned = false;
+  // A mini chat is for keeping a chat in view while working elsewhere, so it
+  // opens on top of other windows; the pin button unpins this window only.
+  setMiniChatPinned(browserWindow, true);
 
   attachRendererRecovery(browserWindow, { log, label: 'mini chat' });
 
@@ -3494,6 +3517,7 @@ const setupAutoUpdater = () => {
     setTaskbarProgress(-1);
     if (state.pendingUpdate) {
       state.pendingUpdate.downloaded = true;
+      if (info?.downloadedFile) state.pendingUpdate.downloadedFile = info.downloadedFile;
     }
   });
 
@@ -3524,6 +3548,7 @@ const UPDATE_SHUTDOWN_TIMEOUT_MS = 40_000;
 const installDownloadedUpdate = () => new Promise((resolve, reject) => {
   let settled = false;
   let graceTimer;
+  let backendStopped = false;
 
   // Hold the process from here until the installer has control. Every quit
   // path checks this, so closing the last window during shutdown can no longer
@@ -3544,6 +3569,13 @@ const installDownloadedUpdate = () => new Promise((resolve, reject) => {
     rollbackQuitState();
     log.error('[electron] update install failed', error);
     reject(error instanceof Error ? error : new Error(String(error)));
+    // The backend is gone and does not restart in place, so a failure from
+    // here on (a cancelled Linux password prompt is the common one) would
+    // leave a window that reaches no server. Come back on the current version.
+    if (backendStopped) {
+      log.info('[electron] relaunching on the current version after the failed install');
+      void performConfirmedQuit({ relaunch: true });
+    }
   };
 
   autoUpdater.on('error', fail);
@@ -3557,6 +3589,7 @@ const installDownloadedUpdate = () => new Promise((resolve, reject) => {
       // The flags exist only to let the installer's own quit through the
       // hide-on-close and confirmation guards, so nothing sets them while the
       // app is still doing work that can fail.
+      backendStopped = true;
       await Promise.race([
         shutdownBackgroundServices(),
         new Promise((resolveTimeout) => {
@@ -3567,6 +3600,26 @@ const installDownloadedUpdate = () => new Promise((resolve, reject) => {
         }),
       ]);
       if (settled) return;
+      if (isLinuxPackageInstall()) {
+        // Our own async install: the window keeps drawing through the
+        // password prompt, and a rejection lands in fail() like any other.
+        log.info('[electron] installing the downloaded package');
+        // The prompt can stay open for minutes, and a background update check
+        // failing meanwhile must not relaunch the app under a running install.
+        // This install reports its own failure through the await.
+        autoUpdater.off('error', fail);
+        await installLinuxPackage({
+          packageType: readLinuxPackageType(),
+          file: state.pendingUpdate?.downloadedFile,
+        });
+        settled = true;
+        autoUpdater.off('error', fail);
+        resolve(null);
+        log.info('[electron] package installed; restarting into the new version');
+        state.updateInstallPending = false;
+        void performConfirmedQuit({ relaunch: true });
+        return;
+      }
       // Start the installer error window after terminal cleanup, which can
       // legitimately take longer than UPDATE_INSTALL_GRACE_MS.
       graceTimer = setTimeout(() => {
@@ -5165,7 +5218,11 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
             // event left this promise pending and its listeners attached on
             // every retry.
             Promise.resolve(autoUpdater.downloadUpdate())
-              .then(() => finish(resolve, null))
+              .then((files) => {
+                // The installer comes first; Linux packages install from it.
+                if (state.pendingUpdate && files?.[0]) state.pendingUpdate.downloadedFile = files[0];
+                finish(resolve, null);
+              })
               .catch((error) => finish(reject, error));
           });
         }
@@ -6232,6 +6289,9 @@ app.whenReady().then(async () => {
     } catch (error) {
       log.warn('[electron] failed to reconcile Linux autostart entry', error);
     }
+    void reconcileAppImageDesktopEntry()
+      .then((result) => log.info('[electron] AppImage launcher entry', result))
+      .catch((error) => log.warn('[electron] failed to reconcile AppImage launcher entry', error));
   }
 
   if (isBackgroundStart) {

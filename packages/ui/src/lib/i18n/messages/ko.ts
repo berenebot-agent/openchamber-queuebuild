@@ -12,6 +12,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -137,6 +138,7 @@ export const dict: Record<I18nKey, string> = {
   ...webSearchI18n.ko,
   ...isolatedSpacesI18n.ko,
   ...sourceBoardI18n.ko,
+  ...projectActionsI18n.ko,
   ...environmentI18n.ko,
   ...providersI18n.ko,
   ...mcpGridI18n.ko,
@@ -467,6 +469,8 @@ export const dict: Record<I18nKey, string> = {
   'sessions.scheduledTasks.editor.existingSession': '기존 세션',
   'sessions.scheduledTasks.editor.targetSession': '대상 세션',
   'sessions.scheduledTasks.editor.targetHint': '세션이 유휴 상태가 될 때까지 메시지 대기열에서 기다립니다. 기본값을 사용하면 대상 세션의 선택을 유지합니다.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': '이 프로젝트의 세션을 불러오지 못했습니다.',
+  'sessions.scheduledTasks.editor.targetRetry': '다시 시도',
   'sessions.scheduledTasks.editor.targetRequired': '대상 세션을 선택하세요.',
   'sessions.scheduledTasks.editor.taskName.label': '작업 이름',
   'sessions.scheduledTasks.editor.taskName.placeholder': '매일 동기화',
@@ -1011,6 +1015,7 @@ export const dict: Record<I18nKey, string> = {
   'gitView.header.repositoryViews': '저장소 보기',
   'gitView.header.updateBranch': '브랜치 업데이트',
   'gitView.header.openPullRequest': '풀 리퀘스트 열기',
+  'gitView.header.openRepository': '{provider}에서 저장소 보기',
   'gitView.header.removeRemoteAria': '리모트 제거',
   'gitView.header.removeRemoteTitle': '리모트 제거',
   'gitView.header.upstreamSynced': '동기화됨',
@@ -1368,6 +1373,10 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.browser': '브라우저',
   'contextRail.configure.open': '패널 구성',
   'contextRail.configure.dialogTitle': '레일 패널',
+  'contextRail.configure.reorder': '{label}을(를) 드래그하여 순서 변경',
+  'contextRail.configure.dragInstructions': '스페이스 키로 패널을 선택하고 화살표 키로 이동한 다음 스페이스 키로 놓으세요. Escape 키로 취소합니다.',
+  'contextRail.configure.position': '{label}, {count}개 중 {position}번째.',
+  'contextRail.configure.dragCancelled': '순서 변경이 취소되었습니다.',
   'contextRail.configure.dialogDescription': '레일에 표시할 패널을 선택하세요. 숨긴 패널의 데이터는 유지되며 명령 팔레트에서 계속 열 수 있습니다.',
   'contextRail.configure.showAll': '모두 표시',
   'contextRail.configure.noneWarning': '모든 패널이 숨겨져 있습니다.',
@@ -1847,6 +1856,8 @@ export const dict: Record<I18nKey, string> = {
   'diffView.actions.enableLineWrap': '줄 바꿈 켜기',
   'diffView.actions.hideWhitespace': '공백 변경 숨기기',
   'diffView.whitespace.hidden': '공백 변경 숨김',
+  'diffView.layout.switchToUnified': '통합 보기로 전환',
+  'diffView.layout.switchToSideBySide': '나란히 보기로 전환',
   'diffView.whitespace.shown': '공백 변경 표시 중',
   'diffView.actions.openFileInEditorAtChange': '변경 위치에서 이 파일을 에디터로 열기',
   'diffView.actions.openFileAtFirstChangedLine': '첫 변경 줄에서 이 파일 열기',
@@ -3279,6 +3290,7 @@ export const dict: Record<I18nKey, string> = {
   'updateDialog.status.waitingForServer': '서버 대기 중…',
   'updateDialog.status.autoReloadHint': '업데이트가 완료되면 페이지가 자동으로 새로고침됩니다.',
   'updateDialog.fallback.updateViaTerminal': '또는 터미널에서 업데이트:',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version}을(를) 사용할 수 있습니다. 실행 중인 컴퓨터에서 업데이트하세요.',
   'updateDialog.actions.copyCommand': '명령어 복사',
   'updateDialog.actions.copied': '복사 완료!',
   'updateDialog.status.downloadingPayload': '업데이트 패키지 다운로드 중…',

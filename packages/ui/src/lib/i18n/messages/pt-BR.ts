@@ -12,6 +12,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -147,6 +148,7 @@ export const dict: Record<I18nKey, string> = {
   ...webSearchI18n['pt-BR'],
   ...isolatedSpacesI18n['pt-BR'],
   ...sourceBoardI18n['pt-BR'],
+  ...projectActionsI18n['pt-BR'],
   ...environmentI18n['pt-BR'],
   ...providersI18n['pt-BR'],
   ...mcpGridI18n['pt-BR'],
@@ -476,6 +478,8 @@ export const dict: Record<I18nKey, string> = {
   "sessions.scheduledTasks.editor.existingSession": "Sessão existente",
   "sessions.scheduledTasks.editor.targetSession": "Sessão de destino",
   "sessions.scheduledTasks.editor.targetHint": "Espera na fila de mensagens até a sessão ficar ociosa. Os padrões mantêm a seleção da sessão de destino.",
+  "sessions.scheduledTasks.editor.targetLoadFailed": "Não foi possível carregar as sessões deste projeto.",
+  "sessions.scheduledTasks.editor.targetRetry": "Tentar novamente",
   "sessions.scheduledTasks.editor.targetRequired": "Selecione uma sessão de destino.",
   "sessions.scheduledTasks.editor.taskName.label": "Nome da tarefa",
   "sessions.scheduledTasks.editor.taskName.placeholder": "Sincronização diária",
@@ -1002,6 +1006,7 @@ export const dict: Record<I18nKey, string> = {
   "gitView.header.repositoryViews": "Visualizações do repositório",
   "gitView.header.updateBranch": "Atualizar branch",
   "gitView.header.openPullRequest": "Abrir pull request",
+  "gitView.header.openRepository": "Ver repositório no {provider}",
   "gitView.header.removeRemoteAria": "Excluir remoto",
   "gitView.header.removeRemoteTitle": "Excluir remoto",
   "gitView.header.upstreamSynced": "sincronizado",
@@ -1356,6 +1361,10 @@ export const dict: Record<I18nKey, string> = {
   "contextPanel.mode.browser": "Navegador",
   "contextRail.configure.open": "Configurar painéis",
   "contextRail.configure.dialogTitle": "Painéis da barra",
+  'contextRail.configure.reorder': 'Arraste {label} para reordenar',
+  'contextRail.configure.dragInstructions': 'Pressione Espaço para selecionar um painel, use as setas para movê-lo e pressione Espaço para soltar. Pressione Escape para cancelar.',
+  'contextRail.configure.position': '{label}, posição {position} de {count}.',
+  'contextRail.configure.dragCancelled': 'Reordenação cancelada.',
   "contextRail.configure.dialogDescription": "Escolha quais painéis a barra mostra. Painéis ocultos mantêm seus dados e continuam acessíveis pela paleta de comandos.",
   "contextRail.configure.showAll": "Mostrar todos",
   "contextRail.configure.noneWarning": "Todos os painéis estão ocultos.",
@@ -1801,6 +1810,8 @@ export const dict: Record<I18nKey, string> = {
   "diffView.actions.enableLineWrap": "Ativar ajuste de linha",
   "diffView.actions.hideWhitespace": "Ocultar alterações de espaços em branco",
   "diffView.whitespace.hidden": "Alterações de espaços em branco ocultas",
+  "diffView.layout.switchToUnified": "Mudar para a visualização unificada",
+  "diffView.layout.switchToSideBySide": "Mudar para a visualização lado a lado",
   "diffView.whitespace.shown": "Alterações de espaços em branco visíveis",
   "diffView.actions.openFileInEditorAtChange": "Abrir este arquivo no editor nesta alteração",
   "diffView.actions.openFileAtFirstChangedLine": "Abrir este arquivo na primeira linha alterada",
@@ -3233,6 +3244,7 @@ export const dict: Record<I18nKey, string> = {
   "updateDialog.status.waitingForServer": "Aguardando o servidor...",
   "updateDialog.status.autoReloadHint": "A página será recarregada automaticamente quando a atualização terminar.",
   "updateDialog.fallback.updateViaTerminal": "Ou atualize pelo terminal:",
+  "updateDialog.desktopHostInstall": "OpenChamber {version} está disponível. Atualize no computador em que ele roda.",
   "updateDialog.actions.copyCommand": "Copiar comando",
   "updateDialog.actions.copied": "Copiado!",
   "updateDialog.status.downloadingPayload": "Baixando o payload de atualização...",

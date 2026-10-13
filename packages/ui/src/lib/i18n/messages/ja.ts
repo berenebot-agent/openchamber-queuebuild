@@ -12,6 +12,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -137,6 +138,7 @@ export const dict: Record<I18nKey, string> = {
   ...webSearchI18n.ja,
   ...isolatedSpacesI18n.ja,
   ...sourceBoardI18n.ja,
+  ...projectActionsI18n.ja,
   ...environmentI18n.ja,
   ...providersI18n.ja,
   ...mcpGridI18n.ja,
@@ -467,6 +469,8 @@ export const dict: Record<I18nKey, string> = {
   'sessions.scheduledTasks.editor.existingSession': '既存のセッション',
   'sessions.scheduledTasks.editor.targetSession': '対象セッション',
   'sessions.scheduledTasks.editor.targetHint': 'セッションがアイドルになるまでメッセージキューで待機します。デフォルトを使用すると対象セッションの選択を維持します。',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'このプロジェクトのセッションを読み込めませんでした。',
+  'sessions.scheduledTasks.editor.targetRetry': '再試行',
   'sessions.scheduledTasks.editor.targetRequired': '対象セッションを選択してください。',
   'sessions.scheduledTasks.editor.taskName.label': 'タスク名',
   'sessions.scheduledTasks.editor.taskName.placeholder': '日次同期',
@@ -1008,6 +1012,7 @@ export const dict: Record<I18nKey, string> = {
   'gitView.header.repositoryViews': 'リポジトリビュー',
   'gitView.header.updateBranch': 'ブランチを更新',
   'gitView.header.openPullRequest': 'プルリクエストを開く',
+  'gitView.header.openRepository': '{provider} でリポジトリを表示',
   'gitView.header.removeRemoteAria': 'リモート{name}を削除',
   'gitView.header.removeRemoteTitle': 'リモート{name}を削除',
   'gitView.header.upstreamSynced': '同期済み',
@@ -1364,6 +1369,10 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.browser': 'ブラウザ',
   'contextRail.configure.open': 'パネルを設定',
   'contextRail.configure.dialogTitle': 'レールのパネル',
+  'contextRail.configure.reorder': '{label}をドラッグして並べ替え',
+  'contextRail.configure.dragInstructions': 'スペースキーでパネルを選択し、矢印キーで移動し、スペースキーで確定します。Escapeキーでキャンセルします。',
+  'contextRail.configure.position': '{label}、{count}個中{position}番目。',
+  'contextRail.configure.dragCancelled': '並べ替えをキャンセルしました。',
   'contextRail.configure.dialogDescription': 'レールに表示するパネルを選択します。非表示のパネルもデータは保持され、コマンドパレットから引き続き開けます。',
   'contextRail.configure.showAll': 'すべて表示',
   'contextRail.configure.noneWarning': 'すべてのパネルが非表示です。',
@@ -1843,6 +1852,8 @@ export const dict: Record<I18nKey, string> = {
   'diffView.actions.enableLineWrap': '行の折り返しを有効にする',
   'diffView.actions.hideWhitespace': '空白の変更を非表示',
   'diffView.whitespace.hidden': '空白の変更を非表示中',
+  'diffView.layout.switchToUnified': '統合表示に切り替え',
+  'diffView.layout.switchToSideBySide': '左右に並べた表示に切り替え',
   'diffView.whitespace.shown': '空白の変更を表示中',
   'diffView.actions.openFileInEditorAtChange': '変更箇所でファイルをエディターで開く',
   'diffView.actions.openFileAtFirstChangedLine': '最初の変更行でファイルを開く',
@@ -3275,6 +3286,7 @@ export const dict: Record<I18nKey, string> = {
   'updateDialog.status.waitingForServer': 'サーバーを待機中...',
   'updateDialog.status.autoReloadHint': '更新が完了すると自動的にページが再読み込みされます。',
   'updateDialog.fallback.updateViaTerminal': 'またはターミナルで更新:',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} が利用可能です。実行しているコンピューター上で更新してください。',
   'updateDialog.actions.copyCommand': 'コマンドをコピー',
   'updateDialog.actions.copied': 'コピーしました！',
   'updateDialog.status.downloadingPayload': '更新ペイロードをダウンロード中...',

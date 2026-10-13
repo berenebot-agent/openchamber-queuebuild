@@ -11,6 +11,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -445,6 +446,8 @@ export const dict = {
   'sessions.scheduledTasks.editor.existingSession': 'جلسة موجودة',
   'sessions.scheduledTasks.editor.targetSession': 'الجلسة المستهدفة',
   'sessions.scheduledTasks.editor.targetHint': 'ينتظر في قائمة انتظار الرسائل حتى تصبح الجلسة خاملة. خيار استخدام الإعدادات الافتراضية يبقي على اختيارات الجلسة المستهدفة.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'تعذّر تحميل جلسات هذا المشروع.',
+  'sessions.scheduledTasks.editor.targetRetry': 'حاول مرة أخرى',
   'sessions.scheduledTasks.editor.targetRequired': 'اختر الجلسة المستهدفة.',
   'sessions.scheduledTasks.editor.taskName.label': 'اسم المهمة',
   'sessions.scheduledTasks.editor.taskName.placeholder': 'مزامنة يومية',
@@ -988,6 +991,7 @@ export const dict = {
   'gitView.header.repositoryViews': 'طرق عرض المستودع',
   'gitView.header.updateBranch': 'تحديث الفرع',
   'gitView.header.openPullRequest': 'فتح طلب سحب',
+  'gitView.header.openRepository': 'عرض المستودع على {provider}',
   'gitView.header.removeRemoteAria': 'إزالة المستودع البعيد {name}',
   'gitView.header.removeRemoteTitle': 'إزالة المستودع البعيد {name}',
   'gitView.header.upstreamSynced': 'متزامن',
@@ -1344,6 +1348,10 @@ export const dict = {
   'contextPanel.mode.browser': 'المتصفح',
   'contextRail.configure.open': 'تهيئة اللوحات',
   'contextRail.configure.dialogTitle': 'لوحات الشريط',
+  'contextRail.configure.reorder': 'اسحب {label} لتغيير الترتيب',
+  'contextRail.configure.dragInstructions': 'اضغط مفتاح المسافة لالتقاط لوحة، واستخدم مفاتيح الأسهم لتحريكها، ثم اضغط المسافة لإفلاتها. اضغط Escape للإلغاء.',
+  'contextRail.configure.position': '{label}، الموضع {position} من {count}.',
+  'contextRail.configure.dragCancelled': 'أُلغيت إعادة الترتيب.',
   'contextRail.configure.dialogDescription': 'اختر اللوحات التي يعرضها الشريط. تحتفظ اللوحات المخفية ببياناتها ويمكن الوصول إليها من لوحة الأوامر.',
   'contextRail.configure.showAll': 'إظهار الكل',
   'contextRail.configure.noneWarning': 'كل اللوحات مخفية.',
@@ -3241,6 +3249,7 @@ export const dict = {
   'updateDialog.status.waitingForServer': 'في انتظار الخادم…',
   'updateDialog.status.autoReloadHint': 'ستُعاد تحميل الصفحة تلقائيًا عند اكتمال التحديث.',
   'updateDialog.fallback.updateViaTerminal': 'أو حدّث عبر الطرفية:',
+  'updateDialog.desktopHostInstall': 'يتوفر OpenChamber {version}. حدّثه على الكمبيوتر الذي يعمل عليه.',
   'updateDialog.actions.copyCommand': 'نسخ الأمر',
   'updateDialog.actions.copied': 'تم النسخ!',
   'updateDialog.status.downloadingPayload': 'جارٍ تنزيل حزمة التحديث…',
@@ -3756,6 +3765,7 @@ export const dict = {
   ...webSearchI18n.ar,
   ...isolatedSpacesI18n.ar,
   ...sourceBoardI18n.ar,
+  ...projectActionsI18n.ar,
   ...environmentI18n.ar,
   ...providersI18n.ar,
   ...mcpGridI18n.ar,
@@ -3766,6 +3776,10 @@ export const dict = {
   'settings.openchamber.visual.field.layoutAnimations': 'تحريك اللوحات',
   'settings.openchamber.visual.field.layoutAnimationsAria': 'تحريك الشريط الجانبي واللوحات حول المحادثة عند فتحها وإغلاقها',
   'settings.openchamber.visual.field.layoutAnimationsInfo': 'ينزلق الشريط الجانبي واللوحات حول المحادثة وبطاقة حالة العمل عند فتحها وإغلاقها. أوقف هذا الخيار لإظهارها وإخفائها فورًا.',
+  'settings.openchamber.visual.field.openLinksInBrowserPanel': 'فتح الروابط في المتصفح المدمج',
+  'settings.openchamber.visual.field.openLinksInBrowserPanelInfo': 'تُفتح الروابط في المحادثة في علامة تبويب متصفح بجوار المحادثة. يفتحها Cmd+نقر أو Ctrl+نقر في متصفحك الافتراضي.',
+  'settings.openchamber.visual.field.openTrackerLinksOnBoard': 'فتح المشكلات وطلبات السحب في OpenChamber',
+  'settings.openchamber.visual.field.openTrackerLinksOnBoardInfo': 'تُفتح روابط مشكلات GitHub وGitLab وطلبات السحب والدمج ومشكلات Linear في لوحة المشكلات وطلبات السحب عندما يكون مشروعها مفتوحًا هنا. يفتح Cmd+نقر أو Ctrl+نقر الرابط نفسه.',
   'settings.openchamber.visual.field.fileTreeSide': 'جانب شجرة الملفات',
   'settings.openchamber.visual.option.fileTreeSide.left': 'اليمين',
   'settings.openchamber.visual.option.fileTreeSide.right': 'اليسار',
@@ -3801,6 +3815,8 @@ export const dict = {
   'filesView.editor.moreActions': 'إجراءات أخرى',
   'filesView.editor.toast.contentsCopied': 'تم نسخ محتوى الملف',
   'diffView.whitespace.hidden': 'تغييرات المسافات مخفية',
+  'diffView.layout.switchToUnified': 'التبديل إلى العرض الموحّد',
+  'diffView.layout.switchToSideBySide': 'التبديل إلى العرض جنبًا إلى جنب',
   'diffView.whitespace.shown': 'تغييرات المسافات ظاهرة',
   'session.newWorktree.trust.skip': 'تخطٍّ',
   'chat.revertPopover.toast.restoreFailed': 'تعذّرت استعادة الرسائل المتراجع عنها',

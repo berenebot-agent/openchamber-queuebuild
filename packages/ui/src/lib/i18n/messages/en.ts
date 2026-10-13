@@ -11,6 +11,7 @@ import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
+import { projectActionsI18n } from './project-actions.i18n';
 import { environmentI18n } from './environment.i18n';
 import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
@@ -136,6 +137,7 @@ export const dict = {
   ...webSearchI18n.en,
   ...isolatedSpacesI18n.en,
   ...sourceBoardI18n.en,
+  ...projectActionsI18n.en,
   ...environmentI18n.en,
   ...providersI18n.en,
   ...mcpGridI18n.en,
@@ -466,6 +468,8 @@ export const dict = {
   'sessions.scheduledTasks.editor.existingSession': 'Existing session',
   'sessions.scheduledTasks.editor.targetSession': 'Target session',
   'sessions.scheduledTasks.editor.targetHint': 'Waits in the message queue until the session is idle. Use defaults keeps the target session selection.',
+  'sessions.scheduledTasks.editor.targetLoadFailed': 'Couldn\'t load this project\'s sessions.',
+  'sessions.scheduledTasks.editor.targetRetry': 'Try again',
   'sessions.scheduledTasks.editor.targetRequired': 'Select a target session.',
   'sessions.scheduledTasks.editor.taskName.label': 'Task name',
   'sessions.scheduledTasks.editor.taskName.placeholder': 'Daily sync',
@@ -1010,6 +1014,7 @@ export const dict = {
   'gitView.header.repositoryViews': 'Repository views',
   'gitView.header.updateBranch': 'Update branch',
   'gitView.header.openPullRequest': 'Open pull request',
+  'gitView.header.openRepository': 'View repository on {provider}',
   'gitView.header.removeRemoteAria': 'Remove remote {name}',
   'gitView.header.removeRemoteTitle': 'Remove remote {name}',
   'gitView.header.upstreamSynced': 'synced',
@@ -1367,6 +1372,10 @@ export const dict = {
   'contextPanel.mode.browser': 'Browser',
   'contextRail.configure.open': 'Configure panels',
   'contextRail.configure.dialogTitle': 'Rail panels',
+  'contextRail.configure.reorder': 'Drag {label} to reorder',
+  'contextRail.configure.dragInstructions': 'Press Space to pick up a panel, use the arrow keys to move it, and press Space to drop. Press Escape to cancel.',
+  'contextRail.configure.position': '{label}, position {position} of {count}.',
+  'contextRail.configure.dragCancelled': 'Reordering cancelled.',
   'contextRail.configure.dialogDescription': 'Choose which panels the rail shows. Hidden panels keep their data and stay reachable from the command palette.',
   'contextRail.configure.showAll': 'Show all',
   'contextRail.configure.noneWarning': 'All panels are hidden.',
@@ -1847,6 +1856,8 @@ export const dict = {
   'diffView.actions.enableLineWrap': 'Enable line wrap',
   'diffView.actions.hideWhitespace': 'Hide whitespace changes',
   'diffView.whitespace.hidden': 'Whitespace changes hidden',
+  'diffView.layout.switchToUnified': 'Switch to unified view',
+  'diffView.layout.switchToSideBySide': 'Switch to side-by-side view',
   'diffView.whitespace.shown': 'Whitespace changes shown',
   'diffView.actions.openFileInEditorAtChange': 'Open this file in editor at change',
   'diffView.actions.openFileAtFirstChangedLine': 'Open this file at first changed line',
@@ -3279,6 +3290,7 @@ export const dict = {
   'updateDialog.status.waitingForServer': 'Waiting for server...',
   'updateDialog.status.autoReloadHint': 'The page will reload automatically when the update is complete.',
   'updateDialog.fallback.updateViaTerminal': 'Or update via terminal:',
+  'updateDialog.desktopHostInstall': 'OpenChamber {version} is available. Update it on the computer it runs on.',
   'updateDialog.actions.copyCommand': 'Copy command',
   'updateDialog.actions.copied': 'Copied!',
   'updateDialog.status.downloadingPayload': 'Downloading update payload...',

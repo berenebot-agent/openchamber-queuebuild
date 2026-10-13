@@ -21,6 +21,7 @@ import { assertPromptResponse } from '../opencode/prompt-response.js';
 import { unwrapOpenCodeResponse } from '../opencode/response-envelope.js';
 import { createSessionActivityProbe } from '../opencode/session-activity.js';
 import { readMergedSettingsSync } from '../opencode/settings-files.js';
+import { attachmentHint } from '../routing/runtime.js';
 
 const QUEUE_FILE_NAME = 'message-queue.json';
 const QUEUE_FILE_VERSION = 2;
@@ -502,7 +503,7 @@ export function createMessageQueueRuntime({
   const hasWorkingSubagents = async (sessionId) => {
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     if (!statuses) return null;
-    return activityProbe.hasWorkingChildren(sessionId, statuses);
+    return activityProbe.hasWorkingDescendants(sessionId, statuses);
   };
 
   const isSessionIdle = async (sessionId, directory) => {
@@ -585,7 +586,7 @@ export function createMessageQueueRuntime({
       directory,
       model,
       agent,
-      requestText: item.text,
+      requestText: `${item.text}${attachmentHint({ files: promptFiles })}`.trim(),
     }) : null;
     if (routed) {
       model = routed.model;
