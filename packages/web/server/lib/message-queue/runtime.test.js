@@ -1243,4 +1243,73 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('does not release a restored running lease on an idle snapshot without a completed reply', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null });
+    first.openCode.state.active[SECOND] = { type: 'running' };
+    await first.runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'after restart' }));
+    await first.runtime.flush();
+    const file = path.join(first.dataDir, 'message-queue.json');
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+    stored.activeBuilds = {
+      [DIRECTORY]: { sessionId: SESSION, itemId: 'previous-dispatched', startedAt: Date.now() - 10000, phase: 'running' },
+    };
+    fs.writeFileSync(file, JSON.stringify(stored));
+    first.runtime.stop();
+
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null, buildMonitorDelayMs: 25, buildRecheckMs: 20 });
+    await second.runtime.load();
+    expect(second.runtime.buildSnapshot().active[0].needsReview).not.toBe(true);
+    second.runtime.start();
+    await settle(120);
+    expect(second.runtime.buildSnapshot().active[0].needsReview).toBe(true);
+    expect(promptCalls(second.openCode)).toHaveLength(0);
+    expect(second.runtime.buildSnapshot().queued).toHaveLength(1);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
+  it('releases a restored lease only after the original turn has a completed assistant reply', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null });
+    first.openCode.state.active[SECOND] = { type: 'running' };
+    await first.runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'safe successor' }));
+    await first.runtime.flush();
+    const file = path.join(first.dataDir, 'message-queue.json');
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+    stored.activeBuilds = {
+      [DIRECTORY]: { sessionId: SESSION, itemId: 'previous-dispatched', startedAt: Date.now() - 10000, phase: 'running' },
+    };
+    fs.writeFileSync(file, JSON.stringify(stored));
+    first.runtime.stop();
+
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null, buildMonitorDelayMs: 25, buildRecheckMs: 20 });
+    second.openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    second.runtime.start();
+    await settle(120);
+    expect(promptCalls(second.openCode).map(call => call.body.text)).toEqual(['safe successor']);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
+  it('returns 404 when attempting to pause a nonexistent build', async () => {
+    const { runtime } = createRuntime();
+    await expect(runtime.setBuildPaused(SESSION, 'queued-unknown', true)).rejects.toMatchObject({ status: 404 });
+    runtime.stop();
+  });
+
+  it('can bulk-take and clear a legacy Plan message flagged as a Build', async () => {
+    const flagged = item({
+      buildQueue: true, sendConfig: { providerID: 'anthropic', modelID: 'claude', agent: 'plan' },
+    });
+    const { runtime, openCode } = createRuntime();
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, flagged);
+    const result = await runtime.takeAll(SESSION);
+    expect(result.items).toHaveLength(1);
+    await runtime.enqueue(SESSION, DIRECTORY, flagged);
+    await runtime.clear(SESSION);
+    expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
 });
