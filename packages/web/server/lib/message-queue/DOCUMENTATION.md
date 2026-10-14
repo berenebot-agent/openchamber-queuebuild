@@ -194,10 +194,14 @@ The queue pane's "Queue behavior" selector applies to every project on the
 instance, including when its current queue is empty. It has 3 policies:
 
 - **Allow continue**, `continue`, skips Git checks and creates no commits.
-- **Commit directly using model**, `commit`, prepares a clean repository before
-  dispatch. The Git service initializes Git when necessary, installs the bundled
-  ignore baseline for a new repository, stages project changes and commits with
-  a message generated through OpenCode. There is no confirmation step.
+- **Commit staged changes using model**, `commit`, prepares a clean repository
+  before dispatch. The Git service initializes Git when necessary and installs
+  the bundled ignore baseline for a new repository. It commits **only files
+  explicitly staged in Git** and refuses unstaged/untracked changes or common
+  secret patterns before sending the staged diff to OpenCode for the message.
+  No other files are staged. There is no confirmation step; staging is the
+  explicit selection. A new repository must have its intended files staged
+  before preparation succeeds.
 - **Pause queue**, `pause`, waits for `git status --porcelain` to report a clean
   working tree. A missing repository or failed check keeps the items queued.
   The existing recheck timer resumes the queue when Git becomes clean or a saved
@@ -226,7 +230,7 @@ A preparation failure retains queued items and any Git changes already made.
 It blocks another model call for that item until "Retry preparation" uses
 `POST /api/build-queue/resolve` with `action: 'retry'`, or a different policy
 is observed. The existing uncertain-dispatch review flow remains separate.
-A restart re-inspects Git; an already completed clean commit is a no-op.
+A restart re-inspects Git; an already completed clean commit is a no-op. A restored running lease is released only when a completed assistant turn is verifiable; otherwise the queue remains paused for manual review.
 The Git service's scope, ignore rules and failure contract are documented in
 `../git/DOCUMENTATION.md`, under "Automatic build preparation".
 
