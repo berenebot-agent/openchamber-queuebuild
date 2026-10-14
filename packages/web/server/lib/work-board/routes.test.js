@@ -39,4 +39,28 @@ describe('work board HTTP routes', () => {
       expect(await fs.readFile(file, 'utf8')).toBe(broken);
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
   });
+
+  it('parks an already linked session without duplicating its card', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-park-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const original = await store.create({ directory: '/repo', text: 'Original brief', attachments: [] });
+      await store.update(original.id, { sessionId: 'session1', stage: 'plan' });
+      const messageQueueRuntime = {
+        parkSession: async (id, directory, save) => {
+          expect([id, directory]).toEqual(['session1', '/repo']);
+          return save([{ text: 'Queued implementation', attachments: [], context: [] }]);
+        },
+      };
+      const app = express();
+      registerWorkBoardRoutes(app, { store, messageQueueRuntime, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      const response = await request(app).post('/api/work-board/sessions/session1/todo')
+        .send({ directory: '/repo', text: 'Additional note', attachments: [] }).expect(200);
+      expect(response.body.card).toMatchObject({ id: original.id, sessionId: 'session1', stage: 'todo' });
+      expect(response.body.card.text).toContain('Queued implementation');
+      expect(response.body.card.text).toContain('Additional note');
+      expect(await store.list('/repo')).toHaveLength(1);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
 });

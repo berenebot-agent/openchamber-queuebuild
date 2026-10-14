@@ -823,6 +823,8 @@ export function createMessageQueueRuntime({
 
   // --- dispatch loop -------------------------------------------------------
 
+  // Parking blocks dispatch during asynchronous idle and storage checks.
+  const parkingSessions = new Set();
   const clearTimer = (sessionId) => {
     const existing = timers.get(sessionId);
     if (existing) {
@@ -855,7 +857,7 @@ export function createMessageQueueRuntime({
   async function tick(sessionId) {
     if (stopped) return;
     const queue = queues.get(sessionId);
-    if (!queue || queue.items.length === 0 || sending.has(sessionId) || isHeld(sessionId)) return;
+    if (!queue || queue.items.length === 0 || sending.has(sessionId) || parkingSessions.has(sessionId) || isHeld(sessionId)) return;
 
     const abortHoldUntil = (abortedAt.get(sessionId) ?? 0) + abortHoldMs;
     if (abortHoldUntil > now()) {
@@ -906,7 +908,7 @@ export function createMessageQueueRuntime({
     // Re-read after the awaits — the user may have edited the queue meanwhile.
     const current = queues.get(sessionId);
     const item = current?.items[0];
-    if (!item || item.id !== head.id || sending.has(sessionId)) return;
+    if (!item || item.id !== head.id || sending.has(sessionId) || parkingSessions.has(sessionId)) return;
     let buildSelection;
 
     if (isBuildItem(item)) {
@@ -974,7 +976,7 @@ export function createMessageQueueRuntime({
       } else if (buildProblems.has(current.directory)) {
         setBuildProblem(current.directory, null);
       }
-      if (activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
+      if (parkingSessions.has(sessionId) || activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
       setBuildProblem(current.directory, null);
       activeBuilds.set(current.directory, { sessionId, itemId: item.id, startedAt: now(), phase: 'dispatching' });
       commit(sessionId);
@@ -991,7 +993,7 @@ export function createMessageQueueRuntime({
         setBuildProblem(current.directory, 'Cannot persist the build queue. Check server storage before continuing.');
         return;
       }
-      if (stopped || lease?.itemId !== item.id || queues.get(sessionId)?.items[0]?.id !== item.id) return;
+      if (stopped || parkingSessions.has(sessionId) || lease?.itemId !== item.id || queues.get(sessionId)?.items[0]?.id !== item.id) return;
     }
     sending.set(sessionId, item.id);
     broadcast(sessionId);
@@ -1072,6 +1074,7 @@ export function createMessageQueueRuntime({
     if (!directory) throw new TypeError('directory is required');
     const parsed = parseQueuedItemInput(itemInput);
     await load();
+    if (parkingSessions.has(sessionId)) throw httpError('Session is being parked to To-do', 409);
     const originalQueue = queues.get(sessionId);
     if (originalQueue && originalQueue.directory !== directory) throw httpError('session queue directory mismatch', 409);
     if (originalQueue && originalQueue.items.length >= MAX_ITEMS_PER_SESSION && originalQueue.items.some(item => isBuildItem(item) || item.scheduledTask)) throw httpError('queue is full; managed jobs cannot be discarded', 409);
@@ -1297,6 +1300,50 @@ export function createMessageQueueRuntime({
     timers.clear();
   };
 
+  /** Coordinate a To-do save with dispatch; never abort a running turn. */
+  const parkSession = async (sessionIdInput, directoryInput, saveCard) => {
+    const sessionId = requireSessionId(sessionIdInput);
+    const directory = asNonEmptyString(directoryInput);
+    if (!directory || typeof saveCard !== 'function') throw new TypeError('directory and saveCard are required');
+    await load();
+    if (parkingSessions.has(sessionId)) throw httpError('Session is already being parked', 409);
+    parkingSessions.add(sessionId);
+    clearTimer(sessionId);
+    try {
+      const queue = queues.get(sessionId);
+      if (queue && queue.directory !== directory) throw httpError('session queue directory mismatch', 409);
+      if (sending.has(sessionId) || Array.from(activeBuilds.values()).some(lease => lease.sessionId === sessionId)) {
+        throw httpError('Session has an active or uncertain build', 409);
+      }
+      if (queue?.items.some(item => !isBuildItem(item))) {
+        throw httpError('Session has ordinary queued messages; resolve them before parking', 409);
+      }
+      const idle = await isSessionIdle(sessionId, directory);
+      const subagents = idle === true ? await hasWorkingSubagents(sessionId) : null;
+      if (idle !== true || subagents !== false) throw httpError('Session is active or its idle status is unavailable', 409);
+      const pending = queues.get(sessionId)?.items ?? [];
+      if (sending.has(sessionId) || Array.from(activeBuilds.values()).some(lease => lease.sessionId === sessionId)) {
+        throw httpError('Session started executing while parking', 409);
+      }
+      const card = await saveCard(pending);
+      if (pending.length) {
+        const current = queues.get(sessionId);
+        if (!current || current.items.length !== pending.length || current.items.some((item, index) => item.id !== pending[index].id)) {
+          throw httpError('Session queue changed during parking', 409);
+        }
+        setQueueItems(sessionId, current.directory, []);
+        commit(sessionId);
+        await writePromise;
+        if (persistenceError) throw httpError('Could not persist removal from the Build Queue', 500);
+        wakeProject(directory);
+      }
+      return card;
+    } finally {
+      parkingSessions.delete(sessionId);
+      armDispatch(sessionId);
+    }
+  };
+
   const cancelScheduledTask = async (projectId, taskId) => {
     await load();
     for (const [sessionId, queue] of queues) {
@@ -1318,6 +1365,7 @@ export function createMessageQueueRuntime({
     sessionSnapshot,
     enqueue,
     cancelScheduledTask,
+    parkSession,
     remove,
     take,
     takeAll,

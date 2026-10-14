@@ -1312,4 +1312,50 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+
+  it('parks queued builds without dispatch and exposes their full payload', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'Build a widget' }));
+    let captured;
+    const card = await runtime.parkSession(SESSION, DIRECTORY, async items => {
+      captured = items;
+      return { id: 'saved-card' };
+    });
+    expect(card.id).toBe('saved-card');
+    expect(captured[0].text).toBe('Build a widget');
+    await settle(80);
+    expect(runtime.buildSnapshot().queued).toHaveLength(0);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('rejects parking a running session and retains its queued build', async () => {
+    const { runtime, openCode } = createRuntime();
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await expect(runtime.parkSession(SESSION, DIRECTORY, async () => ({ id: 'wrong' }))).rejects.toMatchObject({ status: 409 });
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('blocks dispatch during the board write and leaves the queue intact if it fails', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const parking = runtime.parkSession(SESSION, DIRECTORY, async () => {
+      await gate;
+      throw new Error('disk full');
+    });
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    release();
+    await expect(parking).rejects.toThrow('disk full');
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+
 });

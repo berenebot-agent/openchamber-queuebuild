@@ -268,6 +268,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
     registerWorkBoardRoutes(app, {
       store: createWorkBoardStore({ dataDir: openchamberDataDir, fs: fsPromises }),
       resolveProjectDirectory,
+      messageQueueRuntime,
     });
 
     registerSettingsUtilityRoutes(app, {
