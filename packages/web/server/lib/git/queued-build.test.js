@@ -122,7 +122,9 @@ describe('automatic build commits', () => {
 
   it('commits explicitly staged new, modified and deleted files without rewriting existing ignores', async () => {
     const directory = await fixture();
+    await fs.writeFile(path.join(directory, '.gitignore'), 'custom.tmp\n');
     await stageSource(directory);
+    await git(directory, ['add', '.gitignore']);
     await prepare(directory);
     const ignore = await fs.readFile(path.join(directory, '.gitignore'), 'utf8');
     await fs.writeFile(path.join(directory, 'new.txt'), 'new');
