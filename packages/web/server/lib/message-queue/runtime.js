@@ -1183,7 +1183,7 @@ export function createMessageQueueRuntime({
     // Never drop a message already handed to OpenCode: its send resolves and
     // must find its entry.
     const sendingId = sending.get(sessionId) ?? null;
-    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.scheduledTask || isBuildItem(item)));
+    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || isBuildItem(item)));
     clearTimer(sessionId);
     const result = commit(sessionId);
     wakeProject(queue.directory);
