@@ -1713,7 +1713,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             serverOwnedQueue: isServerOwnedMessageQueue(),
             inputMode,
             isBtwActive,
-            agentName: currentAgentName,
+            // The selected composer agent may be the global fallback Build agent
+            // even while this session is Plan. The session owns its queue mode.
+            agentName: currentSessionId
+                ? useSelectionStore.getState().getSessionAgentSelection(currentSessionId) ?? undefined
+                : currentAgentName,
             directoryEnabled: useBuildQueuePreferences.getState().isEnabled(buildQueueDirectory ?? ''),
             hasContent: inputSnapshot.hasContent,
             message: inputSnapshot.message,
