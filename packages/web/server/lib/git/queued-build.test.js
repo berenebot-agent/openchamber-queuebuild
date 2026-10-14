@@ -19,6 +19,10 @@ async function git(directory, args) {
     return { success: false, exitCode: error.code, stdout: error.stdout || '', stderr: error.stderr || '' };
   }
 }
+async function stageSource(directory) {
+  await git(directory, ['init']);
+  await git(directory, ['add', 'source.py']);
+}
 async function fixture() {
   // The configured scratch directory has an ancestor .git marker on this box.
   // Initialization fixtures need a directory outside any existing Git tree.
@@ -44,6 +48,7 @@ describe('automatic build commits', () => {
 
   it('refuses an unfinished Git operation even when the working tree is clean', async () => {
     const directory = await fixture();
+    await stageSource(directory);
     const first = await prepare(directory);
     await fs.writeFile(path.join(directory, '.git', 'MERGE_HEAD'), first.hash + '\n');
     await expect(prepare(directory)).rejects.toThrow('Finish the current merge');
@@ -52,6 +57,7 @@ describe('automatic build commits', () => {
 
   it('keeps unstaged edits made during generation and reports the remaining changes', async () => {
     const directory = await fixture();
+    await stageSource(directory);
     await expect(prepare(directory, { generateMessage: async () => {
       await fs.writeFile(path.join(directory, 'source.py'), 'newer content');
       return 'Save staged source';
@@ -64,6 +70,7 @@ describe('automatic build commits', () => {
     const directory = await fixture();
     await git(directory, ['init']);
     await fs.writeFile(path.join(directory, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    await git(directory, ['add', 'source.py']);
     await expect(prepare(directory)).rejects.toThrow('Commit failed');
     expect((await git(directory, ['rev-parse', '--verify', 'HEAD'])).success).toBe(false);
     expect((await git(directory, ['diff', '--cached', '--name-only'])).stdout).toContain('source.py');
@@ -80,6 +87,8 @@ describe('automatic build commits', () => {
     await fs.writeFile(path.join(directory, 'node_modules', 'package.js'), 'generated');
     const phases = [];
     let input;
+    await expect(prepare(directory)).rejects.toThrow('No changes are staged');
+    await git(directory, ['add', '-A']);
     const result = await prepare(directory, { onProgress: phase => phases.push(phase), generateMessage: async value => {
       input = value;
       return 'Initialize project source';
@@ -96,6 +105,8 @@ describe('automatic build commits', () => {
     const directory = await fixture();
     await fs.writeFile(path.join(directory, '.gitignore'), 'custom.tmp\n');
     await fs.writeFile(path.join(directory, 'custom.tmp'), 'local');
+    await expect(prepare(directory)).rejects.toThrow('No changes are staged');
+    await git(directory, ['add', '-A']);
     await prepare(directory);
     expect(await fs.readFile(path.join(directory, '.gitignore'), 'utf8')).toMatch(/^custom.tmp\n/);
     expect((await git(directory, ['ls-files'])).stdout).not.toContain('custom.tmp');
@@ -103,19 +114,22 @@ describe('automatic build commits', () => {
 
   it('does not call the model or change a clean repository', async () => {
     const directory = await fixture();
+    await stageSource(directory);
     const first = await prepare(directory);
     expect(await prepare(directory, { generateMessage: async () => { throw new Error('Unexpected generation'); } })).toBeNull();
     expect((await git(directory, ['rev-parse', 'HEAD'])).stdout.trim()).toBe(first.hash);
   });
 
-  it('commits staged, unstaged and deleted files without rewriting existing ignores', async () => {
+  it('commits explicitly staged new, modified and deleted files without rewriting existing ignores', async () => {
     const directory = await fixture();
+    await stageSource(directory);
     await prepare(directory);
     const ignore = await fs.readFile(path.join(directory, '.gitignore'), 'utf8');
     await fs.writeFile(path.join(directory, 'new.txt'), 'new');
     await git(directory, ['add', 'new.txt']);
     await fs.writeFile(path.join(directory, 'new.txt'), 'updated');
     await fs.unlink(path.join(directory, 'source.py'));
+    await git(directory, ['add', '-A']);
     await prepare(directory);
     expect((await git(directory, ['show', 'HEAD:new.txt'])).stdout).toBe('updated');
     expect((await git(directory, ['ls-files'])).stdout).not.toContain('source.py');
@@ -124,6 +138,7 @@ describe('automatic build commits', () => {
 
   it('keeps staged changes on model failure and rejects invalid messages', async () => {
     const directory = await fixture();
+    await stageSource(directory);
     await expect(prepare(directory, { generateMessage: async () => { throw new Error('Model unavailable'); } })).rejects.toThrow('Model unavailable');
     expect((await git(directory, ['diff', '--cached', '--name-only'])).stdout).toContain('source.py');
     expect((await git(directory, ['rev-parse', '--verify', 'HEAD'])).success).toBe(false);
@@ -132,6 +147,7 @@ describe('automatic build commits', () => {
 
   it('refuses changed staged state during generation', async () => {
     const directory = await fixture();
+    await stageSource(directory);
     await expect(prepare(directory, { generateMessage: async () => {
       await fs.writeFile(path.join(directory, 'source.py'), 'changed');
       await git(directory, ['add', 'source.py']);
@@ -142,6 +158,7 @@ describe('automatic build commits', () => {
 
   it('uses a parent repository and refuses unrelated staged files', async () => {
     const directory = await fixture();
+    await stageSource(directory);
     await prepare(directory);
     const project = path.join(directory, 'child');
     await fs.mkdir(project);
@@ -154,6 +171,7 @@ describe('automatic build commits', () => {
 
   it('cancels before committing if the queued item was removed', async () => {
     const directory = await fixture();
+    await stageSource(directory);
     let current = true;
     await expect(prepare(directory, { isCurrent: () => current, generateMessage: async () => {
       current = false;
@@ -170,4 +188,54 @@ describe('automatic build commits', () => {
     await expect(prepare(directory)).rejects.toThrow();
     expect(await fs.readFile(outside, 'utf8')).toBe('keep');
   });
+  it('does not stage unstaged or untracked files or expose them to the model', async () => {
+    const directory = await fixture();
+    await stageSource(directory);
+    await fs.writeFile(path.join(directory, 'scratch.txt'), 'unrelated local work');
+    let modelCalled = false;
+    await expect(prepare(directory, { generateMessage: async () => {
+      modelCalled = true;
+      return 'Unexpected commit';
+    } })).rejects.toThrow('Unstaged or untracked project files remain');
+    expect(modelCalled).toBe(false);
+    expect((await git(directory, ['diff', '--cached', '--name-only'])).stdout.trim()).toBe('source.py');
+    expect((await git(directory, ['rev-parse', '--verify', 'HEAD'])).success).toBe(false);
+  });
+
+  it('rejects staged credential paths before calling the commit-message model', async () => {
+    const directory = await fixture();
+    await git(directory, ['init']);
+    await fs.writeFile(path.join(directory, '.env.local'), 'PASSWORD=sensitive');
+    await git(directory, ['add', '.env.local']);
+    let modelCalled = false;
+    await expect(prepare(directory, { generateMessage: async () => {
+      modelCalled = true;
+      return 'Commit credentials';
+    } })).rejects.toThrow('sensitive path');
+    expect(modelCalled).toBe(false);
+  });
+
+  it('rejects private keys embedded in otherwise normal staged source files', async () => {
+    const directory = await fixture();
+    await fs.writeFile(path.join(directory, 'source.py'),
+      'secret = "-----BEGIN PRIVATE KEY-----"\n');
+    await stageSource(directory);
+    let modelCalled = false;
+    await expect(prepare(directory, { generateMessage: async () => {
+      modelCalled = true;
+      return 'Commit source';
+    } })).rejects.toThrow('secret material');
+    expect(modelCalled).toBe(false);
+    expect((await git(directory, ['rev-parse', '--verify', 'HEAD'])).success).toBe(false);
+  });
+
+  it('refuses to auto-stage an existing tracked change', async () => {
+    const directory = await fixture();
+    await stageSource(directory);
+    await prepare(directory);
+    await fs.writeFile(path.join(directory, 'source.py'), 'local unreviewed edit\n');
+    await expect(prepare(directory)).rejects.toThrow('No changes are staged');
+    expect((await git(directory, ['diff', '--cached', '--name-only'])).stdout.trim()).toBe('');
+  });
+
 });
