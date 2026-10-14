@@ -132,7 +132,7 @@ export async function prepareQueuedBuild({ directory, run, generateMessage, onPr
     throw new Error('Staged files include a sensitive path. Remove secrets or unstage those files before retrying.');
   }
   const unstagedPaths = (await execute(root, ['diff', '--name-only', '-z'], 'Unstaged file inspection')).split('\0').filter(Boolean);
-  const untrackedPaths = (await execute(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', scope], 'Untracked file inspection')).split('\0').filter(Boolean);
+  const untrackedPaths = (await execute(root, ['ls-files', '--others', '--exclude-standard', '-z'], 'Untracked file inspection')).split('\0').filter(Boolean);
   if (unstagedPaths.length > 0 || untrackedPaths.length > 0) {
     throw new Error('Unstaged or untracked project files remain. Stage only intended changes, or commit/stash unrelated work before retrying.');
   }
