@@ -378,7 +378,7 @@ export function createMessageQueueRuntime({
               // A restored lease represents a prompt dispatched before restart.
               // The live status probe still prevents releasing external runs that survived.
               const hasQueuedItem = queues.get(value.sessionId)?.items.some(item => item.id === value.itemId);
-              activeBuilds.set(directory, { ...value, observedBusy: true, ...(hasQueuedItem ? { needsReview: true, reviewReason: 'restart-during-dispatch' } : {}) });
+              activeBuilds.set(directory, { ...value, observedBusy: false, restored: true, ...(hasQueuedItem ? { needsReview: true, reviewReason: 'restart-during-dispatch' } : {}) });
             }
           }
           nextBuildOrder = Math.max(nextBuildOrder, stored.nextBuildOrder, ...Array.from(queues.values()).flatMap(q => q.items.map(i => (i.buildOrder ?? 0) + 1)));
@@ -733,10 +733,11 @@ export function createMessageQueueRuntime({
     const idle = await isSessionIdle(lease.sessionId, directory);
     if (idle === false) lease.observedBusy = true;
     const children = idle === true ? await hasWorkingSubagents(lease.sessionId) : null;
-    // Do not release a lease based on an idle snapshot before OpenCode has
-    // actually started this prompt (the POST acknowledgement can precede it).
-    let completed = lease.observedBusy === true;
-    if (idle === true && children === false && !completed) {
+    // Seeing a busy -> idle transition is NOT proof that the Build turn
+    // completed: it may have been interrupted, especially across a restart.
+    // Require a completed assistant response from this lease's own turn.
+    let completed = false;
+    if (idle === true && children === false) {
       const page = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
         directory, query: { limit: '5' },
       }).catch(() => null);
@@ -747,6 +748,14 @@ export function createMessageQueueRuntime({
       });
     }
     if (activeBuilds.get(directory) !== lease) return;
+    if (lease.restored && idle === true && children === false && !completed) {
+      // The previous server may have died mid-turn, or OpenCode may still be
+      // starting the accepted prompt. Neither permits starting another build.
+      lease.needsReview = true;
+      lease.reviewReason = 'restart-unconfirmed';
+      commit(lease.sessionId);
+      return;
+    }
     if (idle !== true || children !== false || !completed) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
     activeBuilds.delete(directory);
     commit(lease.sessionId);
@@ -804,7 +813,7 @@ export function createMessageQueueRuntime({
     const directory = queue?.directory ?? directories.get(sessionId);
     if (sending.get(sessionId) === itemId || activeBuilds.get(directory)?.itemId === itemId) throw httpError('Cannot pause a build that has started', 409);
     const item = queue?.items.find(entry => entry.id === itemId);
-    if (!isBuildItem(item)) throw httpError('Queued build not found', 404);
+    if (!item || !isBuildItem(item)) throw httpError('Queued build not found', 404);
     if (paused) item.buildPaused = true;
     else delete item.buildPaused;
     commit(sessionId);
@@ -1065,7 +1074,7 @@ export function createMessageQueueRuntime({
     await load();
     const originalQueue = queues.get(sessionId);
     if (originalQueue && originalQueue.directory !== directory) throw httpError('session queue directory mismatch', 409);
-    if (originalQueue && originalQueue.items.length >= MAX_ITEMS_PER_SESSION && originalQueue.items.some(item => item.buildQueue || item.scheduledTask)) throw httpError('queue is full; managed jobs cannot be discarded', 409);
+    if (originalQueue && originalQueue.items.length >= MAX_ITEMS_PER_SESSION && originalQueue.items.some(item => isBuildItem(item) || item.scheduledTask)) throw httpError('queue is full; managed jobs cannot be discarded', 409);
     if (parsed.scheduledTask) {
       for (const queue of queues.values()) {
         if (queue.items.some((entry) => entry.scheduledTask?.projectId === parsed.scheduledTask.projectId && entry.scheduledTask.taskId === parsed.scheduledTask.taskId)) {
@@ -1074,7 +1083,7 @@ export function createMessageQueueRuntime({
       }
     }
     // Managed jobs must never be truncated or evicted to make room.
-    if (parsed.scheduledTask || parsed.buildQueue) {
+    if (parsed.scheduledTask || (parsed.buildQueue && parsed.sendConfig.agent?.toLowerCase() === 'build')) {
       if ((queues.get(sessionId)?.items.length ?? 0) >= MAX_ITEMS_PER_SESSION || (!queues.has(sessionId) && queues.size >= MAX_SESSIONS)) {
         throw httpError('message queue is full', 409);
       }
@@ -1091,7 +1100,7 @@ export function createMessageQueueRuntime({
     directories.set(sessionId, directory);
     if (queues.size > MAX_SESSIONS) {
       const oldest = Array.from(queues.entries())
-        .filter(([id, queue]) => id !== sessionId && !sending.has(id) && !queue.items.some(item => item.buildQueue || item.scheduledTask))
+        .filter(([id, queue]) => id !== sessionId && !sending.has(id) && !queue.items.some(item => isBuildItem(item) || item.scheduledTask))
         .sort((left, right) => (left[1].items[0]?.createdAt ?? 0) - (right[1].items[0]?.createdAt ?? 0))
         .slice(0, queues.size - MAX_SESSIONS);
       for (const [staleId] of oldest) {
@@ -1143,9 +1152,9 @@ export function createMessageQueueRuntime({
     const queue = queues.get(sessionId);
     if (!queue) return { revision, session: sessionSnapshot(sessionId), items: [] };
     const sendingId = sending.get(sessionId) ?? null;
-    const items = queue.items.filter((item) => item.id !== sendingId && !item.scheduledTask && !item.buildQueue);
+    const items = queue.items.filter((item) => item.id !== sendingId && !item.scheduledTask && !isBuildItem(item));
     if (items.length === 0) return { revision, session: sessionSnapshot(sessionId), items: [] };
-    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.scheduledTask || item.buildQueue));
+    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.scheduledTask || isBuildItem(item)));
     return { ...commit(sessionId), items };
   };
 
@@ -1174,7 +1183,7 @@ export function createMessageQueueRuntime({
     // Never drop a message already handed to OpenCode: its send resolves and
     // must find its entry.
     const sendingId = sending.get(sessionId) ?? null;
-    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.buildQueue));
+    setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id === sendingId || item.scheduledTask || isBuildItem(item)));
     clearTimer(sessionId);
     const result = commit(sessionId);
     wakeProject(queue.directory);
