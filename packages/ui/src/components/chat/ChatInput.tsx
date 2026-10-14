@@ -64,6 +64,7 @@ import type { SnippetAutocompleteHandle } from './SnippetAutocomplete';
 import { cn } from "@/lib/utils";
 import { ModelControls } from './ModelControls';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
+import { shouldQueueAsBuild } from '@/lib/messages/buildQueueMembership';
 import { CONTEXT_METADATA_KEY, draftFromContextPayload } from '@/lib/messages/contextParts';
 import { shouldSubmitEnter } from './composer/keyboardPolicy';
 import { getDropdownNavigationKey } from '@/components/ui/dropdown-navigation';
@@ -1421,7 +1422,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
         const queueRuntimeKey = getRuntimeKey();
-        const managedBuild = buildQueued === true || (isServerOwnedMessageQueue() && currentAgentName?.toLowerCase() === 'build' && useBuildQueuePreferences.getState().isEnabled(queueTarget.directory));
+        const managedBuild = shouldQueueAsBuild({
+            buildQueued,
+            serverOwnedQueue: isServerOwnedMessageQueue(),
+            sessionAgent: useSelectionStore.getState().getSessionAgentSelection(queueTarget.sessionId),
+            directoryEnabled: useBuildQueuePreferences.getState().isEnabled(queueTarget.directory),
+        });
         const queueSessionId = queueTarget.sessionId;
         // Queueing is the same user intent as sending, so an archived session
         // comes back once the queue accepts the message, not at delivery.

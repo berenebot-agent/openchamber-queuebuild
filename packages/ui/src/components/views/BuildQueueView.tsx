@@ -8,6 +8,7 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useBuildQueueSnapshot, type BuildQueueEntry } from '@/hooks/useBuildQueueSnapshot';
 import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useDirectorySync } from '@/sync/sync-context';
 import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { SettingsSection, SettingsStackedField, SETTINGS_SELECT_TRIGGER_CLASS } from '@/components/sections/shared/SettingsSection';
@@ -33,9 +34,13 @@ export const BuildQueueView: React.FC = () => {
   const active = snapshot?.active.find(item => projectKey(item.directory) === key);
   const issue = snapshot?.issues.find(item => projectKey(item.directory) === key)?.issue;
   const paused = Boolean(issue || active?.needsReview);
+  // Subscribed to the directory's own sync slice, not read imperatively: the
+  // queue snapshot polls every three seconds, so a non-reactive read would keep
+  // resolving titles against a session list that has since materialized,
+  // leaving rows labelled "Session ses_...".
+  const sessions = useDirectorySync(state => state.session, directory);
   const sessionTitle = (sessionId: string) =>
-    useSessionUIStore.getState().getSessionsByDirectory(directory)
-      .find(session => session.id === sessionId)?.title || 'Session ' + sessionId.slice(0, 9);
+    sessions.find(session => session.id === sessionId)?.title || 'Session ' + sessionId.slice(0, 9);
   const openSession = (sessionId: string) => useSessionUIStore.getState().setCurrentSession(sessionId, directory);
 
   const mutate = async (url: string, method: 'PUT' | 'POST' | 'DELETE', body?: object) => {

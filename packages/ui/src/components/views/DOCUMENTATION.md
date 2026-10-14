@@ -57,6 +57,16 @@ retries a Git/model preparation failure; uncertain build dispatch keeps its
 existing review confirmation. Web, Electron, hosted mobile and Capacitor use
 the server queue. VS Code does not offer this queue.
 
+Build-queue membership belongs to the session's own agent, not to the composer's
+selection: the composer's agent is global fallback state, so gating on it put
+Plan sessions on the default Build agent into the project queue. `pendingBuilds`
+and every dispatch, pause, cancel and reorder decision test the same
+`isBuildItem` predicate, so an item flagged before that gate existed is handled
+as an ordinary queued message — it stays persisted and takeable, but never
+surfaces, prepares, or holds the queue. Titles in the pane come from a
+subscribed session list, so a poll that arrives before its session materializes
+does not leave rows labelled "Session ses_...".
+
 ## Large text files
 
 The 200,000-character threshold selects an initial code preview, not read-only

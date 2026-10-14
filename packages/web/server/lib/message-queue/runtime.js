@@ -429,8 +429,14 @@ export function createMessageQueueRuntime({
     revision,
     sessions: Array.from(queues.keys()).map(sessionSnapshot),
   });
+  // A queued build belongs to a Build-mode session. The composer decides that
+  // from the session's own agent, but items queued before that gate existed can
+  // carry the flag from a Plan session; those must not surface as project
+  // builds, and reordering cannot rely on their position. Persisted data is
+  // left as it is: this only decides what the queue dispatches and shows.
+  const isBuildItem = (item) => item.buildQueue === true && item.sendConfig?.agent?.toLowerCase() === 'build';
   const pendingBuilds = (directory) => Array.from(queues.entries())
-    .flatMap(([sessionId, queue]) => queue.items.filter(item => item.buildQueue && (!directory || queue.directory === directory))
+    .flatMap(([sessionId, queue]) => queue.items.filter(item => isBuildItem(item) && (!directory || queue.directory === directory))
       .map(item => ({ sessionId, directory: queue.directory, item })))
     .sort((a, b) => a.item.buildOrder - b.item.buildOrder || a.item.createdAt - b.item.createdAt || a.item.id.localeCompare(b.item.id));
   const runnableBuilds = (directory) => pendingBuilds(directory).filter(entry => !entry.item.buildPaused);
@@ -641,7 +647,7 @@ export function createMessageQueueRuntime({
     // holds for a command too: its route takes file attachments only, and
     // sending "/name args" as a prompt instead would skip the template
     // OpenCode 2.x expands only on the command route.
-    const preamble = [...(item.buildQueue ? [{ text: BUILD_INSTRUCTION, resume: false }] : []), ...contextMessages];
+    const preamble = [...(isBuildItem(item) ? [{ text: BUILD_INSTRUCTION, resume: false }] : []), ...contextMessages];
     if (knowledge.text) preamble.push({ text: knowledge.text, resume: false });
     for (const synthetic of preamble) {
       await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/synthetic`, {
@@ -709,7 +715,7 @@ export function createMessageQueueRuntime({
   };
   const wakeProject = (directory) => {
     for (const [sessionId, queue] of queues) {
-      if (queue.directory === directory && queue.items.some(item => item.buildQueue)) armDispatch(sessionId);
+      if (queue.directory === directory && queue.items.some(isBuildItem)) armDispatch(sessionId);
     }
   };
   const scheduleBuildMonitor = (directory, delay = buildMonitorDelayMs) => {
@@ -798,7 +804,7 @@ export function createMessageQueueRuntime({
     const directory = queue?.directory ?? directories.get(sessionId);
     if (sending.get(sessionId) === itemId || activeBuilds.get(directory)?.itemId === itemId) throw httpError('Cannot pause a build that has started', 409);
     const item = queue?.items.find(entry => entry.id === itemId);
-    if (!item?.buildQueue) throw httpError('Queued build not found', 404);
+    if (!isBuildItem(item)) throw httpError('Queued build not found', 404);
     if (paused) item.buildPaused = true;
     else delete item.buildPaused;
     commit(sessionId);
@@ -849,7 +855,7 @@ export function createMessageQueueRuntime({
     }
 
     const head = queue.items[0];
-    if (head.buildQueue && head.buildPaused) return;
+    if (isBuildItem(head) && head.buildPaused) return;
     const failure = failures.get(sessionId);
     if (failure && failure.itemId !== head.id) failures.delete(sessionId);
     else if (failure && failure.nextAttemptAt > now()) {
@@ -894,7 +900,7 @@ export function createMessageQueueRuntime({
     if (!item || item.id !== head.id || sending.has(sessionId)) return;
     let buildSelection;
 
-    if (item.buildQueue) {
+    if (isBuildItem(item)) {
       // Only the oldest head among all sessions for this project may start.
       // The lease is claimed synchronously after the asynchronous probes.
       if (activeBuilds.has(current.directory)) return;
@@ -1006,7 +1012,7 @@ export function createMessageQueueRuntime({
       } catch {
         // bookkeeping only
       }
-      if (item.buildQueue) {
+      if (isBuildItem(item)) {
         const lease = activeBuilds.get(current.directory);
         if (lease?.itemId === item.id) {
           lease.phase = 'running';
@@ -1018,7 +1024,7 @@ export function createMessageQueueRuntime({
     } catch (error) {
       // A timed-out or rejected prompt may nevertheless have been accepted.
       // Do not retry a build automatically: it could execute the same changes twice.
-      if (item.buildQueue && activeBuilds.get(current.directory)?.itemId === item.id) {
+      if (isBuildItem(item) && activeBuilds.get(current.directory)?.itemId === item.id) {
         const lease = activeBuilds.get(current.directory);
         lease.needsReview = true;
         lease.reviewReason = 'dispatch-failed';
@@ -1110,7 +1116,7 @@ export function createMessageQueueRuntime({
     if (!queue || !queue.items.some((item) => item.id === itemId)) {
       return { revision, session: sessionSnapshot(sessionId) };
     }
-    const wasBuild = queue.items.some(item => item.id === itemId && item.buildQueue);
+    const wasBuild = queue.items.some(item => item.id === itemId && isBuildItem(item));
     setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id !== itemId));
     const updated = commit(sessionId);
     if (wasBuild) wakeProject(queue.directory);
@@ -1125,7 +1131,7 @@ export function createMessageQueueRuntime({
     const queue = queues.get(sessionId);
     const item = queue?.items.find((entry) => entry.id === itemId);
     if (!queue || !item) throw httpError('queued message not found', 404);
-    if (item.scheduledTask || item.buildQueue) throw httpError('managed queued builds cannot be taken', 409);
+    if (item.scheduledTask || isBuildItem(item)) throw httpError('managed queued builds cannot be taken', 409);
     setQueueItems(sessionId, queue.directory, queue.items.filter((entry) => entry.id !== itemId));
     return { ...commit(sessionId), item };
   };
@@ -1151,7 +1157,7 @@ export function createMessageQueueRuntime({
     await load();
     const queue = queues.get(sessionId);
     if (!queue) return { revision, session: sessionSnapshot(sessionId) };
-    if (queue.items.some(item => item.buildQueue)) throw httpError('Use the project build queue to reorder builds', 409);
+    if (queue.items.some(isBuildItem)) throw httpError('Use the project build queue to reorder builds', 409);
     const byId = new Map(queue.items.map((item) => [item.id, item]));
     if (itemIds.length !== byId.size || new Set(itemIds).size !== itemIds.length || itemIds.some((id) => !byId.has(id))) {
       throw new TypeError('itemIds must list every queued message exactly once');

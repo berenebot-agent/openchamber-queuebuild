@@ -916,6 +916,44 @@ describe('message queue runtime', () => {
 });
 
 describe('project-wide build queue', () => {
+  it('ignores an item flagged as a build by a non-Build session', async () => {
+    // A Plan session whose prompt was flagged before the composer gated on the
+    // session's own agent must not surface as a project build.
+    const { runtime, openCode } = createRuntime({ settingsFilePath: path.join(makeDataDir(), 'settings.json') });
+    await runtime.enqueue(SESSION, DIRECTORY, item({
+      buildQueue: true,
+      sendConfig: { providerID: 'anthropic', modelID: 'claude', agent: 'plan' },
+    }));
+    await settle(80);
+
+    // Absent from the build queue, and never sent the build preamble, though it
+    // still dispatches as the ordinary queued message it is.
+    expect(runtime.buildSnapshot().queued).toHaveLength(0);
+    expect(openCode.state.sent.some(call => call.path.endsWith('/synthetic'))).toBe(false);
+    expect(openCode.state.sent.some(call => call.path.endsWith('/prompt'))).toBe(true);
+
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('treats a build flagged by a non-Build session as an ordinary message', async () => {
+    // The same item must be takeable, and must not hold the session's own
+    // reorder, which only managed builds do.
+    const { runtime } = createRuntime({ settingsFilePath: path.join(makeDataDir(), 'settings.json') });
+    await runtime.enqueue(SESSION, DIRECTORY, item({
+      buildQueue: true,
+      sendConfig: { providerID: 'anthropic', modelID: 'claude', agent: 'plan' },
+    }));
+    await runtime.setHold(SESSION, true);
+
+    await runtime.reorder(SESSION, [runtime.sessionSnapshot(SESSION).items[0].id]);
+    const taken = await runtime.take(SESSION, runtime.sessionSnapshot(SESSION).items[0].id);
+    expect(taken.item.content).toBe('follow up');
+
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('uses the explicit continue policy even when the legacy requirement is on', async () => {
     const settingsFilePath = path.join(makeDataDir(), 'settings.json');
     fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue', buildQueueRequireCleanGit: true }));
