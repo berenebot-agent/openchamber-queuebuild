@@ -63,10 +63,10 @@ function RunSidebarRowComponent({
 }: Props): React.ReactNode {
   const { t } = useI18n();
   const isActive = useUIStore((state) => state.runOverviewKey === run.key);
-  const isTimelineRow = isTwoLineTimelineContext(renderContext);
-  // Only In work and Recent mix projects; under a project header the row needs no icon.
+  const isTimelineRow = isTwoLineTimelineContext(renderContext) || renderContext === 'timeline-work';
+  // In work mixes projects; under a project header the row needs no icon.
   const timelineProject = useProjectsStore(React.useCallback((state) => (
-    renderContext === 'timeline-mixed' && projectId ? state.projects.find((entry) => entry.id === projectId) ?? null : null
+    renderContext === 'timeline-work' && projectId ? state.projects.find((entry) => entry.id === projectId) ?? null : null
   ), [renderContext, projectId]));
   const laneCount = run.lanes.length;
   const laneCountLabel = laneCount === 1
@@ -89,11 +89,13 @@ function RunSidebarRowComponent({
         onClick={openOverview}
         style={{ paddingInlineStart: TIMELINE_ROW_LEFT_PX }}
         className={cn(
-          'group relative my-0.5 flex w-full cursor-pointer items-center rounded-md py-1.5 pe-2.5 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'group relative my-0.5 flex w-full cursor-pointer items-center rounded-md pe-2.5 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'py-1',
           isActive ? 'bg-interactive-selection/70 text-interactive-selection-foreground' : 'hover:bg-interactive-hover/60',
         )}
       >
         <SessionTimelineRowBody
+          compact
           project={timelineProject}
           projectLabel={projectLabel}
           title={run.title}
@@ -111,7 +113,7 @@ function RunSidebarRowComponent({
           directoryIndicator={null}
           prBadge={null}
           zombieIndicator={null}
-          badges={<ProviderLogos providerIDs={run.providerIDs} ringClass="ring-sidebar opacity-60" />}
+          badges={<span className="inline-flex items-center gap-1"><span className="typography-micro text-muted-foreground/50">{laneCountLabel}</span><ProviderLogos providerIDs={run.providerIDs} ringClass="ring-sidebar opacity-60" /></span>}
           hideMetaOnHoverClass=""
         />
       </button>

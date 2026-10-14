@@ -89,7 +89,7 @@ describe('buildSessionSidebarRowModel', () => {
     const sessionRows = model.rows.flatMap((row) => (row.kind === 'session' ? [`${row.renderContext}:${row.node.session.id}`] : []));
 
     expect(model.rows[0]).toMatchObject({ kind: 'activity-header', activityKey: 'work' });
-    expect(sessionRows).toEqual(['timeline-mixed:working', 'project:other', 'project:working']);
+    expect(sessionRows).toEqual(['timeline-work:working', 'project:other', 'project:working']);
     expect(model.selectionEntries.filter((entry) => entry.id === 'working')).toHaveLength(2);
     expect(new Set(model.rows.map((row) => row.key)).size).toBe(model.rows.length);
   });
@@ -103,7 +103,7 @@ describe('buildSessionSidebarRowModel', () => {
     const rows = buildSessionSidebarRowModel(input).rows.filter((row) => row.kind === 'folder-header' || row.kind === 'session');
 
     expect(rows.map((row) => (row.kind === 'session' ? `${row.renderContext}:${row.node.session.id}` : row.displayName))).toEqual([
-      'timeline-mixed:in-folder', 'Outer', 'project:in-folder', 'project:top-level',
+      'timeline-work:in-folder', 'Outer', 'project:in-folder', 'project:top-level',
     ]);
   });
 
@@ -143,7 +143,7 @@ describe('buildSessionSidebarRowModel', () => {
     const sessions = rows.flatMap((row) => (row.kind === 'session' ? [`${row.renderContext}:${row.node.session.id}`] : []));
 
     expect(headers).toEqual(['work', 'project-a']);
-    expect(sessions).toEqual(['timeline-mixed:working', 'timeline:working', 'timeline:other']);
+    expect(sessions).toEqual(['timeline-work:working', 'timeline:working', 'timeline:other']);
   });
 
   test('timeline reveals seven sessions per project, seven more per Show more', () => {
@@ -586,7 +586,7 @@ describe('buildSessionSidebarRowModel', () => {
         timelineItem('lane-2', { blockingBadgeSessionScopes: [{ directory: '/repo', sessionIDs: ['lane-2'] }] }),
       ];
       input.workSessionIds = new Set(['lane-1', 'lane-2']);
-      input.expandedParents = new Set([runExpansionKey('timeline-mixed', runKey)]);
+      input.expandedParents = new Set([runExpansionKey('timeline-work', runKey)]);
       const rows = buildSessionSidebarRowModel(input).rows;
       const run = rows.find((row) => row.kind === 'run');
 

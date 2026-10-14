@@ -205,8 +205,8 @@ default) shows it. With the zone hidden its sessions stay in their projects.
 in its project group and folders, in both views, so it appears in two places.
 Search lists it once, in the work block. Chats are never in work
 and offer no Track action. An empty zone is not rendered. Rows use
-`renderContext: 'timeline-mixed'` in both views: two lines, the project's icon
-before the branch, never expanded, with subsessions feeding the badges. Search
+`renderContext: 'timeline-work'` in both views: compact one-line rows with the
+project's icon beside the title, never expanded, with subsessions feeding the badges. Search
 keeps a root whose subsession matches (`sessionTreeMatchesSidebarQuery`): those
 subsessions are nowhere else in the sidebar. The zone counts only sessions that match
 themselves (`countSessionTreeQueryMatches`), and a group subtracts the trees
@@ -279,8 +279,8 @@ toggles, then Collapse all / Expand all.
   (`timelineProjectContainerKey`); collapsing it, from its header or Collapse
   all, forgets that state, so expanding starts from 7 again. A project without
   sessions shows its load status, or nothing under its header.
-- Timeline rows carry `renderContext: 'timeline'` (under a project) or
-  `'timeline-mixed'` (In work), depth 0 and empty children. They
+- Timeline rows carry `renderContext: 'timeline'` (under a project), depth 0
+  and empty children. They
   never expand, show no chevron, no folders and no worktree groups. Folders are
   not projected, so the row menu hides `Move to folder`. Their archive/delete
   actions still cover the full subtree, because `collectSessionSubtreeIds`
@@ -297,17 +297,15 @@ toggles, then Collapse all / Expand all.
   shows the branch, using the live
   project root branch for root-directory sessions and the worktree branch
   otherwise.
-- A timeline row has two lines of fixed height (20px and 16px); the second is
-  rendered even when empty, so rows without a branch match their neighbours
-  and nothing shifts when a branch or badge arrives. The first holds the title and, on the right,
-  the action indicator, pin, done hint, status icon and time (the elapsed
-  counter during a turn); hover actions cover that cluster. The second line
-  holds the branch (or the space's name) and ends with the state cluster: goal
-  glyph, PR (or the zombie warning), permission/question badges, provider
-  logo. In `timeline-mixed` rows it opens with the project's icon, which names
-  the project for assistive tech and on hover. The goal sits on the second line
-  because hover actions cover the first line's meta and the running counter
-  owns it during a turn.
+- Desktop project-list and In work rows are compact single-line rows. The title
+  shares its line with the goal, permission/question badges, PR (or zombie
+  warning), provider logo, action indicator, pin, done hint, activity and time.
+  Hover actions overlay the same line without changing the row height. Branch
+  and space labels remain available in the whole-row tooltip. In work puts the
+  project icon beside the title; the mark names the project for assistive tech
+  and on hover. Rename and multi-run rows keep the same compact geometry, and
+  the virtualizer uses the single-line estimate for these rows. The phone's
+  separate renderer retains its two-line layout.
 - Search filters the timeline's projects with the same rule as In work (exact
   `ses_` id, else title contains), lists every match without reveal limits,
   hides projects without matches, and counts one match per listed row.

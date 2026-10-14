@@ -404,14 +404,12 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
       return project.label?.trim() || formatDirectoryName(normalizePath(project.path) ?? project.path, null) || project.path;
     }, [projectId, secondaryMeta?.projectLabel]),
   );
-  const isTimelineRow = isTwoLineTimelineContext(renderContext) || renderContext === 'timeline-chat';
-  const isTimelineChatRow = renderContext === 'timeline-chat';
-  // Timeline rows in In work and Recent show the project's own icon; the row
-  // reads exactly that one project record, and `find` keeps the reference
-  // stable between renders.
+  const isTimelineRow = isTwoLineTimelineContext(renderContext) || renderContext === 'timeline-chat' || renderContext === 'timeline-work';
+  // Mixed-project rows show the project's own icon; `find` keeps the project
+  // reference stable between renders.
   const timelineProject = useProjectsStore(
     React.useCallback((state) => {
-      if (renderContext !== 'timeline-mixed' || !projectId) return null;
+      if (renderContext !== 'timeline-work' || !projectId) return null;
       return state.projects.find((entry) => entry.id === projectId) ?? null;
     }, [renderContext, projectId]),
   );
@@ -917,12 +915,12 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
           style={{ paddingInlineStart: TIMELINE_ROW_LEFT_PX }}
           className={cn(
             'oc-ref-tint-scope group relative my-0.5 flex items-center rounded-md pe-2.5',
-            isTimelineChatRow ? 'py-1' : 'py-1.5',
+            'py-1',
             isActive && 'bg-interactive-selection/70 text-interactive-selection-foreground',
           )}
         >
           <SessionTimelineRowBody
-            compact={isTimelineChatRow}
+            compact
             project={timelineProject}
             projectLabel={tooltipProjectLabel}
             title={renameForm}
@@ -982,9 +980,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   // is how far the actions reach in from the row content's right edge: their
   // width less the 6px they sit nearer the row edge (16px buttons, 20px on
   // two-line timeline rows, 2px apart).
-  const actionsReserveClass = isTimelineRow && !isTimelineChatRow
-    ? ['[--oc-actions-reserve:14px]', '[--oc-actions-reserve:36px]', '[--oc-actions-reserve:58px]', '[--oc-actions-reserve:80px]'][extraHoverActions]
-    : ['[--oc-actions-reserve:10px]', '[--oc-actions-reserve:28px]', '[--oc-actions-reserve:46px]', '[--oc-actions-reserve:64px]'][extraHoverActions];
+  const actionsReserveClass = ['[--oc-actions-reserve:10px]', '[--oc-actions-reserve:28px]', '[--oc-actions-reserve:46px]', '[--oc-actions-reserve:64px]'][extraHoverActions];
   // An open row menu (dropdown or right-click) keeps the actions shown, so
   // what they cover gives way too, hover or not.
   const actionsMaskClass = alwaysShowActions
@@ -1545,9 +1541,9 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
 
   // Three-line timeline rows are taller, so their hover actions step up one
   // size to match the metadata they replace (the pin marker, the dot, the time).
-  const actionButtonSizeClass = alwaysShowActions ? 'h-6 w-6' : isTimelineRow && !isTimelineChatRow ? 'h-5 w-5' : 'h-4 w-4';
-  const actionIconSizeClass = alwaysShowActions ? 'h-3.5 w-3.5' : isTimelineRow && !isTimelineChatRow ? 'h-3 w-3' : 'h-2.5 w-2.5';
-  const checkIconSizeClass = alwaysShowActions ? 'h-4 w-4' : isTimelineRow && !isTimelineChatRow ? 'h-3.5 w-3.5' : 'h-3 w-3';
+  const actionButtonSizeClass = alwaysShowActions ? 'h-6 w-6' : 'h-4 w-4';
+  const actionIconSizeClass = alwaysShowActions ? 'h-3.5 w-3.5' : 'h-2.5 w-2.5';
+  const checkIconSizeClass = alwaysShowActions ? 'h-4 w-4' : 'h-3 w-3';
 
   // The recap of the last turn, for the whole-row tooltip, under the same
   // freshness rule the chat uses.
@@ -1624,7 +1620,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   // one-line form, with the session's live state and time on the right.
   const rowBody = (
     <SessionTimelineRowBody
-      compact={!isTwoLineTimelineContext(renderContext)}
+      compact
       project={timelineProject}
       projectLabel={tooltipProjectLabel}
       title={renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
@@ -1748,7 +1744,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   'oc-ref-tint-scope group relative my-0.5 flex cursor-pointer items-center rounded-md pe-2.5',
                   !isTimelineRow && 'gap-1.5',
                   // Tree rows sit a little tighter than the timeline's.
-                  isTimelineRow ? (isTimelineChatRow ? 'py-1' : 'py-1.5') : 'py-[3px]',
+                  isTimelineRow ? 'py-1' : 'py-[3px]',
                   !(isActive || isRowSelected) && 'hover:bg-interactive-hover/60',
                   (isActive || isRowSelected) && 'bg-interactive-selection/70 text-interactive-selection-foreground',
                   isRowSelected && 'ring-1 ring-inset ring-border',
@@ -1850,7 +1846,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
             // row's vertical centre.
             // Three-line rows: the row's 6px top padding plus the fixed 20px
             // first line, so the 20px buttons cover that line exactly.
-            isTimelineRow && !isTimelineChatRow ? 'top-1.5 h-5' : 'top-1/2 -translate-y-1/2',
+            'top-1/2 -translate-y-1/2',
             isSessionMenuOpen
               ? 'opacity-100'
               : (alwaysShowActions && !isVSCode)

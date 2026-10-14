@@ -93,8 +93,8 @@ const TimelineProjectIcon: React.FC<{ project: TimelineRowProject; label: string
 };
 
 // Two lines: the title with the session's live state and time, then the
-// branch and pull-request state. The project header above names the project;
-// in In work and Recent, where projects mix, its icon opens the second line.
+// branch and pull-request state. Mixed-project compact rows show the project
+// mark beside the title instead.
 export const SessionTimelineRowBody: React.FC<Props> = ({
   compact = false,
   project,
@@ -125,6 +125,8 @@ export const SessionTimelineRowBody: React.FC<Props> = ({
   const meta = <span className={cn('ms-auto flex flex-shrink-0 items-center gap-1 transition-opacity', metaPaddingClass, hideMetaOnHoverClass)}>
     {compact ? goal : null}
     {compact ? badges : null}
+    {compact ? zombieIndicator ?? prBadge : null}
+    {compact && providerId ? <ProviderLogo providerId={providerId} className="h-3 w-3 flex-shrink-0 opacity-45" /> : null}
     {directoryIndicator}
     {pinnedMarker}
     {doneHint}
@@ -136,6 +138,7 @@ export const SessionTimelineRowBody: React.FC<Props> = ({
   );
   if (compact) {
     return <div className={cn('@container relative flex w-full min-w-0 items-center gap-1', actionsReserveClass)}>
+      {project ? <TimelineProjectIcon project={project} label={projectLabel} /> : null}
       {titleLine}
       {meta}
     </div>;

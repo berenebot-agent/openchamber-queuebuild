@@ -9,7 +9,7 @@ let root: Root;
 const descriptors = new Map<string, PropertyDescriptor | undefined>();
 beforeEach(() => {
   browser = new Window({ url: 'http://localhost' });
-  for (const [key, value] of Object.entries({ window: browser, document: browser.document, navigator: browser.navigator, HTMLElement: browser.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
+  for (const [key, value] of Object.entries({ window: browser, document: browser.document, navigator: browser.navigator, Element: browser.Element, HTMLElement: browser.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) {
     descriptors.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { value, configurable: true });
   }
@@ -54,3 +54,25 @@ for (const compact of [true, false]) {
     expect(element?.getAttribute('dir')).toBe('auto');
   });
 }
+
+test('a compact mixed-project row keeps its project mark beside the title', async () => {
+  await act(async () => root.render(<SessionTimelineRowBody
+    compact
+    project={{ id: 'project-a' }}
+    projectLabel="Project A"
+    title={title}
+    titleClassName=""
+    branchLabel={null}
+    statusDot={null}
+    pinnedMarker={null}
+    timeSlot="1m"
+    directoryIndicator={null}
+    prBadge={null}
+    zombieIndicator={null}
+    badges={null}
+    hideMetaOnHoverClass=""
+  />));
+  const projectMark = document.querySelector('[aria-label="Project A"]');
+  expect(projectMark).not.toBeNull();
+  expect(projectMark?.parentElement?.textContent).toContain(title);
+});
