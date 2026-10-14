@@ -56,6 +56,15 @@ After a successful build, open `http://localhost:3000`. Persist the included `./
 
 ## What you can do with OpenChamber
 
+### Work board in this fork
+
+Open **Work board** from the session sidebar to see To-do, Plan, Queued,
+Building, and Done columns. Use **Save to To-do** in the composer to save text
+and files without starting an LLM. **Start Plan** creates a planning session
+from the saved brief. The Build queue remains available inside chats.
+See the [work board guide](docs/WORK_BOARD.md) for promotion, recovery, and
+supported interfaces.
+
 ### Goals that continue on their own
 
 Give a session a finish line with **Session Goals**. OpenChamber checks the result after every turn and keeps the agent working until it completes the goal, gets blocked, or reaches the limit you set. It can continue after you close the app.

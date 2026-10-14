@@ -4,6 +4,11 @@
 
 `packages/ui/src/stores` contains app-level Zustand stores for persistent UI state, runtime state, and feature caches.
 
+The fork's work board uses `useUIStore.isWorkBoardOpen` for its full-page
+navigation alongside the source board and archive. Opening another main page or
+selecting a chat closes it. The open flag is not persisted. Card contents live
+in the server work-board module; `lib/workBoardApi.ts` parses their HTTP contract.
+
 Not all state in the UI belongs here.
 
 Use a store when state is:

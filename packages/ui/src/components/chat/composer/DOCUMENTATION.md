@@ -7,6 +7,17 @@ everything between typing and sending.
 own state and wires these modules together; it should not grow logic that
 belongs to one of them.
 
+## Save to To-do
+
+Web and desktop composers offer Save to To-do for text or file attachments.
+The action captures those contents in the server work board without creating
+an OpenCode session or calling a model. It clears only a composer whose runtime,
+draft identity, text, and files still match the captured save after acceptance.
+Edits made during a save stay in the composer. Linked reference chips and pinned
+project context are outside this capture; they remain in the composer.
+The dedicated mobile and VS Code composers do not offer this action.
+See `docs/WORK_BOARD.md` and `components/workBoard` for promotion and recovery.
+
 `ChatContainer.tsx` keeps one `ChatInput` mounted while a new-session draft
 becomes its first session. Draft-only UI first fades for 120ms while the editor
 stays in place. The parent then moves the editor to its final session position

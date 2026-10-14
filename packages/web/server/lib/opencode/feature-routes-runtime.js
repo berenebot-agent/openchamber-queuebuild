@@ -30,6 +30,8 @@ import { createProviderReadCache } from '../provider-read-cache/index.js';
 import { createTrackedItemReaders } from '../tracked-items/readers.js';
 import { createTrackedItemsPersistence } from '../tracked-items/persistence.js';
 import { registerTrackedItemsRoutes } from '../tracked-items/routes.js';
+import { createWorkBoardStore } from '../work-board/store.js';
+import { registerWorkBoardRoutes } from '../work-board/routes.js';
 import { registerOpenChamberSessionRoutes } from '../openchamber-sessions/routes.js';
 import { registerOpenChamberControlRoutes } from '../openchamber-control/routes.js';
 import { registerMarkdownImageGrantRoutes } from '../markdown-image-grants/routes.js';
@@ -262,6 +264,11 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       globalEventHub,
       openchamberVersion,
     } = routeDependencies;
+
+    registerWorkBoardRoutes(app, {
+      store: createWorkBoardStore({ dataDir: openchamberDataDir, fs: fsPromises }),
+      resolveProjectDirectory,
+    });
 
     registerSettingsUtilityRoutes(app, {
       readCustomThemesFromDisk,

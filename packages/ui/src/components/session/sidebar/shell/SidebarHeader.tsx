@@ -150,6 +150,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
   const toggleSelectionMode = useSessionMultiSelectStore((state) => state.toggleMode);
 
   const isSourceBoardOpen = useUIStore((state) => state.isSourceBoardOpen);
+  const isWorkBoardOpen = useUIStore((state) => state.isWorkBoardOpen);
   const isScheduledOpen = useUIStore((state) => state.isScheduledTasksDialogOpen);
   const isArchiveOpen = useUIStore((state) => state.isArchivePageOpen);
   const openGuestPageId = useUIStore((state) => state.openGuestPageId);
@@ -331,6 +332,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
               titlebar controls. */}
           <div className="ms-[3px] flex min-w-0 items-center gap-1.5">
             <div ref={builtinPagesRef} className="flex items-center gap-1.5">
+              {showSourceBoard ? (
+                <SidebarPageButton label={t('workBoard.title')} pressed={isWorkBoardOpen}
+                  onClick={() => useUIStore.getState().setWorkBoardOpen(!isWorkBoardOpen)} className={headerActionButtonClass}>
+                  <Icon name="route" className={headerActionIconClass} />
+                </SidebarPageButton>
+              ) : null}
               {showSourceBoard ? (
                 <SidebarPageButton
                   label={t('sourceBoard.title')}

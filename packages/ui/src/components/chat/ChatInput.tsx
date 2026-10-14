@@ -13,6 +13,9 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { prepareUserMessageResume } from '@/sync/user-message-resume';
 import { prepareLocalAttachments, useDraftAttachedFiles, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { createWorkBoardCard } from '@/lib/workBoardApi';
+import { Button } from '@/components/ui/button';
+import { captureWorkBoardAttachments } from '@/components/workBoard/workBoardWorkflow';
 import { openParallelComposer } from '@/lib/multirun/openParallelComposer';
 import { useParallelComposer } from './composer/parallel/useParallelComposer';
 import { ParallelComposerStrip } from './composer/parallel/ParallelComposerStrip';
@@ -1350,6 +1353,40 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             hasContent: currentMessage.trim().length > 0 || attachedFiles.length > 0 || hasDrafts || (!isBtwActive && hasLinkedReferences),
         };
     }, [attachedFiles.length, hasDrafts, hasLinkedReferences, isBtwActive]);
+
+    const [savingTodo, setSavingTodo] = React.useState(false);
+    const saveToTodo = React.useCallback(async () => {
+        if (savingTodo || !chatDraftIdentity) return;
+        const draft = getCurrentInputSnapshot().message;
+        if (!draft.trim() && !attachedFiles.length) return;
+        const identityKey = getChatDraftIdentityKey(chatDraftIdentity);
+        const runtime = getRuntimeKey();
+        const files = captureWorkBoardAttachments(attachedFiles);
+        const projectsState = useProjectsStore.getState();
+        const sourceDirectory = currentSessionDirectoryForSync ?? currentDirectory;
+        const project = newSessionDraftOpen
+            ? projectsState.projects.find(item => item.id === newSessionDraft.selectedProjectId)
+            : projectsState.projects.filter(item => sourceDirectory === item.path || sourceDirectory?.startsWith(item.path + '/')
+                || useSessionUIStore.getState().availableWorktreesByProject.get(item.path)?.some(worktree => worktree.path === sourceDirectory))
+                .sort((left, right) => right.path.length - left.path.length)[0];
+        if (!project) { toast.error(t('workBoard.noProject')); return; }
+        setSavingTodo(true);
+        try {
+            await createWorkBoardCard(project.path, draft, files);
+            const currentIdentity = currentChatDraftIdentityRef.current;
+            if (runtime !== getRuntimeKey() || !currentIdentity || identityKey !== getChatDraftIdentityKey(currentIdentity)) return;
+            // Keep edits made while the save was in flight in the composer.
+            const currentFiles = useInputStore.getState().attachedFiles;
+            if (getCurrentInputSnapshot().message === draft && currentFiles.length === files.length
+                && currentFiles.every((file, index) => file.id === files[index].id)) {
+                setMessage('');
+                clearAttachedFiles(chatDraftIdentity);
+            }
+            toast.success(t('workBoard.saved'));
+        } catch (cause) {
+            toast.error(cause instanceof Error ? cause.message : t('workBoard.failed'));
+        } finally { setSavingTodo(false); }
+    }, [savingTodo, chatDraftIdentity, attachedFiles, getCurrentInputSnapshot, newSessionDraftOpen, newSessionDraft.selectedProjectId, currentDirectory, currentSessionDirectoryForSync, clearAttachedFiles, t]);
 
     // Keep a ref to handleSubmit so callbacks don't depend on it.
     type SubmitOptions = {
@@ -4005,8 +4042,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ) : null;
     // Null exactly when the suggestion row alone would have been: the mobile
     // pill picks its shape from whether a top row exists.
-    const composerTopRows = worktreeSetupRow || spaceWaitRow || goalRow || autoReviewRow || backgroundShellsRow || revertRow || buildQueueRow || queueRow || doneHintRow || reviewHintRow || suggestionRow ? (
+    const todoRow = !isVSCode && !isMobile && !isBtwActive && (message.trim() || attachedFiles.length) ? (
+        <div className="flex justify-end border-b border-border/60 px-3 py-1">
+            <Button type="button" size="xs" variant="ghost" disabled={savingTodo} onClick={() => void saveToTodo()}>
+                <Icon name="todo" className="size-3.5" />{t('workBoard.saveTodo')}
+            </Button>
+        </div>
+    ) : null;
+    const composerTopRows = todoRow || worktreeSetupRow || spaceWaitRow || goalRow || autoReviewRow || backgroundShellsRow || revertRow || buildQueueRow || queueRow || doneHintRow || reviewHintRow || suggestionRow ? (
         <>
+            {todoRow}
             {worktreeSetupRow}
             {spaceWaitRow}
             {goalRow}
