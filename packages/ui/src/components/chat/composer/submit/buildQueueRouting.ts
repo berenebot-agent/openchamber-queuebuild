@@ -27,7 +27,7 @@ export interface BuildQueueSubmitFacts {
     message: string;
     /** A queue-only submit is already queue work. */
     queuedOnly: boolean;
-    /** A steer targets the running turn instead of the queue. */
+    /** A steer must not bypass a project-managed Build queue. */
     hasDelivery: boolean;
 }
 
@@ -36,7 +36,6 @@ export const shouldQueueBuildPrompt = (facts: BuildQueueSubmitFacts): boolean =>
     && facts.inputMode === 'normal'
     && !facts.isBtwActive
     && !facts.queuedOnly
-    && !facts.hasDelivery
     && facts.directoryEnabled
     && facts.hasContent
     && facts.agentName?.toLowerCase() === 'build'
