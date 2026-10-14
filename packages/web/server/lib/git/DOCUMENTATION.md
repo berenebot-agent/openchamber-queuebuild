@@ -92,11 +92,17 @@ lockfiles, editor settings or general build directories. Existing repositories
 retain their ignore rules unchanged. Ignore rules do not exclude tracked files.
 
 The helper refuses conflicts and unfinished merge, rebase, revert or cherry-pick
-operations. Staging includes additions, modifications and deletions within the
-queued project directory. A subdirectory project refuses pre-existing staged
-paths outside its scope. It never unstages unrelated work to make a commit.
-The final cleanliness check covers the repository, so changes outside the
-project or dirty submodules can still pause admission.
+operations. The helper **does not stage files**. It commits only the files
+already selected in the Git index, which must be explicitly staged by the
+user or the preceding agent. Staged additions, modifications, and deletions
+are supported; unstaged or untracked changes anywhere in the repository
+block preparation. A subdirectory project refuses pre-existing staged paths
+outside its scope. It never unstages unrelated work to make a commit.
+The helper blocks common sensitive filenames (including `.env`, key stores,
+private keys and credential paths) and obvious private-key/token signatures
+in staged diffs before contacting the model. Pattern checks cannot detect
+all secrets; review staged content before enabling automatic commits.
+The final cleanliness check still covers the whole repository.
 
 OpenCode receives a staged summary capped at 24,000 characters and a staged diff
 capped at 120,000 characters, with external diff programs and text conversions
@@ -113,8 +119,7 @@ switch, push, reset, stash or hook bypass occurs.
 
 Failures keep all files and staged work. A completed commit followed by remaining
 changes is reported explicitly and pauses the queue. A removed or paused queued
-item cancels further preparation before the next command. Git initialization,
-staging and commits already completed are retained. The helper verifies the
+item cancels further preparation before the next command. Git initialization and commits already completed are retained. The helper verifies the
 working tree after committing and creates no empty commits when already clean.
 
 `queued-build.test.js` uses disposable repositories and a text-generation seam
