@@ -35,11 +35,16 @@ describe('shouldQueueBuildPrompt', () => {
         expect(shouldQueueBuildPrompt(facts({ directoryEnabled: false }))).toBe(false);
     });
 
-    test('does not intercept shell mode, BTW, queue-only or steer submits', () => {
+    test('does not intercept shell mode, BTW or queue-only submits', () => {
         expect(shouldQueueBuildPrompt(facts({ inputMode: 'shell' }))).toBe(false);
         expect(shouldQueueBuildPrompt(facts({ isBtwActive: true }))).toBe(false);
         expect(shouldQueueBuildPrompt(facts({ queuedOnly: true }))).toBe(false);
-        expect(shouldQueueBuildPrompt(facts({ hasDelivery: true }))).toBe(false);
+    });
+
+    test('does intercept steer submissions when Build queue is enabled', () => {
+        expect(shouldQueueBuildPrompt(facts({ hasDelivery: true }))).toBe(true);
+        expect(shouldQueueBuildPrompt(facts({ hasDelivery: true, agentName: 'plan' }))).toBe(false);
+        expect(shouldQueueBuildPrompt(facts({ hasDelivery: true, directoryEnabled: false }))).toBe(false);
     });
 
     test('needs something to send', () => {
