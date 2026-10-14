@@ -12,6 +12,29 @@ const ignoreRules = [
   'node_modules/', '.DS_Store', 'Thumbs.db', 'Desktop.ini',
 ];
 
+
+/**
+ * Automatic queue commits cannot know which unstaged files belong to an
+ * agent's completed turn. Use Git's index as the explicit selection instead
+ * of staging everything in the project, and never send obvious secrets to a
+ * commit-message model even when a user accidentally staged them.
+ */
+const sensitiveGitPath = (filename) => {
+  const normalized = filename.replace(/\\/g, '/').toLowerCase();
+  const parts = normalized.split('/');
+  const basename = parts.at(-1) ?? '';
+  if (parts.some(part => ['.ssh', '.aws', '.azure', '.kube', '.gnupg', '.secrets'].includes(part))) return true;
+  return /^\.env(?:\.|$)/.test(basename) && !/^\.env\.(?:example|sample|template)$/.test(basename)
+    || /^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|credentials(?:\..*)?|secrets?(?:\..*)?|\.npmrc|\.pypirc|\.netrc)$/.test(basename)
+    || /\.(?:pem|p12|pfx|key|keystore|jks|kdbx|tfstate|tfstate\.backup)$/.test(basename);
+};
+
+const sensitiveStagedContent = (diff) =>
+  /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/.test(diff)
+  || /(?:^|[^A-Za-z0-9])(?:ghp_|github_pat_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9_]{18,}/.test(diff)
+  || /\bAKIA[A-Z0-9]{16}\b/.test(diff)
+  || /\bsk-[A-Za-z0-9_-]{20,}\b/.test(diff);
+
 async function installIgnore(directory) {
   const filename = path.join(directory, '.gitignore');
   let before = null;
@@ -100,12 +123,27 @@ export async function prepareQueuedBuild({ directory, run, generateMessage, onPr
   }
   await execute(root, ['var', 'GIT_AUTHOR_IDENT'], 'Git author inspection');
   onProgress('staging');
-  await execute(root, ['add', '-A', '--', scope], 'Staging');
+  // Never stage unrelated changes on the user's behalf. The index is the
+  // authoritative list the user or the previous agent explicitly selected.
+  if (stagedPaths.length === 0) {
+    throw new Error('No changes are staged. Stage only the intended files before retrying automatic commit preparation.');
+  }
+  if (stagedPaths.some(sensitiveGitPath)) {
+    throw new Error('Staged files include a sensitive path. Remove secrets or unstage those files before retrying.');
+  }
+  const unstagedPaths = (await execute(root, ['diff', '--name-only', '-z'], 'Unstaged file inspection')).split('\0').filter(Boolean);
+  const untrackedPaths = (await execute(root, ['ls-files', '--others', '--exclude-standard', '-z', '--', scope], 'Untracked file inspection')).split('\0').filter(Boolean);
+  if (unstagedPaths.length > 0 || untrackedPaths.length > 0) {
+    throw new Error('Unstaged or untracked project files remain. Stage only intended changes, or commit/stash unrelated work before retrying.');
+  }
   const files = await execute(root, ['diff', '--cached', '--stat'], 'Staged summary');
-  if (!files.trim()) throw new Error('Changes remain outside this project or inside a submodule. Commit them before continuing.');
+  if (!files.trim()) throw new Error('No staged changes in this project. Stage the intended files before retrying.');
   const tree = (await execute(root, ['write-tree'], 'Staged snapshot')).trim();
   const headBefore = await run(root, ['rev-parse', '--verify', 'HEAD']);
   const diff = await execute(root, ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--no-color'], 'Staged diff');
+  if (sensitiveStagedContent(diff)) {
+    throw new Error('Staged diff appears to contain secret material. Review and remove it before using a model to generate a commit message.');
+  }
   onProgress('generating');
   const message = (await generateMessage({ directory: project, summary: files.slice(0, 24000), diff: diff.slice(0, 120000) })).trim();
   if (!message || message.length > 4000 || message.includes('\0') || message.startsWith('```')) {
