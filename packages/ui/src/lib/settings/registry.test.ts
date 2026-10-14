@@ -22,6 +22,23 @@ import { renderSettingsRegistrySnapshot, SETTINGS_REGISTRY_SNAPSHOT_PATHS } from
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
 
 describe('settings registry', () => {
+  test('round-trips explicit build queue policies and keeps the legacy fallback marker', () => {
+    const original = useUIStore.getState().buildQueueGitPolicy;
+    try {
+      for (const policy of ['continue', 'commit', 'pause', null]) {
+        const parsed = parseSettingsDocument({ buildQueueGitPolicy: policy });
+        expect(parsed).toEqual({ buildQueueGitPolicy: policy });
+        if (!parsed) throw new Error('Expected parsed queue policy');
+        applySettingsToStores(parsed);
+        expect(useUIStore.getState().buildQueueGitPolicy).toBe(policy);
+        expect(readAutoSaveSnapshot().buildQueueGitPolicy).toBe(policy);
+      }
+      expect(parseSettingsDocument({ buildQueueGitPolicy: 'automatic' })).toEqual({});
+      expect(parseSettingsDocument({ buildQueueGitPolicy: true })).toEqual({});
+    } finally {
+      useUIStore.setState({ buildQueueGitPolicy: original });
+    }
+  });
   test('round-trips all large text paste modes through settings and local persistence', async () => {
     const options = useUIStore.persist.getOptions();
     const original = useUIStore.getState();

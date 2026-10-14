@@ -13,6 +13,7 @@ import { configureProjectStartCommandSource } from '../opencode/project-start-co
 
 import {
   configureGitEnvironment,
+  prepareBuildCommit,
   getCurrentIdentity,
   checkoutBranch,
   checkoutCommit,
@@ -141,6 +142,36 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe('queued build commit service', () => {
+  it('uses the configured repository author and serializes manual staging during generation', async () => {
+    const directory = createTempDir();
+    runGit(directory, ['init']);
+    runGit(directory, ['config', 'user.name', 'Queue Service Test']);
+    runGit(directory, ['config', 'user.email', 'queue-service@example.test']);
+    fs.writeFileSync(path.join(directory, 'source.txt'), 'source\n');
+    let release;
+    let entered;
+    const generating = new Promise(resolve => { entered = resolve; });
+    const message = new Promise(resolve => { release = resolve; });
+    const preparation = prepareBuildCommit(directory, {
+      isCurrent: () => true,
+      onProgress: () => {},
+      generateMessage: async () => { entered(); return message; },
+    });
+    await generating;
+    let manualCompleted = false;
+    const manual = stageFiles(directory, ['source.txt']).then(() => { manualCompleted = true; });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(manualCompleted).toBe(false);
+    release('Save project source');
+    const result = await preparation;
+    await manual;
+    expect(result.subject).toBe('Save project source');
+    expect(runGit(directory, ['log', '-1', '--format=%an <%ae>']).trim()).toBe('Queue Service Test <queue-service@example.test>');
+    expect(runGit(directory, ['status', '--porcelain'])).toBe('');
+  });
 });
 
 // Tests must not depend on developer-machine git state. A global

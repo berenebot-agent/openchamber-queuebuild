@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'Preparando alterações do projeto...',
+  'settings.openchamber.buildQueue.policy.generating': 'Gerando mensagem de commit com OpenCode...',
+  'settings.openchamber.buildQueue.policy.committing': 'Fazendo commit das alterações do projeto...',
+  'settings.openchamber.buildQueue.policy.title': 'Comportamento da fila',
+  'settings.openchamber.buildQueue.policy.scope': 'Aplica-se a todas as filas de compilação dos projetos a partir da próxima preparação.',
+  'settings.openchamber.buildQueue.policy.continue': 'Permitir continuar',
+  'settings.openchamber.buildQueue.policy.commit': 'Commit direto com modelo',
+  'settings.openchamber.buildQueue.policy.pause': 'Pausar fila',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Inicia compilações sem verificar o Git nem criar commits.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'Faz commit automático de todas as alterações do projeto com uma mensagem gerada pelo OpenCode, sem confirmação. Inicializa o Git com regras padrão de exclusão se necessário. Preserva as regras existentes; segredos já rastreados continuam incluídos.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Aguarda uma árvore de trabalho Git limpa e retoma automaticamente. Pastas sem Git permanecem pausadas.',
+  'settings.openchamber.buildQueue.policy.preparing': 'Preparando o Git para a próxima compilação...',
+  'settings.openchamber.buildQueue.policy.retry': 'Tentar preparação novamente',
   'settings.sourceControl.ssh.title': 'Chaves SSH',
   'settings.sourceControl.ssh.load': 'Mostrar chaves',
   'settings.sourceControl.ssh.discover': 'Procurar chaves em ~/.ssh',

@@ -12,6 +12,7 @@ import { fingerprintRemoteUrl } from '../source-control/url-redaction.js';
 import { readWorktreeDirectorySetting } from '../opencode/shared.js';
 import { readProjectStartCommand } from '../opencode/project-start-command.js';
 import { normalizeGitOutputPath } from './output-path.js';
+import { prepareQueuedBuild } from './queued-build.js';
 import { overlayEnvironment } from '../environment/variables.js';
 import { primaryWorktreeRootFromGitDir, unsupportedRepositoryRootReason } from './repository-root.js';
 import { randomUUID } from 'crypto';
@@ -4194,6 +4195,18 @@ export async function unstageFiles(directory, paths) {
       await git.raw(['reset', 'HEAD', '--', ...repoPaths]);
     });
   });
+}
+
+export async function prepareBuildCommit(directory, options) {
+  return withGitIndexMutationQueue(directory, () => prepareQueuedBuild({
+    ...options,
+    directory,
+    run: async (cwd, args) => {
+      const env = await buildGitEnv(cwd);
+      if (args[0] === 'rev-parse') env.LC_ALL = 'C';
+      return runGitCommand(cwd, args, { env, timeoutMs: 60000 });
+    },
+  }));
 }
 
 export async function commit(directory, message, options = {}) {

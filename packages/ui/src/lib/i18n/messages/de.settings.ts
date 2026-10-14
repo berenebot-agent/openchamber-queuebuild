@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'Projektänderungen werden vorgemerkt...',
+  'settings.openchamber.buildQueue.policy.generating': 'Commit-Nachricht wird mit OpenCode erzeugt...',
+  'settings.openchamber.buildQueue.policy.committing': 'Projektänderungen werden committet...',
+  'settings.openchamber.buildQueue.policy.title': 'Warteschlangenverhalten',
+  'settings.openchamber.buildQueue.policy.scope': 'Gilt für alle Projekt-Build-Warteschlangen. Änderungen gelten ab der nächsten Vorbereitung.',
+  'settings.openchamber.buildQueue.policy.continue': 'Fortfahren erlauben',
+  'settings.openchamber.buildQueue.policy.commit': 'Direkt mit Modell committen',
+  'settings.openchamber.buildQueue.policy.pause': 'Warteschlange pausieren',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Startet Builds ohne Git-Prüfung oder Commits.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'Committet alle Projektänderungen automatisch mit einer von OpenCode erzeugten Nachricht, ohne Bestätigung. Initialisiert bei Bedarf Git mit Standard-Ausschlussregeln. Bestehende Regeln bleiben unverändert; bereits versionierte Geheimnisse werden weiterhin aufgenommen.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Wartet auf einen sauberen Git-Arbeitsbaum und fährt dann automatisch fort. Ordner ohne Git bleiben pausiert.',
+  'settings.openchamber.buildQueue.policy.preparing': 'Git wird für den nächsten Build vorbereitet...',
+  'settings.openchamber.buildQueue.policy.retry': 'Vorbereitung wiederholen',
   'settings.sourceControl.ssh.title': 'SSH-Schlüssel',
   'settings.sourceControl.ssh.load': 'Schlüssel anzeigen',
   'settings.sourceControl.ssh.discover': 'Schlüssel in ~/.ssh suchen',

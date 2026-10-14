@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'Додавання змін проєкту до індексу...',
+  'settings.openchamber.buildQueue.policy.generating': 'Створення повідомлення коміту через OpenCode...',
+  'settings.openchamber.buildQueue.policy.committing': 'Коміт змін проєкту...',
+  'settings.openchamber.buildQueue.policy.title': 'Поведінка черги',
+  'settings.openchamber.buildQueue.policy.scope': 'Діє для всіх черг збірок проєктів із наступної підготовки.',
+  'settings.openchamber.buildQueue.policy.continue': 'Дозволити продовження',
+  'settings.openchamber.buildQueue.policy.commit': 'Коміт одразу за допомогою моделі',
+  'settings.openchamber.buildQueue.policy.pause': 'Призупинити чергу',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Запускає збірки без перевірки Git і створення комітів.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'Автоматично комітить усі зміни проєкту з повідомленням від OpenCode, без підтвердження. За потреби ініціалізує Git із типовими правилами ігнорування. Наявні правила зберігаються; вже відстежувані секрети залишаються включеними.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Чекає на чисте робоче дерево Git, потім автоматично продовжує. Папки без Git залишаються призупиненими.',
+  'settings.openchamber.buildQueue.policy.preparing': 'Підготовка Git до наступної збірки...',
+  'settings.openchamber.buildQueue.policy.retry': 'Повторити підготовку',
   'settings.sourceControl.ssh.title': 'SSH-ключі',
   'settings.sourceControl.ssh.load': 'Показати ключі',
   'settings.sourceControl.ssh.discover': 'Знайти ключі в ~/.ssh',

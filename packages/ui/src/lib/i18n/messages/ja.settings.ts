@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'プロジェクトの変更をステージしています...',
+  'settings.openchamber.buildQueue.policy.generating': 'OpenCode でコミットメッセージを生成しています...',
+  'settings.openchamber.buildQueue.policy.committing': 'プロジェクトの変更をコミットしています...',
+  'settings.openchamber.buildQueue.policy.title': 'キューの動作',
+  'settings.openchamber.buildQueue.policy.scope': 'すべてのプロジェクトのビルドキューに適用されます。変更は次の準備開始時から有効です。',
+  'settings.openchamber.buildQueue.policy.continue': '続行を許可',
+  'settings.openchamber.buildQueue.policy.commit': 'モデルで直接コミット',
+  'settings.openchamber.buildQueue.policy.pause': 'キューを一時停止',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Git の確認やコミット作成をせずにビルドを開始します。',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'OpenCode が生成したメッセージでプロジェクトの全変更を確認なしで自動コミットします。必要なら標準の除外ルールで Git を初期化します。既存の除外ルールは保持されますが、追跡済みの秘密情報は含まれます。',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Git の作業ツリーがクリーンになるまで待ち、自動再開します。Git のないフォルダーは停止したままです。',
+  'settings.openchamber.buildQueue.policy.preparing': '次のビルドのために Git を準備しています...',
+  'settings.openchamber.buildQueue.policy.retry': '準備を再試行',
   'settings.sourceControl.ssh.title': 'SSH キー',
   'settings.sourceControl.ssh.load': 'キーを表示',
   'settings.sourceControl.ssh.discover': '~/.ssh でキーを探す',

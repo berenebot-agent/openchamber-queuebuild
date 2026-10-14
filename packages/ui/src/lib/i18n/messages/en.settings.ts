@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'Staging project changes...',
+  'settings.openchamber.buildQueue.policy.generating': 'Generating a commit message with OpenCode...',
+  'settings.openchamber.buildQueue.policy.committing': 'Committing project changes...',
+  'settings.openchamber.buildQueue.policy.title': 'Queue behavior',
+  'settings.openchamber.buildQueue.policy.scope': 'Applies to all project build queues. Changes apply before the next preparation starts.',
+  'settings.openchamber.buildQueue.policy.continue': 'Allow continue',
+  'settings.openchamber.buildQueue.policy.commit': 'Commit directly using model',
+  'settings.openchamber.buildQueue.policy.pause': 'Pause queue',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Starts builds without checking Git or creating commits.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'Automatically commits all project changes with an OpenCode-generated message, without confirmation. Initializes Git with default ignore rules if needed. Existing ignore rules remain unchanged; tracked secrets are still included.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Waits for a clean Git working tree, then resumes automatically. Folders without Git stay paused.',
+  'settings.openchamber.buildQueue.policy.preparing': 'Preparing Git for the next build...',
+  'settings.openchamber.buildQueue.policy.retry': 'Retry preparation',
   'settings.sourceControl.ssh.title': 'SSH keys',
   'settings.sourceControl.ssh.load': 'Show keys',
   'settings.sourceControl.ssh.discover': 'Find keys in ~/.ssh',

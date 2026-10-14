@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': '프로젝트 변경 사항 스테이징 중...',
+  'settings.openchamber.buildQueue.policy.generating': 'OpenCode로 커밋 메시지 생성 중...',
+  'settings.openchamber.buildQueue.policy.committing': '프로젝트 변경 사항 커밋 중...',
+  'settings.openchamber.buildQueue.policy.title': '대기열 동작',
+  'settings.openchamber.buildQueue.policy.scope': '모든 프로젝트 빌드 대기열에 적용됩니다. 변경 사항은 다음 준비 시작부터 적용됩니다.',
+  'settings.openchamber.buildQueue.policy.continue': '계속 진행 허용',
+  'settings.openchamber.buildQueue.policy.commit': '모델로 바로 커밋',
+  'settings.openchamber.buildQueue.policy.pause': '대기열 일시 중지',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Git 확인이나 커밋 생성 없이 빌드를 시작합니다.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'OpenCode가 생성한 메시지로 모든 프로젝트 변경 사항을 확인 없이 자동 커밋합니다. 필요하면 기본 제외 규칙으로 Git을 초기화합니다. 기존 제외 규칙은 유지되며 이미 추적 중인 비밀 정보는 포함됩니다.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Git 작업 트리가 깨끗해질 때까지 기다린 후 자동 재개합니다. Git이 없는 폴더는 일시 중지 상태로 유지됩니다.',
+  'settings.openchamber.buildQueue.policy.preparing': '다음 빌드를 위해 Git 준비 중...',
+  'settings.openchamber.buildQueue.policy.retry': '준비 다시 시도',
   'settings.sourceControl.ssh.title': 'SSH 키',
   'settings.sourceControl.ssh.load': '키 보기',
   'settings.sourceControl.ssh.discover': '~/.ssh에서 키 찾기',

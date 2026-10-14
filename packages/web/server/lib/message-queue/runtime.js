@@ -282,6 +282,7 @@ export function createMessageQueueRuntime({
   abortHoldMs = ABORT_HOLD_MS,
   retryDelayMs = getQueuedSendRetryDelayMs,
   checkBuildGit = null,
+  prepareBuildCommit = null,
   buildMonitorDelayMs = 2500,
   buildRecheckMs = BUILD_RECHECK_MS,
   settingsFilePath = defaultBuildQueueSettingsFile,
@@ -293,6 +294,9 @@ export function createMessageQueueRuntime({
   // One build lease per project directory, held through the entire agent turn.
   const activeBuilds = new Map();
   const buildProblems = new Map();
+  const preparingBuilds = new Map();
+  const preparationFailures = new Map();
+  const buildCommits = new Map();
   const buildMonitors = new Map();
   let nextBuildOrder = 1;
   let revision = 0;
@@ -432,6 +436,8 @@ export function createMessageQueueRuntime({
   const runnableBuilds = (directory) => pendingBuilds(directory).filter(entry => !entry.item.buildPaused);
   const buildSnapshot = () => ({
     revision,
+    preparation: Array.from(preparingBuilds, ([directory, value]) => ({ directory, phase: value.phase })),
+    commits: Array.from(buildCommits, ([directory, value]) => ({ directory, ...value })),
     active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease, retryAvailable: queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId) === true })),
     queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index, paused: item.buildPaused === true })),
     issues: [
@@ -583,7 +589,7 @@ export function createMessageQueueRuntime({
       : [withMetadata];
   };
 
-  const sendItem = async (sessionId, directory, item) => {
+  const sendItem = async (sessionId, directory, item, buildSelection) => {
     const { providerID, modelID, variant } = item.sendConfig;
     let agent = item.sendConfig.agent;
     let model = { id: modelID, providerID, ...(variant ? { variant } : {}) };
@@ -592,13 +598,13 @@ export function createMessageQueueRuntime({
 
     // Jev routing, when the queued send named the Auto sentinel. A failure
     // inside resolves to the fallback model; only a missing fallback throws.
-    const routed = providerID && modelID ? await resolveAutoSelection?.({
+    const routed = buildSelection ?? (providerID && modelID ? await resolveAutoSelection?.({
       sessionId,
       directory,
       model,
       agent,
       requestText: `${item.text}${attachmentHint({ files: promptFiles })}`.trim(),
-    }) : null;
+    }) : null);
     if (routed) {
       model = routed.model;
       agent = routed.agent ?? agent;
@@ -680,26 +686,25 @@ export function createMessageQueueRuntime({
     else buildProblems.delete(directory);
     broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
   };
-  // Settings → Chat → Build queue → "Require a clean Git working tree". On by
-  // default. Read fresh at each admission so a saved change applies to the next
-  // build; a missing or unreadable file is the default. A directory that is not
-  // a Git repository cannot be verified clean, so it is treated as dirty while
-  // this is on.
-  const requiresCleanGit = () => {
+  // The queue pane owns this instance-wide policy. Legacy booleans preserve
+  // their behavior until a policy is selected; missing settings pause safely.
+  const buildGitPolicy = () => {
     try {
-      return readMergedSettingsSync({ fs, path, settingsFilePath })?.buildQueueRequireCleanGit !== false;
+      const settings = readMergedSettingsSync({ fs, path, settingsFilePath });
+      if (['continue', 'commit', 'pause'].includes(settings?.buildQueueGitPolicy)) return settings.buildQueueGitPolicy;
+      return settings?.buildQueueRequireCleanGit === false ? 'continue' : 'pause';
     } catch {
-      return true;
+      return 'pause';
     }
   };
   const inspectGit = async (directory) => {
     try {
       const { stdout } = await runGit('git', ['-C', directory, 'status', '--porcelain=v1', '--untracked-files=normal'], { timeout: 12000, maxBuffer: 1024 * 1024 });
       return stdout.trim() ? 'Repository has uncommitted or untracked changes. Commit or stash them to resume queued builds.' : null;
-    } catch (error) {
+    } catch {
       // A directory that is not a Git repository, or one where Git cannot run,
       // never satisfies the gate: name it plainly instead of a bare command error.
-      return 'Cannot verify the Git working tree; this directory may not be a Git repository. Turn off "Require a clean Git working tree" in Settings → Chat → Build queue to run builds here. (' + String(error.message ?? error).slice(0, 160) + ')';
+      return 'Cannot verify the Git working tree. Check that Git is installed, or choose Allow continue in the build queue pane.';
     }
   };
   const wakeProject = (directory) => {
@@ -744,6 +749,12 @@ export function createMessageQueueRuntime({
   const resolveBuild = async (directory, action) => {
     await load();
     const lease = activeBuilds.get(directory);
+    if (!lease && action === 'retry' && buildProblems.has(directory)) {
+      preparationFailures.delete(directory);
+      setBuildProblem(directory, null);
+      wakeProject(directory);
+      return buildSnapshot();
+    }
     if (!lease?.needsReview || (action !== 'skip' && action !== 'retry')) throw httpError('No recoverable build or invalid action', 409);
     const idle = await isSessionIdle(lease.sessionId, directory);
     const children = idle === true ? await hasWorkingSubagents(lease.sessionId) : null;
@@ -881,16 +892,68 @@ export function createMessageQueueRuntime({
     const current = queues.get(sessionId);
     const item = current?.items[0];
     if (!item || item.id !== head.id || sending.has(sessionId)) return;
+    let buildSelection;
 
     if (item.buildQueue) {
       // Only the oldest head among all sessions for this project may start.
       // The lease is claimed synchronously after the asynchronous probes.
       if (activeBuilds.has(current.directory)) return;
+      if (preparingBuilds.has(current.directory)) return;
       if (runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
-      // Settings → Chat → Build queue. `checkBuildGit` is the test seam that
-      // replaces the real check; the live setting gates it first so off skips
-      // the check entirely.
-      if (requiresCleanGit()) {
+      // Claim preparation before awaiting Git or the model. The dispatch lease
+      // follows preparation and remains durable before the prompt is sent.
+      const policy = buildGitPolicy();
+      if (policy !== 'commit') preparationFailures.delete(current.directory);
+      if (policy === 'commit') {
+        if (preparationFailures.get(current.directory) === item.id) {
+          armDispatch(sessionId, buildRecheckMs);
+          return;
+        }
+        const preparation = { itemId: item.id, phase: 'initializing' };
+        preparingBuilds.set(current.directory, preparation);
+        setBuildProblem(current.directory, null);
+        const isCurrent = () => !stopped && queues.get(sessionId)?.items[0]?.id === item.id
+          && queues.get(sessionId)?.items[0]?.buildPaused !== true
+          && runnableBuilds(current.directory)[0]?.item.id === item.id && !activeBuilds.has(current.directory);
+        try {
+          if (!prepareBuildCommit) throw new Error('Automatic commit preparation is unavailable on this server.');
+          const config = item.sendConfig;
+          buildSelection = await resolveAutoSelection?.({
+            sessionId,
+            directory: current.directory,
+            model: { id: config.modelID, providerID: config.providerID, ...(config.variant ? { variant: config.variant } : {}) },
+            agent: config.agent,
+            requestText: `${item.text}${attachmentHint({ files: item.attachments.map(toPromptFile) })}`.trim(),
+          });
+          const result = await prepareBuildCommit(current.directory, {
+            sendConfig: buildSelection ? {
+              ...config, providerID: buildSelection.model.providerID, modelID: buildSelection.model.id,
+            } : config,
+            isCurrent,
+            onProgress: phase => {
+              preparation.phase = phase;
+              broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory: current.directory } });
+            },
+          });
+          if (result) buildCommits.set(current.directory, result);
+          const stillIdle = await isSessionIdle(sessionId, current.directory);
+          const stillNoSubagents = stillIdle === true ? await hasWorkingSubagents(sessionId) : null;
+          if (stillIdle !== true || stillNoSubagents !== false) {
+            armDispatch(sessionId, buildRecheckMs);
+            return;
+          }
+        } catch (error) {
+          preparationFailures.set(current.directory, item.id);
+          setBuildProblem(current.directory, error.message || 'Automatic commit preparation failed. Retry from the queue pane.');
+          armDispatch(sessionId, buildRecheckMs);
+          return;
+        } finally {
+          preparingBuilds.delete(current.directory);
+          broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory: current.directory } });
+          wakeProject(current.directory);
+        }
+        if (!isCurrent()) { wakeProject(current.directory); return; }
+      } else if (policy === 'pause') {
         const problem = checkBuildGit ? await checkBuildGit(current.directory) : await inspectGit(current.directory);
         if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
       } else if (buildProblems.has(current.directory)) {
@@ -932,7 +995,7 @@ export function createMessageQueueRuntime({
           return;
         }
       }
-      await sendItem(sessionId, current.directory, item);
+      await sendItem(sessionId, current.directory, item, buildSelection);
       const after = queues.get(sessionId);
       if (after) setQueueItems(sessionId, after.directory, after.items.filter((entry) => entry.id !== item.id), 'sent');
       failures.delete(sessionId);

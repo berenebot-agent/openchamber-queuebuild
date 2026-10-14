@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'Proje değişiklikleri hazırlanıyor...',
+  'settings.openchamber.buildQueue.policy.generating': 'OpenCode ile commit mesajı oluşturuluyor...',
+  'settings.openchamber.buildQueue.policy.committing': 'Proje değişiklikleri commit ediliyor...',
+  'settings.openchamber.buildQueue.policy.title': 'Kuyruk davranışı',
+  'settings.openchamber.buildQueue.policy.scope': 'Bir sonraki hazırlıktan itibaren tüm proje derleme kuyruklarına uygulanır.',
+  'settings.openchamber.buildQueue.policy.continue': 'Devam etmeye izin ver',
+  'settings.openchamber.buildQueue.policy.commit': 'Model ile doğrudan commit',
+  'settings.openchamber.buildQueue.policy.pause': 'Kuyruğu duraklat',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Git kontrolü veya commit oluşturmadan derlemeleri başlatır.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'Tüm proje değişikliklerini OpenCode tarafından üretilen mesajla onay istemeden otomatik olarak commit eder. Gerektiğinde varsayılan yok sayma kurallarıyla Git başlatır. Mevcut kurallar korunur; zaten izlenen gizli bilgiler dahil edilir.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Temiz bir Git çalışma ağacını bekler ve otomatik devam eder. Git olmayan klasörler duraklatılmış kalır.',
+  'settings.openchamber.buildQueue.policy.preparing': 'Sonraki derleme için Git hazırlanıyor...',
+  'settings.openchamber.buildQueue.policy.retry': 'Hazırlığı yeniden dene',
   'settings.themeImport.selectAll': 'Tümünü seç',
   'settings.themeImport.deselectAll': 'Tümünün seçimini kaldır',
   'settings.themeImport.complete': 'İçe aktarma tamamlandı',

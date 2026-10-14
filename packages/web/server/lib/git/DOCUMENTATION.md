@@ -64,6 +64,65 @@ An identity is one repository's complete answer: signature, provider account (`a
 - `unstageFile(directory, filePath)`: Remove one file path from the index while preserving working-tree content.
 - `applyHunk(directory, filePath, options)`: Apply a single-hunk patch via `git apply`. `options.action` is `stage` (`git apply --cached`), `unstage` (`git apply --cached --reverse`), or `discard` (`git apply --reverse` in the working tree). Inside the index mutation queue, the server verifies that the complete patch exactly matches one current three-context-line hunk for that file and scope, then runs `--check` before applying. Applicability alone cannot prove an unstaged change: old staged or committed hunks can reverse cleanly too. Stale, historical and multi-file patches fail with a refresh error. Temporary patch files are removed on success and failure; hunk content retains CRLF bytes.
 
+### Automatic build preparation
+
+`prepareBuildCommit(directory, options)` runs `queued-build.js` inside the same
+repository index mutation queue as manual staging and committing. The message
+queue calls it only for its explicitly selected automatic commit policy.
+
+Git discovery recognizes a parent repository. It never initializes a nested
+repository when Git already resolves a containing repository. Failed discovery
+only permits initialization when Git reports a missing repository and no
+ancestor `.git` entry exists. Unreadable or damaged Git state stays a failure.
+Home-directory and filesystem-root repositories are refused.
+
+For initialization, the helper installs the default `.gitignore` before running
+`git init`. If ignore installation fails, retry cannot accidentally treat a
+newly initialized repository without its baseline as an existing repository.
+Existing ignore files in non-repositories keep their contents and receive only
+missing rules. Non-regular files and replaced file identities are refused.
+The file is opened without following links where the platform supports it.
+
+The bundled baseline is adapted from
+[github/gitignore](https://github.com/github/gitignore), licensed CC0-1.0. It
+excludes `.env` and `.env.*`, with exceptions for `.env.example`, `.env.sample`
+and `.env.template`, Python bytecode and caches, common virtual environments,
+`node_modules`, and common macOS/Windows clutter. It does not exclude source,
+lockfiles, editor settings or general build directories. Existing repositories
+retain their ignore rules unchanged. Ignore rules do not exclude tracked files.
+
+The helper refuses conflicts and unfinished merge, rebase, revert or cherry-pick
+operations. Staging includes additions, modifications and deletions within the
+queued project directory. A subdirectory project refuses pre-existing staged
+paths outside its scope. It never unstages unrelated work to make a commit.
+The final cleanliness check covers the repository, so changes outside the
+project or dirty submodules can still pause admission.
+
+OpenCode receives a staged summary capped at 24,000 characters and a staged diff
+capped at 120,000 characters, with external diff programs and text conversions
+disabled. The existing small-model service owns model selection, input limits,
+provider credentials and the 60-second generation deadline. No provider is
+called directly. Generated output is plain commit text, bounded to 4,000
+characters and rejected if empty, NUL-bearing or fenced as Markdown.
+
+Before committing, the helper compares the staged tree and HEAD with the state
+used for generation. Concurrent changes pause preparation. The Git commands use
+the service's prepared environment and a 60-second command timeout. Commit
+identity, hooks and signing come from the existing Git configuration. No branch
+switch, push, reset, stash or hook bypass occurs.
+
+Failures keep all files and staged work. A completed commit followed by remaining
+changes is reported explicitly and pauses the queue. A removed or paused queued
+item cancels further preparation before the next command. Git initialization,
+staging and commits already completed are retained. The helper verifies the
+working tree after committing and creates no empty commits when already clean.
+
+`queued-build.test.js` uses disposable repositories and a text-generation seam
+to cover initialization, ignored files, existing ignore rules, staged/unstaged
+changes and deletions, missing Git, interrupted operations, hook failures, model
+failure, changed index state, parent repositories, cancellation and symlink
+refusal. It does not exercise a live OpenCode provider or native UI behavior.
+
 ### Branch Operations
 - `getBranchBase(directory, branch)`: Read a named creation source from reflog. After a rebase, the creation source is no longer a current parent record, so return `null` and let the user choose a base. A source that is the branch's own remote copy (`git switch feat` records `Created from refs/remotes/origin/feat`) is not a parent either and also returns `null`. Explicit per-runtime, directory, and branch choices in the shared UI outrank detection.
 - `getBranches(directory, { remote })`: Get local branches and remote branches. The default (`remote: 'live'`, the Git panel's branch list) asks each remote with `ls-remote --heads`, described under the branch list below; `remote: 'local'` (route `?remote=local`) answers from local refs alone, as `git branch -a` does, for callers that need only the checked-out branch and its upstream (publishing, worktree creation).

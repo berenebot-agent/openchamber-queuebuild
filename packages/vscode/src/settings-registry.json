@@ -164,6 +164,14 @@
         "mobile"
       ]
     },
+    "buildQueueGitPolicy": {
+      "scope": "instance",
+      "surfaces": [
+        "web",
+        "desktop",
+        "mobile"
+      ]
+    },
     "browserProvider": {
       "scope": "instance"
     },

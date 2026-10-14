@@ -86,7 +86,7 @@ const createOpenCode = () => {
   return { state, fetchImpl };
 };
 
-const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, buildMonitorDelayMs, buildRecheckMs, settingsFilePath } = {}) => {
+const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, prepareBuildCommit, buildMonitorDelayMs, buildRecheckMs, settingsFilePath } = {}) => {
   let eventHandler = () => {};
   let statusHandler = () => {};
   const broadcasts = [];
@@ -112,6 +112,7 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   if (resolveAutoSelection) options.resolveAutoSelection = resolveAutoSelection;
   if (now) options.now = now;
   if (checkBuildGit) options.checkBuildGit = checkBuildGit;
+  if (prepareBuildCommit) options.prepareBuildCommit = prepareBuildCommit;
   if (buildMonitorDelayMs !== undefined) options.buildMonitorDelayMs = buildMonitorDelayMs;
   if (buildRecheckMs !== undefined) options.buildRecheckMs = buildRecheckMs;
   if (settingsFilePath !== undefined) options.settingsFilePath = settingsFilePath;
@@ -915,6 +916,80 @@ describe('message queue runtime', () => {
 });
 
 describe('project-wide build queue', () => {
+  it('uses the explicit continue policy even when the legacy requirement is on', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue', buildQueueRequireCleanGit: true }));
+    const checkBuildGit = vi.fn(async () => 'Dirty');
+    const prepareBuildCommit = vi.fn();
+    const { runtime, openCode } = createRuntime({ settingsFilePath, checkBuildGit, prepareBuildCommit });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(checkBuildGit).not.toHaveBeenCalled();
+    expect(prepareBuildCommit).not.toHaveBeenCalled();
+    expect(openCode.state.sent.some(call => call.path.endsWith('/prompt'))).toBe(true);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('rechecks session activity after automatic preparation', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'commit' }));
+    const openCode = createOpenCode();
+    const { runtime } = createRuntime({ settingsFilePath, openCode, prepareBuildCommit: async () => {
+      openCode.state.active[SESSION] = { type: 'running' };
+      return null;
+    } });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(openCode.state.sent).toHaveLength(0);
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+  it('prepares one automatic commit at a time and exposes progress and result', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'commit' }));
+    let finish;
+    const preparation = new Promise(resolve => { finish = resolve; });
+    const prepareBuildCommit = vi.fn(async (_directory, options) => {
+      options.onProgress('generating');
+      await preparation;
+      return { hash: 'abc123', subject: 'Save changes' };
+    });
+    const { runtime, openCode } = createRuntime({ settingsFilePath, prepareBuildCommit });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await runtime.enqueue('ses_queue_test_2', DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(prepareBuildCommit).toHaveBeenCalledTimes(1);
+    expect(runtime.buildSnapshot().preparation).toEqual([{ directory: DIRECTORY, phase: 'generating' }]);
+    expect(openCode.state.sent).toHaveLength(0);
+    finish();
+    await settle(80);
+    expect(runtime.buildSnapshot().commits).toEqual([{ directory: DIRECTORY, hash: 'abc123', subject: 'Save changes' }]);
+    expect(runtime.buildSnapshot().active).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('holds failed preparation without repeated model calls until retry', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'commit' }));
+    const prepareBuildCommit = vi.fn().mockRejectedValue(new Error('Model unavailable'));
+    const { runtime, openCode } = createRuntime({ settingsFilePath, prepareBuildCommit, buildRecheckMs: 20 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(100);
+    expect(prepareBuildCommit).toHaveBeenCalledTimes(1);
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    expect(runtime.buildSnapshot().issues[0].issue).toBe('Model unavailable');
+    prepareBuildCommit.mockResolvedValue(null);
+    await runtime.resolveBuild(DIRECTORY, 'retry');
+    await settle(80);
+    expect(prepareBuildCommit).toHaveBeenCalledTimes(2);
+    expect(openCode.state.sent.some(call => call.path.endsWith('/prompt'))).toBe(true);
+    runtime.stop();
+    await runtime.flush();
+  });
   const SECOND = 'ses_queue_test_2';
   const promptCalls = (openCode) => openCode.state.sent.filter(entry => entry.path.endsWith('/prompt'));
 
@@ -979,7 +1054,7 @@ describe('project-wide build queue', () => {
     await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
     await settle(80);
     expect(promptCalls(openCode)).toHaveLength(0);
-    expect(runtime.buildSnapshot().issues[0]?.issue).toMatch(/may not be a Git repository/i);
+    expect(runtime.buildSnapshot().issues[0]?.issue).toMatch(/Cannot verify the Git working tree/i);
     runtime.stop();
     await runtime.flush();
   });

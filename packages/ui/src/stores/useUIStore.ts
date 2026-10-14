@@ -1105,6 +1105,7 @@ interface UIStore {
   agentWebToolEnabled: boolean;
   /** Project build queue Git gate (fork feature). On: a queued build waits for a clean working tree. */
   buildQueueRequireCleanGit: boolean;
+  buildQueueGitPolicy: 'continue' | 'commit' | 'pause' | null;
   /** Full-text message search (server index). Opt-in: off keeps every part of it idle. */
   messageSearchEnabled: boolean;
   /** Also index the agent's reasoning. Opt-in: it can make the index much bigger. */
@@ -1369,6 +1370,7 @@ interface UIStore {
   setAgentControlToolEnabled: (value: boolean) => void;
   setAgentWebToolEnabled: (value: boolean) => void;
   setBuildQueueRequireCleanGit: (value: boolean) => void;
+  setBuildQueueGitPolicy: (value: 'continue' | 'commit' | 'pause' | null) => void;
   setMessageSearchEnabled: (value: boolean) => void;
   setMessageSearchReasoningEnabled: (value: boolean) => void;
   setBrowserProvider: (value: string) => void;
@@ -1579,6 +1581,7 @@ export const useUIStore = create<UIStore>()(
         agentControlToolEnabled: true,
         agentWebToolEnabled: true,
         buildQueueRequireCleanGit: true,
+        buildQueueGitPolicy: null,
         messageSearchEnabled: false,
         messageSearchReasoningEnabled: false,
         browserProvider: 'builtin',
@@ -3118,6 +3121,9 @@ export const useUIStore = create<UIStore>()(
         setBuildQueueRequireCleanGit: (value) => {
           set({ buildQueueRequireCleanGit: value });
         },
+        setBuildQueueGitPolicy: (value) => {
+          set({ buildQueueGitPolicy: value });
+        },
         setMessageSearchEnabled: (value) => {
           set({ messageSearchEnabled: value });
         },
@@ -3641,6 +3647,7 @@ export const useUIStore = create<UIStore>()(
           agentControlToolEnabled: state.agentControlToolEnabled,
           agentWebToolEnabled: state.agentWebToolEnabled,
           buildQueueRequireCleanGit: state.buildQueueRequireCleanGit,
+          buildQueueGitPolicy: state.buildQueueGitPolicy,
           messageSearchEnabled: state.messageSearchEnabled,
           messageSearchReasoningEnabled: state.messageSearchReasoningEnabled,
           browserProvider: state.browserProvider,

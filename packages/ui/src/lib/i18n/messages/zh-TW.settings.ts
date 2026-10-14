@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': '正在暫存專案變更...',
+  'settings.openchamber.buildQueue.policy.generating': '正在使用 OpenCode 產生提交訊息...',
+  'settings.openchamber.buildQueue.policy.committing': '正在提交專案變更...',
+  'settings.openchamber.buildQueue.policy.title': '佇列行為',
+  'settings.openchamber.buildQueue.policy.scope': '適用於所有專案建置佇列。變更從下一次準備開始生效。',
+  'settings.openchamber.buildQueue.policy.continue': '允許繼續',
+  'settings.openchamber.buildQueue.policy.commit': '使用模型直接提交',
+  'settings.openchamber.buildQueue.policy.pause': '暫停佇列',
+  'settings.openchamber.buildQueue.policy.continueInfo': '不檢查 Git 或建立提交，直接開始建置。',
+  'settings.openchamber.buildQueue.policy.commitInfo': '使用 OpenCode 產生的訊息自動提交所有專案變更，無需確認。必要時使用預設忽略規則初始化 Git。保留現有忽略規則；已追蹤的敏感資訊仍會包含在提交中。',
+  'settings.openchamber.buildQueue.policy.pauseInfo': '等待 Git 工作區乾淨後自動恢復。沒有 Git 的資料夾保持暫停。',
+  'settings.openchamber.buildQueue.policy.preparing': '正在為下一次建置準備 Git...',
+  'settings.openchamber.buildQueue.policy.retry': '重試準備',
   'settings.sourceControl.ssh.title': 'SSH 金鑰',
   'settings.sourceControl.ssh.load': '顯示金鑰',
   'settings.sourceControl.ssh.discover': '在 ~/.ssh 中尋找金鑰',

@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'Projectwijzigingen klaarzetten...',
+  'settings.openchamber.buildQueue.policy.generating': 'Commitbericht genereren met OpenCode...',
+  'settings.openchamber.buildQueue.policy.committing': 'Projectwijzigingen committen...',
+  'settings.openchamber.buildQueue.policy.title': 'Wachtrijgedrag',
+  'settings.openchamber.buildQueue.policy.scope': 'Geldt voor alle projectbouwwachtrijen vanaf de volgende voorbereiding.',
+  'settings.openchamber.buildQueue.policy.continue': 'Doorgaan toestaan',
+  'settings.openchamber.buildQueue.policy.commit': 'Direct committen met model',
+  'settings.openchamber.buildQueue.policy.pause': 'Wachtrij pauzeren',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Start builds zonder Git te controleren of commits te maken.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'Commit automatisch alle projectwijzigingen met een door OpenCode gegenereerd bericht, zonder bevestiging. Initialiseert zo nodig Git met standaardnegeerregels. Bestaande regels blijven ongewijzigd; reeds gevolgde geheimen worden nog steeds opgenomen.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Wacht op een schone Git-werkboom en hervat automatisch. Mappen zonder Git blijven gepauzeerd.',
+  'settings.openchamber.buildQueue.policy.preparing': 'Git voorbereiden voor de volgende build...',
+  'settings.openchamber.buildQueue.policy.retry': 'Voorbereiding opnieuw proberen',
   'settings.sourceControl.ssh.title': 'SSH-sleutels',
   'settings.sourceControl.ssh.load': 'Sleutels tonen',
   'settings.sourceControl.ssh.discover': 'Sleutels zoeken in ~/.ssh',

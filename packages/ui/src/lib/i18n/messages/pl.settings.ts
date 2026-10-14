@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'Dodawanie zmian projektu do indeksu...',
+  'settings.openchamber.buildQueue.policy.generating': 'Generowanie komunikatu commita przez OpenCode...',
+  'settings.openchamber.buildQueue.policy.committing': 'Zapisywanie zmian projektu...',
+  'settings.openchamber.buildQueue.policy.title': 'Działanie kolejki',
+  'settings.openchamber.buildQueue.policy.scope': 'Dotyczy wszystkich kolejek kompilacji projektów od następnego przygotowania.',
+  'settings.openchamber.buildQueue.policy.continue': 'Zezwól na kontynuację',
+  'settings.openchamber.buildQueue.policy.commit': 'Bezpośredni commit z modelem',
+  'settings.openchamber.buildQueue.policy.pause': 'Wstrzymaj kolejkę',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'Uruchamia kompilacje bez sprawdzania Git i tworzenia commitów.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'Automatycznie zapisuje wszystkie zmiany projektu z komunikatem wygenerowanym przez OpenCode, bez potwierdzenia. W razie potrzeby inicjuje Git z domyślnymi regułami ignorowania. Istniejące reguły pozostają bez zmian; już śledzone sekrety nadal są uwzględniane.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'Czeka na czyste drzewo robocze Git, a następnie wznawia automatycznie. Foldery bez Git pozostają wstrzymane.',
+  'settings.openchamber.buildQueue.policy.preparing': 'Przygotowywanie Git do następnej kompilacji...',
+  'settings.openchamber.buildQueue.policy.retry': 'Ponów przygotowanie',
   'settings.sourceControl.ssh.title': 'Klucze SSH',
   'settings.sourceControl.ssh.load': 'Pokaż klucze',
   'settings.sourceControl.ssh.discover': 'Znajdź klucze w ~/.ssh',

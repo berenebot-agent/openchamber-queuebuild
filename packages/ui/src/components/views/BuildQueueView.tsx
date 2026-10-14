@@ -9,6 +9,9 @@ import { useBuildQueueSnapshot, type BuildQueueEntry } from '@/hooks/useBuildQue
 import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useI18n } from '@/lib/i18n';
+import { useUIStore } from '@/stores/useUIStore';
+import { SettingsSection, SettingsStackedField, SETTINGS_SELECT_TRIGGER_CLASS } from '@/components/sections/shared/SettingsSection';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
 const snippet = (value: string) => value.trim().split('\n').find(line => line.trim())?.trim() || 'Queued build';
@@ -21,6 +24,10 @@ export const BuildQueueView: React.FC = () => {
   const { snapshot, error, refresh } = useBuildQueueSnapshot();
   const [busy, setBusy] = React.useState(false);
   const { t } = useI18n();
+  const policy = useUIStore(state => state.buildQueueGitPolicy ?? (state.buildQueueRequireCleanGit ? 'pause' : 'continue'));
+  const setPolicy = useUIStore(state => state.setBuildQueueGitPolicy);
+  const preparation = snapshot?.preparation?.find(item => projectKey(item.directory) === key);
+  const lastCommit = snapshot?.commits?.find(item => projectKey(item.directory) === key);
 
   const items = snapshot?.queued.filter(item => projectKey(item.directory) === key) ?? [];
   const active = snapshot?.active.find(item => projectKey(item.directory) === key);
@@ -96,6 +103,34 @@ export const BuildQueueView: React.FC = () => {
       </div>
 
       <div className="px-5 py-5 space-y-6">
+        <SettingsSection divider={false} className="py-0">
+          <SettingsStackedField label={t('settings.openchamber.buildQueue.policy.title')}>
+            <Select value={policy} onValueChange={value => {
+              if (value === 'continue' || value === 'commit' || value === 'pause') setPolicy(value);
+            }}>
+              <SelectTrigger className={SETTINGS_SELECT_TRIGGER_CLASS}
+                aria-label={t('settings.openchamber.buildQueue.policy.title')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="continue">{t('settings.openchamber.buildQueue.policy.continue')}</SelectItem>
+                <SelectItem value="commit">{t('settings.openchamber.buildQueue.policy.commit')}</SelectItem>
+                <SelectItem value="pause">{t('settings.openchamber.buildQueue.policy.pause')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingsStackedField>
+          <p className="text-xs text-muted-foreground">{t('settings.openchamber.buildQueue.policy.scope')}</p>
+          <p className="text-xs leading-5 text-muted-foreground">{t(policy === 'commit'
+            ? 'settings.openchamber.buildQueue.policy.commitInfo'
+            : policy === 'continue' ? 'settings.openchamber.buildQueue.policy.continueInfo'
+              : 'settings.openchamber.buildQueue.policy.pauseInfo')}</p>
+          {preparation && <p role="status" className="text-xs text-muted-foreground">{t(
+            preparation.phase === 'staging' ? 'settings.openchamber.buildQueue.policy.staging'
+              : preparation.phase === 'generating' ? 'settings.openchamber.buildQueue.policy.generating'
+                : preparation.phase === 'committing' ? 'settings.openchamber.buildQueue.policy.committing'
+                  : 'settings.openchamber.buildQueue.policy.preparing')}</p>}
+          {lastCommit && <p className="text-xs text-muted-foreground" dir="auto"><code>{lastCommit.hash.slice(0, 9)}</code> {lastCommit.subject}</p>}
+        </SettingsSection>
         {error && <div role="alert" className="rounded-lg border border-[var(--status-error)]/30 px-3 py-2 text-xs text-[var(--error-text)]">
           Could not update queue: {error}
         </div>}
@@ -103,6 +138,10 @@ export const BuildQueueView: React.FC = () => {
         {paused && <section role="alert" className="rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3.5 py-3">
           <div className="flex items-center gap-2 font-semibold text-sm"><Icon name="time" className="size-4" /> Queue paused</div>
           <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{issue || 'Previous build needs review before continuing.'}</p>
+          {!active && issue && <Button size="sm" variant="outline" className="mt-3" disabled={busy || Boolean(preparation)}
+            onClick={() => void mutate('/api/build-queue/resolve', 'POST', { directory, action: 'retry' })}>
+            {t('settings.openchamber.buildQueue.policy.retry')}
+          </Button>}
           {active?.needsReview && <div className="flex flex-wrap gap-2 mt-3">
             <Button size="sm" variant="outline" onClick={() => openSession(active.sessionId)}>
               Open session
@@ -189,10 +228,6 @@ export const BuildQueueView: React.FC = () => {
           </div>}
         </section>
 
-        <div className="flex gap-2 border-t border-border/60 pt-4 text-[11px] leading-5 text-muted-foreground">
-          <Icon name="git-branch" className="size-4 mt-0.5 shrink-0" />
-          <p>The next build waits for a clean Git working tree. No automatic staging, stashing or provisional commits.</p>
-        </div>
       </div>
     </div>
   );

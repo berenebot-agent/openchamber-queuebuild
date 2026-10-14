@@ -26,6 +26,8 @@ export interface BuildQueueSnapshot {
   active: BuildQueueLease[];
   queued: BuildQueueEntry[];
   issues: Array<{ directory: string; issue: string }>;
+  preparation?: Array<{ directory: string; phase: 'initializing' | 'staging' | 'generating' | 'committing' }>;
+  commits?: Array<{ directory: string; hash: string; subject: string }>;
 }
 
 export function useBuildQueueSnapshot() {

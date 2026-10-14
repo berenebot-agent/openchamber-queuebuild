@@ -339,6 +339,9 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.buildQueueRequireCleanGit === 'boolean') {
       result.buildQueueRequireCleanGit = candidate.buildQueueRequireCleanGit;
     }
+    if (candidate.buildQueueGitPolicy === null || ['continue', 'commit', 'pause'].includes(candidate.buildQueueGitPolicy)) {
+      result.buildQueueGitPolicy = candidate.buildQueueGitPolicy;
+    }
     if (typeof candidate.desktopUiPassword === 'string') {
       result.desktopUiPassword = candidate.desktopUiPassword.trim();
     }

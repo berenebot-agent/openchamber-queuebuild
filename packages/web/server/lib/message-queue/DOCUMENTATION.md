@@ -188,18 +188,54 @@ requires:
   lease (`activeBuilds`), and
 - this item is the oldest pending build across every session of that directory
   (`pendingBuilds(directory)[0]`), and
-- **the working tree passes the Git gate** — Settings → Chat → Build queue →
-  *Require a clean Git working tree*, read from the merged settings document at
-  each admission (`readMergedSettingsSync`), default on. On, `git status
-  --porcelain` must report nothing to commit; a directory that is not a Git
-  repository, or one where Git cannot run, can never be verified clean and is
-  reported as a build problem that pauses the queue. Off, the check is skipped
-  and builds start regardless of the working tree.
+- the working tree satisfies the policy selected in the build queue pane.
 
-The gate reads `buildQueueRequireCleanGit` from `<data-dir>/settings.json`
-(plus `preferences.json` through the merged read), so a saved change applies to
-the next admission without a restart. `createMessageQueueRuntime` takes
+The queue pane's "Queue behavior" selector applies to every project on the
+instance, including when its current queue is empty. It has 3 policies:
+
+- **Allow continue**, `continue`, skips Git checks and creates no commits.
+- **Commit directly using model**, `commit`, prepares a clean repository before
+  dispatch. The Git service initializes Git when necessary, installs the bundled
+  ignore baseline for a new repository, stages project changes and commits with
+  a message generated through OpenCode. There is no confirmation step.
+- **Pause queue**, `pause`, waits for `git status --porcelain` to report a clean
+  working tree. A missing repository or failed check keeps the items queued.
+  The existing recheck timer resumes the queue when Git becomes clean or a saved
+  policy allows preparation or continuation.
+
+The policy is `buildQueueGitPolicy`, read from the merged settings at admission.
+Null or absent keeps the legacy `buildQueueRequireCleanGit` behavior, true for
+pause and false for continue. Missing or unreadable settings default to pause.
+Existing users never opt into automatic commits through migration. The selector
+replaces the old Chat settings checkbox and its Settings search entry.
+
+Preparation reserves the directory before any asynchronous Git or model work.
+The Git service serializes index mutations by repository. The queue resolves an
+Auto selection for preparation and reuses that selection for the ensuing send.
+Preparation uses the policy captured at its start, even if the selector changes
+while the model runs. Session and descendant activity are rechecked afterwards,
+and dispatch still requires a durable build lease.
+
+`GET /api/build-queue` adds `preparation`, with directory and phase, and `commits`,
+with the last successful preparation's directory, hash and subject. Both are
+in-memory display state. Preparation phases are `initializing`, `staging`,
+`generating` and `committing`. They emit the existing build-queue update event.
+The pane shows the phase, the resulting commit and failures beside the selector.
+
+A preparation failure retains queued items and any Git changes already made.
+It blocks another model call for that item until "Retry preparation" uses
+`POST /api/build-queue/resolve` with `action: 'retry'`, or a different policy
+is observed. The existing uncertain-dispatch review flow remains separate.
+A restart re-inspects Git; an already completed clean commit is a no-op.
+The Git service's scope, ignore rules and failure contract are documented in
+`../git/DOCUMENTATION.md`, under "Automatic build preparation".
+
+The saved setting applies without a restart. `createMessageQueueRuntime` takes
 `settingsFilePath` to point at another instance's file (tests, embedders).
+
+Web, Electron, hosted mobile and Capacitor use this server-owned policy through
+their queue pane. VS Code keeps the build queue unavailable and retains its
+existing foreground message delivery behavior.
 
 A 2xx HTML app-shell response is a failed dispatch, not acceptance. The queued item stays persisted and uses the existing retry backoff. Project knowledge is recorded as delivered only after the prompt or command is accepted.
 

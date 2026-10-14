@@ -42,6 +42,21 @@ working or staged diff.
 `WalkthroughView` gates discovery and source loading while retaining generated
 results and any explicitly started generation job.
 
+## Build queue pane
+
+`BuildQueueView` owns the instance-wide "Queue behavior" selector above the
+active and waiting builds, even when the queue is empty. It replaces the Chat
+settings checkbox. The pane explains the policy's scope and shows a visible
+warning that automatic commit mode writes all project changes without
+confirmation, initializes Git if needed and can include tracked secrets.
+
+The UI store and settings registry persist the selector. The server remains
+authoritative for preparation, failures and dispatch. Queue snapshots project
+preparation phases and the last successful automatic commit. "Retry preparation"
+retries a Git/model preparation failure; uncertain build dispatch keeps its
+existing review confirmation. Web, Electron, hosted mobile and Capacitor use
+the server queue. VS Code does not offer this queue.
+
 ## Large text files
 
 The 200,000-character threshold selects an initial code preview, not read-only

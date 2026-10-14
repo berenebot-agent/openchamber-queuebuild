@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'מכין את שינויי הפרויקט ל־commit...',
+  'settings.openchamber.buildQueue.policy.generating': 'מייצר הודעת commit בעזרת OpenCode...',
+  'settings.openchamber.buildQueue.policy.committing': 'מבצע commit לשינויי הפרויקט...',
+  'settings.openchamber.buildQueue.policy.title': 'התנהגות התור',
+  'settings.openchamber.buildQueue.policy.scope': 'חל על כל תורי הבנייה של הפרויקטים החל מההכנה הבאה.',
+  'settings.openchamber.buildQueue.policy.continue': 'אפשר המשך',
+  'settings.openchamber.buildQueue.policy.commit': 'בצע commit ישירות בעזרת מודל',
+  'settings.openchamber.buildQueue.policy.pause': 'השהה תור',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'מתחיל בנייה ללא בדיקת Git או יצירת commits.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'מבצע commit אוטומטי לכל שינויי הפרויקט עם הודעה שנוצרה ב־OpenCode, ללא אישור. מאתחל Git עם כללי התעלמות בסיסיים לפי הצורך. הכללים הקיימים נשמרים; סודות שכבר נמצאים במעקב עדיין נכללים.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'ממתין לעץ עבודה נקי של Git ואז ממשיך אוטומטית. תיקיות ללא Git נשארות מושהות.',
+  'settings.openchamber.buildQueue.policy.preparing': 'מכין את Git לבנייה הבאה...',
+  'settings.openchamber.buildQueue.policy.retry': 'נסה שוב להכין',
   'settings.sourceControl.ssh.title': 'מפתחות SSH',
   'settings.sourceControl.ssh.load': 'הצג מפתחות',
   'settings.sourceControl.ssh.discover': 'חפש מפתחות ב-~/.ssh',

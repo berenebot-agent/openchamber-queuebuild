@@ -4,6 +4,19 @@ import { linearIntegrationI18n } from './linear-integration.i18n';
 import { thirdPartyIntegrationI18n } from './third-party-integrations.i18n';
 import { extensionCatalogI18n } from './extension-catalog.i18n';
 export const settingsDict = {
+  'settings.openchamber.buildQueue.policy.staging': 'جارٍ تجهيز تغييرات المشروع...',
+  'settings.openchamber.buildQueue.policy.generating': 'جارٍ إنشاء رسالة الالتزام باستخدام OpenCode...',
+  'settings.openchamber.buildQueue.policy.committing': 'جارٍ تسجيل تغييرات المشروع...',
+  'settings.openchamber.buildQueue.policy.title': 'سلوك قائمة الانتظار',
+  'settings.openchamber.buildQueue.policy.scope': 'ينطبق على جميع قوائم بناء المشاريع بدءًا من التحضير التالي.',
+  'settings.openchamber.buildQueue.policy.continue': 'السماح بالمتابعة',
+  'settings.openchamber.buildQueue.policy.commit': 'إنشاء التزام مباشرة باستخدام النموذج',
+  'settings.openchamber.buildQueue.policy.pause': 'إيقاف القائمة مؤقتًا',
+  'settings.openchamber.buildQueue.policy.continueInfo': 'يبدأ البناء دون فحص Git أو إنشاء التزامات.',
+  'settings.openchamber.buildQueue.policy.commitInfo': 'يسجل جميع تغييرات المشروع تلقائيًا برسالة ينشئها OpenCode دون تأكيد. يهيئ Git بقواعد تجاهل افتراضية عند الحاجة. تبقى القواعد الحالية كما هي؛ وتظل الأسرار المتتبعة مسبقًا مشمولة.',
+  'settings.openchamber.buildQueue.policy.pauseInfo': 'ينتظر شجرة عمل Git نظيفة ثم يستأنف تلقائيًا. تبقى المجلدات التي لا تحتوي على Git متوقفة مؤقتًا.',
+  'settings.openchamber.buildQueue.policy.preparing': 'جارٍ تحضير Git للبناء التالي...',
+  'settings.openchamber.buildQueue.policy.retry': 'إعادة محاولة التحضير',
   'settings.sourceControl.ssh.title': 'مفاتيح SSH',
   'settings.sourceControl.ssh.load': 'إظهار المفاتيح',
   'settings.sourceControl.ssh.discover': 'البحث عن مفاتيح في ~/.ssh',

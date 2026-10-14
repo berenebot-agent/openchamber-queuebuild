@@ -32,6 +32,18 @@ const createTestHelpers = () => createSettingsHelpers({
   sanitizeProjects: () => undefined,
 });
 
+describe('build queue Git policy settings', () => {
+  it('accepts only explicit policies or the legacy fallback marker', () => {
+    const helpers = createTestHelpers();
+    for (const value of ['continue', 'commit', 'pause', null]) {
+      expect(helpers.sanitizeSettingsUpdate({ buildQueueGitPolicy: value })).toEqual({ buildQueueGitPolicy: value });
+    }
+    for (const value of ['automatic', true, {}, 1]) {
+      expect(helpers.sanitizeSettingsUpdate({ buildQueueGitPolicy: value })).toEqual({});
+    }
+  });
+});
+
 const createTestHelpersWithRealSanitizers = () => {
   const runtime = createSettingsNormalizationRuntime({
     os: { homedir: () => '/home/testuser' },
@@ -835,7 +847,7 @@ describe('settings registry gate', () => {
     securityScopedBookmarks: ['bookmark'], pinnedDirectories: ['/home/testuser/project'],
     desktopLanAccessEnabled: true, desktopKeepAwakeEnabled: true, desktopMinimizeToTrayEnabled: true, desktopMacMenuBarEnabled: true, desktopLinuxNativeFrame: true, sidebarShowChatsSection: false, sidebarShowWorkSection: false,
     desktopUiPassword: 'secret', githubClientId: 'client', githubScopes: 'repo', gitlabClientId: 'gitlab-client', skillCatalogs: [{ id: 'c', label: 'C', source: 'https://x' }],
-    defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true, buildQueueRequireCleanGit: true,
+    defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true, buildQueueRequireCleanGit: true, buildQueueGitPolicy: 'commit',
     agentControlToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentNotifyToolEnabled: true, agentToolsCodeMode: true, agentWorktreeMoveWithoutAsking: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
     autoDeleteEnabled: true, autoDeleteAfterDays: 30, sessionRetentionOnlyArchived: false, sessionRetentionAction: 'archive', mergedWorktreeCleanupEnabled: true, terminalShell: 'zsh', terminalLoginShells: ['zsh'],
     openInAppId: 'vscode', dictationEnabled: true, sttProvider: 'local', sttServerUrl: 'http://localhost:8001/v1', sttModel: 'm', sttLocalModel: 'm', sttLanguage: 'en',

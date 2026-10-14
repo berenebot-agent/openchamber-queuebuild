@@ -26,6 +26,13 @@
 
 ## Adding a setting
 
+`buildQueueGitPolicy` is an instance-scoped queue-pane selector available to web,
+desktop and mobile. Null preserves the legacy `buildQueueRequireCleanGit`
+boolean, true for pause and false for continue. Explicit `continue`, `commit`
+and `pause` values take precedence on the server. Automatic commits require an
+explicit selection. The selector lives in `BuildQueueView`, including its empty
+state, and has no Settings search entry because it is outside Settings.
+
 1. Add one entry to `SETTINGS_REGISTRY` with `scope`, a parser from `parsers.ts`, and a `ui` binding when a store holds the live value. Use an existing setter so its side effects run.
 2. Run `bun run settings-registry:generate` and commit both JSON snapshots.
 3. If the server must validate the value beyond the registry gate, add its branch to `sanitizeSettingsUpdate` in `packages/web/server/lib/opencode/settings-helpers.js`; the drift test in `settings-helpers.test.js` needs a valid sample value for the new key.
