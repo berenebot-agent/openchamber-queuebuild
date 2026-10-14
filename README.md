@@ -35,19 +35,17 @@ This fork adds **project-wide serial Build execution** for OpenCode agent sessio
 2. Continue using **Plan** mode freely in as many existing sessions as you need.
 3. Select the **Build** agent in a session and send your implementation prompt. Its submission is added to the project queue; it does not start while another managed build is running.
 4. Repeat from other sessions. The composer shows each session's queue position. Use the right-hand queue panel to reorder, cancel, or open those sessions.
-5. When the active Build turn finishes, the server checks Git status. A clean repository starts the next turn; uncommitted or untracked changes pause the queue and require manual cleanup.
+5. When the active Build turn finishes, the next starts according to the chosen Git policy: continue without a Git check, pause until clean, or commit explicitly staged changes using a model-generated message.
 
-**Safety:** Builds receive a reminder to run tests and commit *only their own changes*. The server never automatically stages, commits, stashes, resets, or deletes unrelated working-tree files. Queue state and active leases survive browser disconnects and server restarts (subject to an accessible OpenCode backend).
+**Safety:** Builds receive a reminder to run tests and commit *only their own changes*. In automatic commit mode, the server commits **only files deliberately staged in Git**, refuses remaining unstaged/untracked work, and checks staged paths and content for common secrets before contacting the model. It never automatically stages, stashes, resets, or deletes unrelated files. This check cannot guarantee detection of every secret. Queue state and execution leases survive browser disconnects and server restarts; uncertain interrupted builds require review.
 
-**Initial scope:** This applies to existing sessions using the web/desktop OpenChamber composer with its queue preference enabled. New-session creation, external OpenCode API clients, and VS Code's separate queue implementation are not intercepted. Sessions from distinct worktree directories have separate queues. The enabled setting is local to each browser profile, while queued jobs live on the server.
+**Scope:** This applies to existing sessions and new-session Build prompts using the web/desktop OpenChamber composer with the queue enabled. External OpenCode API clients and VS Code's separate queue implementation are not intercepted. Sessions from distinct worktree directories have separate queues. The enabled setting is local to each browser profile, while queued jobs live on the server.
 
 **Running this fork:** Build/deploy the server and frontend from this repository instead of using upstream's published OpenChamber Docker image. Keep the existing OpenChamber data directory mounted persistently so queue state is retained. The included Docker Compose file builds this fork locally:
 
 ```bash
 git clone https://github.com/berenebot-agent/openchamber-queuebuild.git
 cd openchamber-queuebuild
-# Until the pull request is merged:
-git switch feat/project-build-queue
 export OPENCHAMBER_UI_PASSWORD='replace-with-a-strong-password'
 docker compose up -d --build
 ```
