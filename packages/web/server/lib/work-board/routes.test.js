@@ -12,7 +12,7 @@ describe('work board HTTP routes', () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-http-'));
     try {
       const app = express();
-      registerWorkBoardRoutes(app, { store: createWorkBoardStore({ dataDir }), resolveProjectDirectory: async directory => directory });
+      registerWorkBoardRoutes(app, { store: createWorkBoardStore({ dataDir }), resolveProjectDirectory: async req => ({ directory: req.query.directory, error: null }) });
       const attachment = { id: 'file1', filename: 'notes.txt', mimeType: 'text/plain', size: 2, dataUrl: 'data:text/plain;base64,aGk=' };
       const saved = await request(app).post('/api/work-board').send({ directory: '/repo', text: 'Brief', attachments: [attachment] }).expect(201);
       const { id } = saved.body.card;
