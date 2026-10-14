@@ -2589,4 +2589,6 @@ export const settingsDict = {
   'settings.agents.sidebar.toast.agentEnabled': '已重新启用 {name}',
   'settings.agents.sidebar.toast.disableFailed': '无法停用代理：无法写入其配置文件',
   'settings.agents.sidebar.toast.enableFailed': '无法启用代理：无法写入其配置文件',
+  'settings.openchamber.buildQueue.item.pause': '暂停构建',
+  'settings.openchamber.buildQueue.item.resume': '恢复构建',
 } as const;

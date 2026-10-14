@@ -1013,6 +1013,47 @@ describe('project-wide build queue', () => {
     second.runtime.stop();
     await second.runtime.flush();
   });
+
+  it('skips a paused build for other sessions and resumes it in its original order', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 200 });
+    openCode.state.active[SESSION] = { type: 'running' };
+    openCode.state.active[SECOND] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ text: 'paused first', buildQueue: true }));
+    await runtime.enqueue(SECOND, DIRECTORY, item({ text: 'second', buildQueue: true }));
+    const [first, second] = runtime.buildSnapshot().queued;
+    await runtime.setBuildPaused(first.sessionId, first.id, true);
+    expect(runtime.buildSnapshot().queued.find(entry => entry.id === first.id).paused).toBe(true);
+
+    delete openCode.state.active[SECOND];
+    await settle(60);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['second']);
+    await runtime.setBuildPaused(first.sessionId, first.id, false);
+    expect(runtime.buildSnapshot().queued.map(entry => entry.id)).toEqual([first.id]);
+    expect(runtime.buildSnapshot().queued[0].paused).toBe(false);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('persists per-item pause state across restart and rejects pausing an active build', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null });
+    first.openCode.state.active[SESSION] = { type: 'running' };
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    const entry = first.runtime.buildSnapshot().queued[0];
+    await first.runtime.setBuildPaused(SESSION, entry.id, true);
+    await first.runtime.flush();
+    first.runtime.stop();
+
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null });
+    await second.runtime.load();
+    expect(second.runtime.buildSnapshot().queued[0].paused).toBe(true);
+    await second.runtime.setBuildPaused(SESSION, entry.id, false);
+    await settle(50);
+    expect(second.runtime.buildSnapshot().active[0]?.itemId).toBe(entry.id);
+    await expect(second.runtime.setBuildPaused(SESSION, entry.id, true)).rejects.toMatchObject({ status: 409 });
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
   it('rejects within-session reversal that would deadlock dispatch', async () => {
     const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
     openCode.state.active[SESSION] = { type: 'running' };

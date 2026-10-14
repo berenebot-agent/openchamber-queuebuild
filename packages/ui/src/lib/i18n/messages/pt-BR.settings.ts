@@ -2589,4 +2589,6 @@ export const settingsDict = {
   'settings.agents.sidebar.toast.agentEnabled': '{name} foi ativado de novo',
   'settings.agents.sidebar.toast.disableFailed': 'Não foi possível desativar o agente: o arquivo de configuração não pôde ser gravado',
   'settings.agents.sidebar.toast.enableFailed': 'Não foi possível ativar o agente: o arquivo de configuração não pôde ser gravado',
+  'settings.openchamber.buildQueue.item.pause': 'Pausar compilação',
+  'settings.openchamber.buildQueue.item.resume': 'Retomar compilação',
 } as const;

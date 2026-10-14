@@ -179,7 +179,16 @@ const parseStoredItem = (value) => {
   const id = raw ? asNonEmptyString(raw.id) : '';
   if (!id) return null;
   try {
-    return { id, createdAt: asCount(raw.createdAt) ?? Date.now(), ...parseQueuedItemInput(raw), ...(raw.buildQueue === true ? { buildOrder: asCount(raw.buildOrder) ?? 0 } : {}) };
+    const item = {
+      id,
+      createdAt: asCount(raw.createdAt) ?? Date.now(),
+      ...parseQueuedItemInput(raw),
+    };
+    if (raw.buildQueue === true) {
+      item.buildOrder = asCount(raw.buildOrder) ?? 0;
+      if (raw.buildPaused === true) item.buildPaused = true;
+    }
+    return item;
   } catch {
     return null;
   }
@@ -208,6 +217,7 @@ const toPublicItem = (item) => {
   publicItem.sendConfig = { ...item.sendConfig };
   if (item.scheduledTask) publicItem.scheduledTask = { ...item.scheduledTask };
   if (item.buildQueue) publicItem.buildQueue = true;
+  if (item.buildPaused) publicItem.buildPaused = true;
   return publicItem;
 };
 
@@ -419,10 +429,11 @@ export function createMessageQueueRuntime({
     .flatMap(([sessionId, queue]) => queue.items.filter(item => item.buildQueue && (!directory || queue.directory === directory))
       .map(item => ({ sessionId, directory: queue.directory, item })))
     .sort((a, b) => a.item.buildOrder - b.item.buildOrder || a.item.createdAt - b.item.createdAt || a.item.id.localeCompare(b.item.id));
+  const runnableBuilds = (directory) => pendingBuilds(directory).filter(entry => !entry.item.buildPaused);
   const buildSnapshot = () => ({
     revision,
     active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease, retryAvailable: queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId) === true })),
-    queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index })),
+    queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index, paused: item.buildPaused === true })),
     issues: [
       ...Array.from(buildProblems.entries()).filter(([directory]) => pendingBuilds(directory).length > 0).map(([directory, issue]) => ({ directory, issue })),
       ...Array.from(activeBuilds.entries()).filter(([, lease]) => lease.needsReview)
@@ -767,6 +778,23 @@ export function createMessageQueueRuntime({
     return buildSnapshot();
   };
 
+  const setBuildPaused = async (sessionIdInput, itemIdInput, paused) => {
+    const sessionId = requireSessionId(sessionIdInput);
+    const itemId = asNonEmptyString(itemIdInput);
+    if (!itemId || (paused !== true && paused !== false)) throw new TypeError('itemId and paused state required');
+    await load();
+    const queue = queues.get(sessionId);
+    const directory = queue?.directory ?? directories.get(sessionId);
+    if (sending.get(sessionId) === itemId || activeBuilds.get(directory)?.itemId === itemId) throw httpError('Cannot pause a build that has started', 409);
+    const item = queue?.items.find(entry => entry.id === itemId);
+    if (!item?.buildQueue) throw httpError('Queued build not found', 404);
+    if (paused) item.buildPaused = true;
+    else delete item.buildPaused;
+    commit(sessionId);
+    if (!paused) armDispatch(sessionId);
+    return buildSnapshot();
+  };
+
   // --- dispatch loop -------------------------------------------------------
 
   const clearTimer = (sessionId) => {
@@ -810,6 +838,7 @@ export function createMessageQueueRuntime({
     }
 
     const head = queue.items[0];
+    if (head.buildQueue && head.buildPaused) return;
     const failure = failures.get(sessionId);
     if (failure && failure.itemId !== head.id) failures.delete(sessionId);
     else if (failure && failure.nextAttemptAt > now()) {
@@ -857,7 +886,7 @@ export function createMessageQueueRuntime({
       // Only the oldest head among all sessions for this project may start.
       // The lease is claimed synchronously after the asynchronous probes.
       if (activeBuilds.has(current.directory)) return;
-      if (pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
+      if (runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
       // Settings → Chat → Build queue. `checkBuildGit` is the test seam that
       // replaces the real check; the live setting gates it first so off skips
       // the check entirely.
@@ -867,7 +896,7 @@ export function createMessageQueueRuntime({
       } else if (buildProblems.has(current.directory)) {
         setBuildProblem(current.directory, null);
       }
-      if (activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || pendingBuilds(current.directory)[0]?.item.id !== item.id) return;
+      if (activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
       setBuildProblem(current.directory, null);
       activeBuilds.set(current.directory, { sessionId, itemId: item.id, startedAt: now(), phase: 'dispatching' });
       commit(sessionId);
@@ -1206,6 +1235,7 @@ export function createMessageQueueRuntime({
     snapshot,
     buildSnapshot,
     reorderBuilds,
+    setBuildPaused,
     resolveBuild,
     sessionSnapshot,
     enqueue,
@@ -1241,6 +1271,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.put('/api/build-queue/order', async (req, res) => {
     try { res.json(await runtime.reorderBuilds(req.body?.directory, req.body?.ids)); }
     catch (error) { respondError(res, error, 'Failed to reorder build queue'); }
+  });
+  app.put('/api/build-queue/sessions/:sessionId/items/:itemId/pause', async (req, res) => {
+    try { res.json(await runtime.setBuildPaused(req.params.sessionId, req.params.itemId, req.body?.paused)); }
+    catch (error) { respondError(res, error, 'Failed to update queued build'); }
   });
   app.delete('/api/build-queue/sessions/:sessionId/items/:itemId', async (req, res) => {
     try { res.json(await runtime.remove(req.params.sessionId, req.params.itemId)); }

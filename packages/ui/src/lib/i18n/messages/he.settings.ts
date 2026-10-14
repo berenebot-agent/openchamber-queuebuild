@@ -2566,4 +2566,6 @@ export const settingsDict = {
   ...extensionCatalogI18n.he,
   ...guestIntegrationsI18n.he,
   ...extensionsSettingsI18n.he,
+  'settings.openchamber.buildQueue.item.pause': 'השהיית הבנייה',
+  'settings.openchamber.buildQueue.item.resume': 'חידוש הבנייה',
 } as const;

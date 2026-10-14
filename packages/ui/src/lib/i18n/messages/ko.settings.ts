@@ -2589,4 +2589,6 @@ export const settingsDict = {
   'settings.agents.sidebar.toast.agentEnabled': '{name}을(를) 다시 활성화했습니다',
   'settings.agents.sidebar.toast.disableFailed': '에이전트를 비활성화하지 못했습니다. 설정 파일에 쓸 수 없습니다',
   'settings.agents.sidebar.toast.enableFailed': '에이전트를 활성화하지 못했습니다. 설정 파일에 쓸 수 없습니다',
+  'settings.openchamber.buildQueue.item.pause': '빌드 일시 중지',
+  'settings.openchamber.buildQueue.item.resume': '빌드 재개',
 } as const;

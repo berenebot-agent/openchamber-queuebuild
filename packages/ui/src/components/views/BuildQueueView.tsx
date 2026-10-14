@@ -8,6 +8,7 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useBuildQueueSnapshot, type BuildQueueEntry } from '@/hooks/useBuildQueueSnapshot';
 import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useI18n } from '@/lib/i18n';
 
 const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
 const snippet = (value: string) => value.trim().split('\n').find(line => line.trim())?.trim() || 'Queued build';
@@ -19,6 +20,7 @@ export const BuildQueueView: React.FC = () => {
   const setEnabled = useBuildQueuePreferences(state => state.setEnabled);
   const { snapshot, error, refresh } = useBuildQueueSnapshot();
   const [busy, setBusy] = React.useState(false);
+  const { t } = useI18n();
 
   const items = snapshot?.queued.filter(item => projectKey(item.directory) === key) ?? [];
   const active = snapshot?.active.find(item => projectKey(item.directory) === key);
@@ -51,6 +53,10 @@ export const BuildQueueView: React.FC = () => {
   const cancel = (item: BuildQueueEntry) =>
     mutate('/api/build-queue/sessions/' + encodeURIComponent(item.sessionId) +
       '/items/' + encodeURIComponent(item.id), 'DELETE');
+
+  const togglePause = (item: BuildQueueEntry) =>
+    mutate('/api/build-queue/sessions/' + encodeURIComponent(item.sessionId) +
+      '/items/' + encodeURIComponent(item.id) + '/pause', 'PUT', { paused: !item.paused });
 
   const move = (index: number, delta: number) => {
     const order = items.map(item => item.id);
@@ -158,6 +164,13 @@ export const BuildQueueView: React.FC = () => {
                 </button>
               </div>
               <div className="mt-2.5 flex items-center justify-end gap-1">
+                <Button size="xs" variant="ghost" disabled={busy}
+                  aria-label={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
+                  title={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
+                  onClick={() => togglePause(item)}>
+                  <Icon name={item.paused ? 'play' : 'time'} className="size-4" />
+                  {item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
+                </Button>
                 <button type="button" aria-label={`Move build ${index + 1} up`} title="Move up" disabled={busy || index === 0}
                   onClick={() => move(index, -1)} className="size-7 rounded-md inline-flex items-center justify-center hover:bg-surface-muted disabled:opacity-25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <Icon name="arrow-up-s" className="size-4" />

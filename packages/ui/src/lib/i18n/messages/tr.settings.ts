@@ -2580,4 +2580,6 @@ export const settingsDict = {
   'settings.agents.sidebar.toast.agentEnabled': '{name} yeniden etkin',
   'settings.agents.sidebar.toast.disableFailed': 'Ajan devre dışı bırakılamadı: yapılandırma dosyası yazılamadı',
   'settings.agents.sidebar.toast.enableFailed': 'Ajan etkinleştirilemedi: yapılandırma dosyası yazılamadı',
+  'settings.openchamber.buildQueue.item.pause': 'Derlemeyi duraklat',
+  'settings.openchamber.buildQueue.item.resume': 'Derlemeyi sürdür',
 };

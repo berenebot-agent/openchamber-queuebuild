@@ -8,6 +8,7 @@ export interface BuildQueueEntry {
   content: string;
   createdAt: number;
   order: number;
+  paused: boolean;
 }
 
 interface BuildQueueLease {

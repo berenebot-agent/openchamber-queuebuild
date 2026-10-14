@@ -175,6 +175,12 @@ The fork extends this queue with a project-wide lane for `build`-agent prompts
 captures those prompts, including the first prompt of a new session, which it
 queues against a session it creates first
 (`packages/ui/src/components/chat/composer/submit/buildQueueRouting.ts`).
+Pending builds can be paused individually (`item.buildPaused`). Paused items
+remain in their project order, can still be reordered or cancelled, and are
+skipped when selecting the next runnable build. A paused head still holds its
+own session queue; other sessions' unpaused builds may proceed. Resuming arms
+dispatch without changing the item's order. Active or already-started builds
+cannot be paused.
 When the head of a session's queue is a managed build, admission additionally
 requires:
 
@@ -219,6 +225,7 @@ allowlists.
 | `POST .../sessions/:id/items/:itemId/take` | Remove and return the full item (payloads included); `404`/`409` |
 | `POST .../sessions/:id/take` | Remove and return every item not in flight, in order |
 | `PUT .../sessions/:id/order` | `{ itemIds }` must be a complete permutation |
+| `PUT /api/build-queue/sessions/:id/items/:itemId/pause` | `{ paused: boolean }`; pending managed builds only |
 | `DELETE .../sessions/:id` | Clear; the in-flight item stays |
 | `PUT .../sessions/:id/hold` | `{ held, ttlMs? }` |
 

@@ -2589,4 +2589,6 @@ export const settingsDict = {
   'settings.agents.sidebar.toast.agentEnabled': '{name} знову увімкнено',
   'settings.agents.sidebar.toast.disableFailed': 'Не вдалося вимкнути агента: не вийшло записати його конфіг',
   'settings.agents.sidebar.toast.enableFailed': 'Не вдалося увімкнути агента: не вийшло записати його конфіг',
+  'settings.openchamber.buildQueue.item.pause': 'Призупинити збірку',
+  'settings.openchamber.buildQueue.item.resume': 'Відновити збірку',
 } as const;

@@ -2589,4 +2589,6 @@ export const settingsDict = {
   'settings.agents.sidebar.toast.agentEnabled': '{name} est de nouveau activé',
   'settings.agents.sidebar.toast.disableFailed': 'Impossible de désactiver l’agent : son fichier de configuration n’a pas pu être écrit',
   'settings.agents.sidebar.toast.enableFailed': 'Impossible d’activer l’agent : son fichier de configuration n’a pas pu être écrit',
+  'settings.openchamber.buildQueue.item.pause': 'Mettre le build en pause',
+  'settings.openchamber.buildQueue.item.resume': 'Reprendre le build',
 } as const;
