@@ -20,6 +20,8 @@ import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-sw
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
 import { workBoardLane, workBoardFeedback, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
+import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
+import { removeWorkBoardProjectTab } from './workBoardProjectState';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queued', 'building', 'done'];
 
@@ -27,17 +29,45 @@ export function WorkBoardView() {
   const { t } = useI18n();
   const projects = useProjectsStore(state => state.projects);
   const activeProjectId = useProjectsStore(state => state.activeProjectId);
-  const savedProjectId = useUIStore(state => state.workBoardProjectId);
-  const [projectId, setProjectId] = React.useState(() =>
-    projects.some(project => project.id === savedProjectId) ? savedProjectId! : activeProjectId ?? projects[0]?.id ?? ''
-  );
+  const hasServerSnapshot = useProjectsStore(state => state.hasServerSnapshot);
+  const runtimeKey = getRuntimeKey();
+  const storedProjectTabs = useUIStore(state => state.workBoardProjectTabsByRuntime[runtimeKey]);
+  const setWorkBoardProjectTabs = useUIStore(state => state.setWorkBoardProjectTabs);
+  const projectIds = storedProjectTabs?.projectIds ?? [];
+  const projectsById = React.useMemo(() => new Map(projects.map(project => [project.id, project])), [projects]);
+  const visibleProjectTabs = projectIds.flatMap(id => {
+    const project = projectsById.get(id);
+    return project ? [project] : [];
+  });
+  const projectId = visibleProjectTabs.some(project => project.id === storedProjectTabs?.activeProjectId)
+    ? storedProjectTabs?.activeProjectId ?? ''
+    : visibleProjectTabs[0]?.id ?? '';
   React.useEffect(() => {
-    if (projects.some(project => project.id === projectId)) return;
-    const fallback = projects.find(project => project.id === savedProjectId)?.id
-      ?? projects.find(project => project.id === activeProjectId)?.id
-      ?? projects[0]?.id ?? '';
-    if (fallback !== projectId) setProjectId(fallback);
-  }, [projects, projectId, savedProjectId, activeProjectId]);
+    if (storedProjectTabs || (!projects.length && !hasServerSnapshot)) return;
+    const initialProjectId = projects.find(project => project.id === activeProjectId)?.id ?? projects[0]?.id ?? null;
+    setWorkBoardProjectTabs(runtimeKey, {
+      projectIds: initialProjectId ? [initialProjectId] : [],
+      activeProjectId: initialProjectId,
+    });
+  }, [activeProjectId, hasServerSnapshot, projects, runtimeKey, setWorkBoardProjectTabs, storedProjectTabs]);
+  React.useEffect(() => {
+    if (!storedProjectTabs || !hasServerSnapshot) return;
+    const validIds = storedProjectTabs.projectIds.filter(id => projectsById.has(id));
+    const activeId = validIds.includes(storedProjectTabs.activeProjectId ?? '')
+      ? storedProjectTabs.activeProjectId
+      : validIds[0] ?? null;
+    if (validIds.length !== storedProjectTabs.projectIds.length || activeId !== storedProjectTabs.activeProjectId) {
+      setWorkBoardProjectTabs(runtimeKey, { projectIds: validIds, activeProjectId: activeId });
+    }
+  }, [hasServerSnapshot, projects, projectsById, runtimeKey, setWorkBoardProjectTabs, storedProjectTabs]);
+  const addProjectTab = (nextProjectId: string) => {
+    const nextIds = [...new Set([...visibleProjectTabs.map(project => project.id), nextProjectId])];
+    setWorkBoardProjectTabs(runtimeKey, { projectIds: nextIds, activeProjectId: nextProjectId });
+  };
+  const closeProjectTab = (closedProjectId: string) => {
+    const next = removeWorkBoardProjectTab(visibleProjectTabs.map(project => project.id), projectId, closedProjectId);
+    setWorkBoardProjectTabs(runtimeKey, next);
+  };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
   const [cards, setCards] = React.useState<WorkBoardCard[]>([]);
   const [activities, setActivities] = React.useState<Map<string, WorkBoardActivity>>(new Map());
@@ -186,7 +216,6 @@ export function WorkBoardView() {
     useUIStore.getState().closeMainSurfaces();
     // Set after selecting the session: selection closes surfaces and clears
     // any previous return target. This click establishes the new one.
-    useUIStore.getState().setWorkBoardProjectId(projectId);
     useUIStore.getState().setWorkBoardReturnSessionId(card.sessionId);
   };
   const promote = (card: WorkBoardCard) => void mutate(async () => {
@@ -236,15 +265,18 @@ export function WorkBoardView() {
   return <div className="absolute inset-0 z-10 flex flex-col bg-background" aria-label={t('workBoard.title')}>
     <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
       <h1 className="text-lg font-semibold">{t('workBoard.title')}</h1>
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-        {t('workBoard.chooseProject')}
-        <select value={projectId} disabled={busy} onChange={event => {
-          setProjectId(event.target.value);
-          useUIStore.getState().setWorkBoardProjectId(event.target.value);
-        }} className="rounded-md border border-border bg-surface-elevated p-1 text-foreground">
-          {projects.map(project => <option key={project.id} value={project.id}>{project.label || project.path.split('/').at(-1)}</option>)}
-        </select>
-      </label>
+      <WorkBoardProjectTabs
+        projects={projects}
+        openProjectIds={visibleProjectTabs.map(project => project.id)}
+        activeProjectId={projectId}
+        disabled={busy}
+        onSelect={nextProjectId => setWorkBoardProjectTabs(runtimeKey, {
+          projectIds: visibleProjectTabs.map(project => project.id),
+          activeProjectId: nextProjectId,
+        })}
+        onAdd={addProjectTab}
+        onClose={closeProjectTab}
+      />
       <ModelSelector providerId={selection.providerID} modelId={selection.modelID} onChange={(providerID, modelID) => setSelection({ providerID, modelID })} />
       <Button size="sm" variant="outline" disabled={!directory || busy} onClick={() => {
         useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: projectId, target: 'project', directoryOverride: directory });

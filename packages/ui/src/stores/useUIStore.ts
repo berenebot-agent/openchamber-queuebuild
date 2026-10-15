@@ -41,6 +41,29 @@ import { sanitizeWorkStatusSectionOrder, type WorkStatusPanelSectionId } from '@
 export type PendingDiffScope = 'working' | 'staged' | 'turn' | 'branch' | 'commit' | 'pr';
 export type { ContextPanelMode };
 
+type WorkBoardProjectTabState = {
+  projectIds: string[];
+  activeProjectId: string | null;
+};
+
+const normalizeWorkBoardProjectTabState = (value: WorkBoardProjectTabState): WorkBoardProjectTabState => {
+  const projectIds = [...new Set(value.projectIds.map(id => id.trim()).filter(Boolean))];
+  const requestedActiveId = value.activeProjectId?.trim() ?? '';
+  return {
+    projectIds,
+    activeProjectId: projectIds.includes(requestedActiveId) ? requestedActiveId : projectIds[0] ?? null,
+  };
+};
+
+const workBoardProjectTabStateSchema = z.object({
+  projectIds: z.array(z.string()).catch([]),
+  activeProjectId: z.string().nullable().catch(null),
+}).transform(normalizeWorkBoardProjectTabState).catch({ projectIds: [], activeProjectId: null });
+
+const workBoardProjectTabsByRuntimeSchema = z.record(z.string(), workBoardProjectTabStateSchema)
+  .catch({})
+  .transform(states => Object.fromEntries(Object.entries(states).filter(([runtimeKey]) => runtimeKey.trim())));
+
 // The docked column and the tree-only panel share one pixel width.
 export const clampContextEditorTreeWidth = (width: number): number =>
   Math.min(480, Math.max(200, Math.round(width)));
@@ -949,8 +972,8 @@ interface UIStore {
   isWorkBoardOpen: boolean;
   /** Ephemeral return navigation after entering a session from the Work Board. */
   workBoardReturnSessionId: string | null;
-  /** Remembers the Kanban project's selection across a session visit. */
-  workBoardProjectId: string | null;
+  /** Open Work Board project tabs and their active project, persisted per runtime. */
+  workBoardProjectTabsByRuntime: Record<string, WorkBoardProjectTabState>;
   openGuestPageId: string | null;
   worktreesPageProjectId: string | null;
   /** The project whose isolated spaces fill the main area, opened from its menu in the sidebar. */
@@ -1253,7 +1276,7 @@ interface UIStore {
   setSourceBoardOpen: (open: boolean) => void;
   setWorkBoardOpen: (open: boolean) => void;
   setWorkBoardReturnSessionId: (sessionId: string | null) => void;
-  setWorkBoardProjectId: (projectId: string | null) => void;
+  setWorkBoardProjectTabs: (runtimeKey: string, state: WorkBoardProjectTabState) => void;
   setOpenGuestPage: (id: string | null) => void;
   setWorktreesPageProjectId: (projectId: string | null) => void;
   setSpacesPageProjectId: (projectId: string | null) => void;
@@ -1480,7 +1503,7 @@ export const useUIStore = create<UIStore>()(
         isSourceBoardOpen: false,
         isWorkBoardOpen: false,
         workBoardReturnSessionId: null,
-        workBoardProjectId: null,
+        workBoardProjectTabsByRuntime: {},
         openGuestPageId: null,
         worktreesPageProjectId: null,
         spacesPageProjectId: null,
@@ -2411,8 +2434,15 @@ export const useUIStore = create<UIStore>()(
         setWorkBoardReturnSessionId: (sessionId) => {
           set({ workBoardReturnSessionId: sessionId });
         },
-        setWorkBoardProjectId: (projectId) => {
-          set({ workBoardProjectId: projectId });
+        setWorkBoardProjectTabs: (runtimeKey, state) => {
+          if (!runtimeKey.trim()) return;
+          const normalized = normalizeWorkBoardProjectTabState(state);
+          set(current => ({
+            workBoardProjectTabsByRuntime: {
+              ...current.workBoardProjectTabsByRuntime,
+              [runtimeKey]: normalized,
+            },
+          }));
         },
         setSourceBoardOpen: (open) => {
           set(open
@@ -3306,12 +3336,15 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 24,
+        version: 25,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
           }
           const state = persistedState as Record<string, unknown>;
+
+          // v24 -> v25: persist Work Board project tabs separately per runtime.
+          state.workBoardProjectTabsByRuntime = workBoardProjectTabsByRuntimeSchema.parse(state.workBoardProjectTabsByRuntime);
 
           // v22 -> v23: table cell wrap is on by default. The local copy only
           // ever held the old default; a choice the user made is restored from
@@ -3569,6 +3602,7 @@ export const useUIStore = create<UIStore>()(
           isSidebarOpen: state.isSidebarOpen,
           sidebarWidth: state.sidebarWidth,
           contextPanelByDirectory: state.contextPanelByDirectory,
+          workBoardProjectTabsByRuntime: state.workBoardProjectTabsByRuntime,
           contextRailOrder: state.contextRailOrder,
           contextRailHiddenSurfaces: state.contextRailHiddenSurfaces,
           contextSurfaceZones: state.contextSurfaceZones,

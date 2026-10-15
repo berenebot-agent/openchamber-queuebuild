@@ -2,10 +2,14 @@
 
 The work board groups project work into To-do, Plan, Queued, Building, and Done.
 The existing Build queue panel remains available while a session is open.
-Open it from the **Work board** button in the session sidebar header. Choose
-a project and a model in the board header. The board includes saved To-do cards
-and that project's top-level sessions in its root directory. Worktree directories
-retain their own Build queues.
+Open it from the **Work board** button in the session sidebar header. Project
+tabs across the board header switch between project boards. Choose **+** to add
+another project tab, or close a tab to hide it from the board. Closing a tab
+does not remove its project or cards. The open tabs and selected project are
+saved per runtime and restored when the app restarts. Choose a model in the
+board header. The board includes saved To-do cards and the selected project's
+top-level sessions in its root directory. Worktree directories retain their
+own Build queues.
 
 ## Save a to-do
 
