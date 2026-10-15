@@ -42,6 +42,9 @@ export async function completeWorkBoardCards(directory: string, targets: Complet
 export async function fetchWorkBoard(directory: string): Promise<WorkBoardCard[]> {
   return z.object({ cards: z.array(cardSchema) }).parse(await request(`/api/work-board?directory=${encodeURIComponent(directory)}`)).cards;
 }
+export async function fetchSessionWorkBoardCards(sessionId: string): Promise<WorkBoardCard[]> {
+  return z.object({ cards: z.array(cardSchema) }).parse(await request(`/api/work-board?sessionId=${encodeURIComponent(sessionId)}`)).cards;
+}
 export async function createWorkBoardCard(directory: string, text: string, attachments: WorkBoardAttachment[]): Promise<WorkBoardCard> {
   return z.object({ card: cardSchema }).parse(await request('/api/work-board', 'POST', { directory, text, attachments })).card;
 }

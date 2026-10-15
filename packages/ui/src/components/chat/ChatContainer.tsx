@@ -6,6 +6,7 @@ import { keepCommandSubagentReports } from '@/lib/opencode/subagent-run';
 import { isOpencodeNotFound, opencodeClient } from '@/lib/opencode/client';
 
 import { ChatInput } from './ChatInput';
+import { SessionSavedTodos } from '@/components/workBoard/SessionSavedTodos';
 import { CHAT_INPUT_EDITOR_SELECTOR } from './composer/editor/dom';
 import {
     ChatColumnActionsContext,
@@ -381,6 +382,7 @@ const ChatViewport = React.memo(({
         <>
             {/* Permissions and forms dock above the composer (`PermissionDock`, `FormDock`). */}
             <SessionErrorNotice sessionId={currentSessionId} directory={directory} />
+            <SessionSavedTodos key={currentSessionId} sessionId={currentSessionId} />
 
             {/* Tail spacer. With a floating composer it reserves the band the
                 composer covers, plus any panel docked above it (queue, BTW),

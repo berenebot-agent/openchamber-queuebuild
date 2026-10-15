@@ -13,6 +13,7 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
+import { completeTodoSave, useWorkBoardSavedTodo } from './workBoardSavedTodo';
 
 test('board actions, live activity and viewed turn attention use shared session behavior', async () => {
   const dom = new Window({ url: 'http://localhost' });
@@ -108,6 +109,25 @@ test('board actions, live activity and viewed turn attention use shared session 
     await act(async () => container.querySelector<HTMLButtonElement>('button[title="Inherited plan"]')!.click());
     expect(useSessionUIStore.getState().currentSessionId).toBe('session1');
     expect(linkedCard().textContent).not.toContain('Needs attention');
+    const saved = { ...cards[0], text: 'Saved first line\nThe full saved dialogue', attachments: [
+      { id: 'file1', filename: 'brief.txt', mimeType: 'text/plain', size: 2, dataUrl: 'data:text/plain;base64,aGk=' },
+    ] };
+    await act(async () => completeTodoSave(saved, 'project'));
+    expect(useUIStore.getState().isWorkBoardOpen).toBe(true);
+    expect(useUIStore.getState().workBoardProjectTabsByRuntime[getRuntimeKey()]?.activeProjectId).toBe('project');
+    const savedDialog = document.querySelector('[role="dialog"]');
+    expect(savedDialog?.textContent).toContain('Saved to To-do');
+    expect(savedDialog?.textContent).toContain(saved.text);
+    expect(savedDialog?.querySelector('a')?.getAttribute('download')).toBe('brief.txt');
+    // An existing-session save stays in its session and never opens the board.
+    await act(async () => {
+      useUIStore.getState().setWorkBoardOpen(false);
+      completeTodoSave({ ...saved, sessionId: 'session1' });
+    });
+    expect(useUIStore.getState().isWorkBoardOpen).toBe(false);
+    expect(useSessionUIStore.getState().currentSessionId).toBe('session1');
+    expect(useWorkBoardSavedTodo.getState().confirmation).toBeNull();
+    expect(completionRequests).toBe(1);
     expect(linkedCard().querySelector('[data-session-activity-indicator]')).toBeNull();
     await act(async () => useNotificationStore.getState().append({ type: 'error', session: 'session1', directory: '/repo', time: Date.now(), viewed: false }));
     expect(linkedCard().textContent).toContain('Needs attention');
@@ -116,6 +136,7 @@ test('board actions, live activity and viewed turn attention use shared session 
     expect(linkedCard().textContent).not.toContain('Needs attention');
   } finally {
     await act(async () => root.unmount());
+    useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
     fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore(); draftSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config); useGlobalSessionsStore.setState(sessions);
     useNotificationStore.setState(notifications); useSessionUIStore.setState(sessionUI);

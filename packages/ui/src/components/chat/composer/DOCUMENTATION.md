@@ -967,6 +967,16 @@ quoted code or message stays verbatim.
 
 ## Testing
 
+To-do submission uses the server-owned work board instead of the OpenCode send
+path. After confirmation, `completeTodoSave` publishes the accepted card for the
+session's saved-brief entry. New drafts return to their project's board and show
+the saved text in a dialog; existing sessions stay selected. The composer only
+clears unchanged text and attachments after the save succeeds. The transcript's
+`SessionSavedTodos` entry reloads linked cards from the server on session entry
+and focus, preserving loaded text on read failure. It never invokes a model or
+adds synthetic context. See `docs/WORK_BOARD.md` for ownership and supported
+interfaces.
+
 Tests cover the language, submit assembly, path and drop handling, text splicing,
 large-paste detection, paste-offer invalidation, input-history traversal, the
 mobile comment lifecycle, and the CodeMirror language extension at the

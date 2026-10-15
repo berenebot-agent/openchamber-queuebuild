@@ -4,7 +4,7 @@ The work board stores prompt cards in `work-board.json` under the OpenChamber da
 
 The authenticated API is registered before the generic OpenCode proxy:
 
-- `GET /api/work-board?directory=<path>` returns `{ cards }` scoped to the resolved directory. Omitting `directory` returns the full list.
+- `GET /api/work-board?directory=<path>` returns `{ cards }` scoped to the resolved directory. Optional `sessionId` filters by the linked session, independently of its worktree directory. The session view uses this filter to restore saved briefs without reading unrelated attachment payloads. Omitting both filters returns the full list. Supplying both applies both filters.
 - `POST /api/work-board` accepts `{ directory, text, attachments }` and returns `{ card }` with status 201.
 - `POST /api/work-board/sessions/:sessionId/todo` accepts `{ directory, sessionDirectory?, text, attachments }` and returns `{ card }`. The board directory and the session's worktree directory may differ. The queue runtime rejects queued, active, or uncertain work and holds queue dispatch while checking idleness and saving.
 - `PATCH /api/work-board/:id` accepts `text`, `attachments`, `sessionId`, and/or `stage`, and returns `{ card }`.
@@ -29,6 +29,12 @@ Returning to To-do clears the completion timestamp.
 Promotion to `plan` requires a persisted session link. A card linked to one session cannot be linked to another. Clients persist the session link before sending and change stage only after the send succeeds. The card contents remain available after a failed send. A linked To-do offers an Open session action so the user can inspect an ambiguous send before submitting again. The client never automatically retries a linked card.
 
 Parking uses one serialized store operation and one atomic file replacement to create or update a session-linked card. A failed write preserves the previous board and leaves no unlinked intermediate card. Repeating the latest notes does not append them again; attachment IDs deduplicate repeated uploads. Existing text and files are preserved when returning a card to To-do with no additional content.
+
+The shared session transcript displays linked saved briefs directly from this
+store, including cards saved before this display existed. Parking never writes
+an OpenCode prompt or synthetic message. The visible entry follows the saved
+card through edits and removal; it does not change session activity or queue
+admission.
 
 Malformed persisted data is a read failure. It never becomes an empty board or gets overwritten by a later save. Store files use mode `0600` because they contain prompt text and attachment bytes. The store validates saved card shapes and duplicate ids as well as incoming content.
 

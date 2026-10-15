@@ -14,6 +14,7 @@ import { prepareUserMessageResume } from '@/sync/user-message-resume';
 import { prepareLocalAttachments, useDraftAttachedFiles, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { createWorkBoardCard, saveSessionToTodo } from '@/lib/workBoardApi';
+import { completeTodoSave } from '@/components/workBoard/workBoardSavedTodo';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { captureWorkBoardAttachments } from '@/components/workBoard/workBoardWorkflow';
 import { openParallelComposer } from '@/lib/multirun/openParallelComposer';
@@ -1397,11 +1398,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (!project) { toast.error(t('workBoard.noProject')); return; }
         setSavingTodo(true);
         try {
-            if (currentSessionId && !newSessionDraftOpen) {
-                await saveSessionToTodo(currentSessionId, project.path, sourceDirectory ?? project.path, draft, files);
-            } else {
-                await createWorkBoardCard(project.path, draft, files);
-            }
+            const card = currentSessionId && !newSessionDraftOpen
+                ? await saveSessionToTodo(currentSessionId, project.path, sourceDirectory ?? project.path, draft, files)
+                : await createWorkBoardCard(project.path, draft, files);
             const currentIdentity = currentChatDraftIdentityRef.current;
             if (runtime !== getRuntimeKey() || !currentIdentity || identityKey !== getChatDraftIdentityKey(currentIdentity)) return;
             // Keep edits made while the save was in flight in the composer.
@@ -1412,6 +1411,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 clearAttachedFiles(chatDraftIdentity);
             }
             toast.success(t('workBoard.saved'));
+            completeTodoSave(card, newSessionDraftOpen ? project.id : undefined);
         } catch (cause) {
             toast.error(cause instanceof Error ? cause.message : t('workBoard.failed'));
         } finally { setSavingTodo(false); }

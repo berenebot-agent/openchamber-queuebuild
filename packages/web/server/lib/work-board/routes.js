@@ -15,9 +15,9 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
   };
   app.get('/api/work-board', async (req, res) => {
     try {
-      const query = z.object({ directory: z.string().trim().min(1).optional() }).parse(req.query);
+      const query = z.object({ directory: z.string().trim().min(1).optional(), sessionId: z.string().trim().min(1).optional() }).parse(req.query);
       const directory = query.directory ? await resolveDirectory(req, query.directory) : undefined;
-      return res.json({ cards: await store.list(directory) });
+      return res.json({ cards: await store.list(directory, query.sessionId) });
     } catch (error) { return failure(res, error); }
   });
   app.post('/api/work-board', json, async (req, res) => {

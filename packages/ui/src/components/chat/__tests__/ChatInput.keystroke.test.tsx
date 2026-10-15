@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Window } from 'happy-dom';
+import { z } from 'zod';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import type { EditorView as ComposerEditorView } from '@codemirror/view';
 
@@ -121,6 +122,12 @@ spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
   const path = new URL(input instanceof Request ? input.url : input.toString(), 'http://localhost/').pathname;
   const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
   if (method !== 'GET') writes.push(path);
+  if (path.startsWith('/api/work-board') && method === 'POST') {
+    const body = z.object({ directory: z.string(), text: z.string() }).parse(JSON.parse(String(init?.body)));
+    return Response.json({ card: { ...body, id: 'saved-todo', attachments: [], createdAt: 1, updatedAt: 1, stage: 'todo',
+      ...(path.includes('/sessions/') ? { sessionId: 'ses_typing' } : {}),
+    } });
+  }
   if (path === '/api/build-queue') return Response.json({ revision: 0, active: [], queued: [], issues: [] });
   if (path.endsWith('/location')) {
     return Response.json({ directory: '/workspace', project: { id: 'project', directory: '/workspace', canonical: '/workspace' } });
@@ -350,3 +357,40 @@ test('Auto model ignores the agent shortcut instead of entering an invisible To-
     expect(useConfigStore.getState().currentAgentName).toBe('review');
   });
 });
+
+for (const scenario of ['session', 'draft'] as const) {
+  test(`To-do saves full composer text from a ${scenario} without starting a model`, async () => {
+    const { useProjectsStore } = await import('@/stores/useProjectsStore');
+    const { useUIStore } = await import('@/stores/useUIStore');
+    const { useWorkBoardSavedTodo } = await import('@/components/workBoard/workBoardSavedTodo');
+    const projects = useProjectsStore.getState();
+    const ui = useUIStore.getState();
+    useProjectsStore.setState({ projects: [{ id: 'project', path: '/workspace', label: 'Workspace', addedAt: 1 }], activeProjectId: 'project' });
+    try {
+      await measureTyping(scenario, async (container, view) => {
+        await act(async () => {
+          useConfigStore.setState({ currentProviderId: 'provider', currentModelId: 'model', currentAgentName: 'review', agents: [
+            { id: 'review', name: 'review', displayName: 'Review', mode: 'primary', hidden: false, request: { settings: {}, headers: {}, body: {} }, permissions: [] },
+          ] });
+          if (scenario === 'draft') useSessionUIStore.setState({ newSessionDraft: { ...useSessionUIStore.getState().newSessionDraft, selectedProjectId: 'project', origin: 'workBoard' } });
+          useUIStore.getState().setWorkBoardOpen(false);
+        });
+        if (scenario === 'session') await act(async () => { view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true, cancelable: true })); });
+        await act(async () => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'Full saved brief\nFollow-up details' } }); });
+        writes.length = 0;
+        const save = container.querySelector<HTMLButtonElement>('[aria-label="Save to To-do"]');
+        expect(save).not.toBeNull();
+        await act(async () => { save!.click(); });
+        expect(writes).toEqual([scenario === 'draft' ? '/api/work-board' : '/api/work-board/sessions/ses_typing/todo']);
+        expect(useWorkBoardSavedTodo.getState().latestSave?.card.text).toBe('Full saved brief\nFollow-up details');
+        expect(useWorkBoardSavedTodo.getState().confirmation !== null).toBe(scenario === 'draft');
+        expect(useUIStore.getState().isWorkBoardOpen).toBe(scenario === 'draft');
+        expect(view.state.doc.toString()).toBe('');
+      });
+    } finally {
+      useProjectsStore.setState(projects);
+      useUIStore.setState(ui);
+      useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
+    }
+  });
+}

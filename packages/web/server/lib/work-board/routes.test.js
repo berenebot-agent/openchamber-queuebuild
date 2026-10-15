@@ -8,6 +8,28 @@ import { registerWorkBoardRoutes } from './routes.js';
 import { createWorkBoardStore } from './store.js';
 
 describe('work board HTTP routes', () => {
+  it('restores saved session briefs after restart, scoped by session across board and worktree directories', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-session-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const attachment = { id: 'file1', filename: 'notes.txt', mimeType: 'text/plain', size: 2, dataUrl: 'data:text/plain;base64,aGk=' };
+      const first = await store.parkSession({ directory: '/repo', sessionId: 'plan1', text: 'First line\nFull saved text', attachments: [attachment] });
+      await store.parkSession({ directory: '/repo', sessionId: 'build1', text: 'Build follow-up', attachments: [] });
+      await store.create({ directory: '/repo', text: 'Unlinked card' });
+      const app = express();
+      registerWorkBoardRoutes(app, { store: createWorkBoardStore({ dataDir }), resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      const restored = await request(app).get('/api/work-board').query({ sessionId: 'plan1' }).expect(200);
+      expect(restored.body.cards).toEqual([first]);
+      const build = await request(app).get('/api/work-board').query({ sessionId: 'build1' }).expect(200);
+      expect(build.body.cards.map(card => card.text)).toEqual(['Build follow-up']);
+      const missing = await request(app).get('/api/work-board').query({ sessionId: 'missing' }).expect(200);
+      expect(missing.body.cards).toEqual([]);
+      const other = await request(app).get('/api/work-board').query({ directory: '/other', sessionId: 'plan1' }).expect(200);
+      expect(other.body.cards).toEqual([]);
+      await request(app).get('/api/work-board').query({ sessionId: '' }).expect(400);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
   it('guards every linked completion and reports partial bulk results without touching another project', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-complete-'));
     try {

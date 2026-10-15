@@ -30,6 +30,20 @@ to finish before parking an existing session. The composer clears only after
 the server confirms the save. If the session becomes busy while To-do is
 selected, its notes stay in the composer and cannot be queued for execution.
 
+Saving a new-session draft returns to that project's board with a
+**Saved to To-do** dialog showing the full saved text and attachment downloads.
+Saving in an existing session keeps that session open. Its saved brief appears
+at the end of the transcript in a **Saved to To-do** entry, including after
+reopening the session or refreshing the page. Existing linked cards also appear
+there without conversion. The entry reads the server card, so edits and removal
+of that card also change what is shown in the session. It is not an OpenCode
+user turn and does not send context or start a model.
+
+Session entries are scoped by session ID, including when the session lives in a
+worktree and its card belongs to the root project's board. A failed read keeps
+the last loaded text visible and offers **Try again**. Session and runtime
+changes discard reads that finish for the previous session or server.
+
 To-do cards live on the board. They do not add empty sessions to the sidebar.
 
 ## Start planning
@@ -95,6 +109,8 @@ failed cards. Refresh before retrying cards that changed during confirmation.
 
 The first version provides the board in web and Electron desktop chat. VS Code
 and the dedicated mobile layouts do not provide a board entry point.
+Hosted mobile and Capacitor session views can read saved linked briefs from the
+same server. VS Code does not request board-backed session entries.
 Stored cards belong to the OpenChamber server and are available to other
 browser profiles connected to that server.
 The board refreshes stored cards on focus, after writes, and every 30 seconds

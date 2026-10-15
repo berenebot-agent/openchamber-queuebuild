@@ -68,7 +68,8 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
     }
   };
   return {
-    list: directory => serialized(async () => (await read()).filter(card => directory === undefined || card.directory === directory)),
+    list: (directory, sessionId) => serialized(async () => (await read()).filter(card =>
+      (directory === undefined || card.directory === directory) && (sessionId === undefined || card.sessionId === sessionId))),
     complete: input => serialized(async () => {
       const target = z.object({ directory: nonempty, id: nonempty, updatedAt: z.number().finite(), sessionId: nonempty.optional(), text: z.string() }).parse(input);
       const cards = await read();

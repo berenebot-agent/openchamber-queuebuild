@@ -25,6 +25,8 @@ import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoard
 import { workBoardLane, workBoardCompletionTime, workBoardFeedback, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab } from './workBoardProjectState';
+import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
+import { SavedTodoBrief } from './SavedTodoBrief';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queued', 'building', 'done'];
 
@@ -54,6 +56,7 @@ export function WorkBoardView() {
   const activeProjectId = useProjectsStore(state => state.activeProjectId);
   const hasServerSnapshot = useProjectsStore(state => state.hasServerSnapshot);
   const runtimeKey = getRuntimeKey();
+  const confirmation = useWorkBoardSavedTodo(state => state.confirmation);
   const storedProjectTabs = useUIStore(state => state.workBoardProjectTabsByRuntime[runtimeKey]);
   const setWorkBoardProjectTabs = useUIStore(state => state.setWorkBoardProjectTabs);
   const projectIds = storedProjectTabs?.projectIds ?? [];
@@ -92,6 +95,7 @@ export function WorkBoardView() {
     setWorkBoardProjectTabs(runtimeKey, next);
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
+  const savedCard = confirmation?.runtimeKey === runtimeKey && confirmation.card.directory === directory ? confirmation.card : null;
   // Remember which board the user is on so any chat can return to it, and so a
   // New to-do draft is rooted in this project rather than the sidebar's.
   React.useEffect(() => {
@@ -409,6 +413,12 @@ export function WorkBoardView() {
         </section>;
       })}
     </div>}
+    <Dialog open={savedCard !== null} onOpenChange={open => { if (!open) useWorkBoardSavedTodo.setState({ confirmation: null }); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogTitle>{t('workBoard.saved')}</DialogTitle>
+        <div className="max-h-[65vh] overflow-y-auto">{savedCard && <SavedTodoBrief card={savedCard} />}</div>
+      </DialogContent>
+    </Dialog>
     <Dialog open={completion !== null} onOpenChange={open => { if (!open && !busy) setCompletion(null); }}>
       <DialogContent showCloseButton={!busy}>
         <DialogTitle>{t('workBoard.completeAll')}</DialogTitle>
