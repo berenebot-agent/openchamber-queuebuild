@@ -213,29 +213,32 @@ export function WorkBoardView() {
         if (cancelled || token !== generation.current || runtime !== getRuntimeKey()) return;
         const activeIds = new Set(Object.keys(status ?? {}));
         const linked = cardsRef.current.filter(card => card.sessionId);
-        for (let index = 0; index < linked.length; index += 4) {
-          if (cancelled || token !== generation.current || runtime !== getRuntimeKey()) return;
-          await Promise.all(linked.slice(index, index + 4).map(async card => {
-            if (!card.sessionId) return;
-            if (status === null) { failed.add(card.id); return; }
-            try {
-              const version = versionsRef.current.get(card.sessionId);
-              const cached = messageCache.current.get(card.id);
-              const running = Boolean(status[card.sessionId]) || hasActiveSubagent(card.sessionId, activeIds) || hasRunningShell(card.sessionId);
-              if (cached?.at(-1)?.role === 'idle' && version !== undefined && sessionVersions.current.get(card.id) === version && !running) {
-                next.set(card.id, { busy: false, messages: cached });
-                return;
-              }
-              const page = await opencodeClient.getSessionMessages(card.sessionId, { limit: 32, order: 'desc', partShells: true }, card.directory);
-              const messages = page.items.map(item => item.info).reverse();
-              if (!cancelled && runtime === getRuntimeKey() && token === generation.current) {
-                if (version !== undefined) sessionVersions.current.set(card.id, version);
-                messageCache.current.set(card.id, messages);
-              }
-              next.set(card.id, { busy: running, messages });
-            } catch { failed.add(card.id); }
-          }));
-        }
+        // Every linked card's history is an independent request. Run them
+        // together so the first paint of a lane waits on one round trip rather
+        // than one per batch, which is what made cards settle in visible steps.
+        await Promise.all(linked.map(async card => {
+          if (!card.sessionId) return;
+          if (status === null) { failed.add(card.id); return; }
+          try {
+            const version = versionsRef.current.get(card.sessionId);
+            const cached = messageCache.current.get(card.id);
+            const running = Boolean(status[card.sessionId]) || hasActiveSubagent(card.sessionId, activeIds) || hasRunningShell(card.sessionId);
+            // The session's update time is the history's identity. If it has not
+            // moved and no turn is running, the cached history is still what the
+            // server would return, so a settled lane does not refetch every tick.
+            if (cached && !running && version !== undefined && sessionVersions.current.get(card.id) === version) {
+              next.set(card.id, { busy: false, messages: cached });
+              return;
+            }
+            const page = await opencodeClient.getSessionMessages(card.sessionId, { limit: 32, order: 'desc', partShells: true }, card.directory);
+            const messages = page.items.map(item => item.info).reverse();
+            if (!cancelled && runtime === getRuntimeKey() && token === generation.current) {
+              if (version !== undefined) sessionVersions.current.set(card.id, version);
+              messageCache.current.set(card.id, messages);
+            }
+            next.set(card.id, { busy: running, messages });
+          } catch { failed.add(card.id); }
+        }));
         if (!cancelled && token === generation.current && runtime === getRuntimeKey()) {
           setActivities(previous => new Map([...previous, ...next]));
           setUnavailable(failed);

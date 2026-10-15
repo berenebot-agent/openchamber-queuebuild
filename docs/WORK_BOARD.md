@@ -80,6 +80,12 @@ background subagents and commands. The appearance setting for animated activity
 indicators applies to cards too. Finished unread turns show the session list's
 unread icon.
 
+Lanes follow a card's saved stage and live state, so the board reads each linked
+session's history to place it. It reads every linked card's history at once, and
+reuses a card's history while its session has not been updated and no turn is
+running, rather than re-reading settled cards on every poll. A card whose session
+history has not yet arrived keeps the lane its saved stage implies.
+
 Failed or stopped unread turns show an attention notice. Opening the session
 from the board or session list clears that notice and the unread icon. Another
 unread failed or stopped turn can show the notice again. Build-queue recovery
