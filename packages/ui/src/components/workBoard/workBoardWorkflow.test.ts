@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardShowsCompletionMark } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -8,6 +8,8 @@ const selection = { providerID: 'provider', modelID: 'model' };
 const user = (at: number): Message => ({ id: `user${at}`, sessionID: 'session1', role: 'user', time: { created: at } });
 const assistant = (agent: string, at: number): Message => ({ id: `assistant${at}`, sessionID: 'session1', role: 'assistant', agent, providerID: 'provider', modelID: 'model', time: { created: at, completed: at + 1 } });
 const idle: Message = { id: 'idle', sessionID: 'session1', role: 'idle', outcome: 'succeeded', time: { created: 5 } };
+const waiting = (needsReview = false) => ({ itemId: 'item1', paused: false, active: false, needsReview, order: ['item1'] });
+const running = (needsReview = false) => ({ itemId: 'item1', paused: false, active: true, needsReview, order: [] });
 
 describe('work board lanes', () => {
   test('manual completion persists without Build history and reopens on a later prompt', () => {
@@ -16,8 +18,8 @@ describe('work board lanes', () => {
     expect(workBoardLane(completed, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined)).toBe('done');
     expect(workBoardLane(completed, { messages: [user(7)], busy: false }, undefined)).toBe('plan');
     expect(workBoardLane(completed, { messages: [], busy: true }, undefined)).toBe('plan');
-    expect(workBoardLane(completed, undefined, 'queued')).toBe('queued');
-    expect(workBoardLane(completed, undefined, 'building')).toBe('building');
+    expect(workBoardLane(completed, undefined, waiting())).toBe('queue');
+    expect(workBoardLane(completed, undefined, running())).toBe('queue');
   });
   test('Done ordering uses settled Build finish or manual completion, never session update time', () => {
     const built: WorkBoardCard = { ...card, stage: 'plan', updatedAt: 1000 };
@@ -31,16 +33,16 @@ describe('work board lanes', () => {
   });
   test('new cards stay To-do and queue leases take precedence', () => {
     expect(workBoardLane(card, undefined, undefined)).toBe('todo');
-    expect(workBoardLane(card, undefined, 'queued')).toBe('queued');
-    expect(workBoardLane(card, undefined, 'building')).toBe('building');
+    expect(workBoardLane(card, undefined, waiting())).toBe('queue');
+    expect(workBoardLane(card, undefined, running())).toBe('queue');
   });
   test('an idle Build card is Done whether or not that turn settled successfully', () => {
     const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
     const messages = [user(2), assistant('build', 3), idle];
     expect(workBoardLane(linked, { messages, busy: false }, undefined)).toBe('done');
-    expect(workBoardLane(linked, { messages, busy: true }, undefined)).toBe('building');
+    expect(workBoardLane(linked, { messages, busy: true }, undefined)).toBe('queue');
     // A running turn is Building even before its idle record lands.
-    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: true }, undefined)).toBe('building');
+    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: true }, undefined)).toBe('queue');
     // An idle Build turn is Done with or without its idle record: live status,
     // not history detail, decides whether the turn is still open.
     expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: false }, undefined)).toBe('done');
@@ -55,11 +57,11 @@ describe('work board lanes', () => {
       const history = [user(2), assistant('build', 3), outcome];
       // Idle with nothing running: the card is done history, not pending work.
       expect(workBoardLane(linked, { messages: history, busy: false }, undefined)).toBe('done');
-      expect(workBoardLane(linked, { messages: history, busy: true }, undefined)).toBe('building');
+      expect(workBoardLane(linked, { messages: history, busy: true }, undefined)).toBe('queue');
       // Nothing running and no idle record on a Build turn is still settled.
       expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: false }, undefined)).toBe('done');
-      expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: true }, undefined)).toBe('building');
-      expect(workBoardLane(linked, { messages: history, busy: false }, 'building')).toBe('building');
+      expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: true }, undefined)).toBe('queue');
+      expect(workBoardLane(linked, { messages: history, busy: false }, waiting())).toBe('queue');
     }
     // A Plan turn that failed is not Build history: it stays in Plan.
     expect(workBoardLane(linked, { messages: [user(2), assistant('plan', 3), failedIdle], busy: false }, undefined)).toBe('plan');
@@ -72,13 +74,13 @@ describe('work board lanes', () => {
     // The server will not release this lease on its own, so the card must not
     // leave the build lane behind its back -- not even when the turn looks
     // settled. Only resolving the lease moves it.
-    expect(workBoardLane(linked, { messages: built, busy: false }, 'building', true)).toBe('building');
-    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), failedIdle], busy: false }, 'building', true)).toBe('building');
-    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), interruptedIdle], busy: false }, 'building', true)).toBe('building');
+    expect(workBoardLane(linked, { messages: built, busy: false }, waiting(true))).toBe('queue');
+    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), failedIdle], busy: false }, waiting(true))).toBe('queue');
+    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), interruptedIdle], busy: false }, waiting(true))).toBe('queue');
     // The lease pin outranks an idle history read that would otherwise be Done.
-    expect(workBoardLane(linked, { messages: built, busy: false }, undefined, true)).toBe('building');
-    // An idle Plan card beside a review lease is untouched by it.
-    expect(workBoardLane(linked, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined, true)).toBe('plan');
+    expect(workBoardLane(linked, { messages: built, busy: false }, running(true))).toBe('queue');
+    // An idle Plan card is untouched by another session's review lease.
+    expect(workBoardLane(linked, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined)).toBe('plan');
   });
   test('parking preserves old history; a new send reopens the card', () => {
     const parked = { ...card, sessionId: 'session1', updatedAt: 6 };
@@ -86,6 +88,35 @@ describe('work board lanes', () => {
     expect(workBoardLane(parked, { messages: [user(2), assistant('plan', 3)], busy: true }, undefined)).toBe('plan');
     expect(workBoardLane(parked, { messages: [user(2), assistant('build', 3), idle, user(7), assistant('plan', 8)], busy: true }, undefined)).toBe('plan');
     expect(workBoardLane(parked, { messages: [user(2), assistant('build', 3), idle, user(7)], busy: false }, undefined)).toBe('plan');
+  });
+});
+
+describe('build queue column', () => {
+  test('lists every queued build, including one the board has no card for', () => {
+    const rows = workBoardQueueRows([
+      { id: 'a', sessionId: 's1', content: '\n  Ship the queue column  \nmore detail', paused: false },
+      { id: 'b', sessionId: 's2', content: '', paused: true },
+    ], sessionId => (sessionId === 's1' ? 'Named session' : 'Session s2'));
+    expect(rows).toEqual([
+      // Order is the queue's dispatch order, and the snippet is the first real
+      // line of the queued prompt. An empty prompt leaves the title alone.
+      { itemId: 'a', sessionId: 's1', title: 'Named session', snippet: 'Ship the queue column', paused: false, position: 0 },
+      { itemId: 'b', sessionId: 's2', title: 'Session s2', snippet: '', paused: true, position: 1 },
+    ]);
+  });
+  test('a move sends the queue order with only the two neighbours swapped', () => {
+    expect(workBoardReordered(['a', 'b', 'c'], 0, 1)).toEqual(['b', 'a', 'c']);
+    expect(workBoardReordered(['a', 'b', 'c'], 2, -1)).toEqual(['a', 'c', 'b']);
+    // An end has nowhere to go, and the caller must not send a reorder.
+    expect(workBoardReordered(['a', 'b', 'c'], 0, -1)).toBeNull();
+    expect(workBoardReordered(['a', 'b', 'c'], 2, 1)).toBeNull();
+    expect(workBoardReordered(['a'], 0, 0)).toEqual(['a']);
+    expect(workBoardReordered(['a'], 5, 1)).toBeNull();
+  });
+  test('a paused queued build is still queued, not done', () => {
+    const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
+    const paused = { ...waiting(), paused: true };
+    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), idle], busy: false }, paused)).toBe('queue');
   });
 });
 

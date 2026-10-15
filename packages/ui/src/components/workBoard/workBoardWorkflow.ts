@@ -1,11 +1,34 @@
 import type { Message } from '@/lib/opencode/model';
 import type { WorkBoardCard, WorkBoardAttachment } from '@/lib/workBoardApi';
 
-export type WorkBoardLane = 'todo' | 'plan' | 'queued' | 'building' | 'done';
+export type WorkBoardLane = 'todo' | 'plan' | 'queue' | 'done';
+
+/**
+ * What the project's build queue says about a card's session. The board shows
+ * Queued and Building together in one column, so the two states travel as one
+ * value carrying the row controls' inputs.
+ */
+export type WorkBoardQueueState = {
+  itemId: string;
+  paused: boolean;
+  /** True for the lease the project is running now; false for one merely waiting. */
+  active: boolean;
+  /** The server parked this lease for review and will not release it alone. */
+  needsReview: boolean;
+  /** What the queue reports for this directory, in dispatch order. */
+  order: string[];
+};
+
 export type WorkBoardActivity = {
   messages: Message[];
   busy: boolean;
 };
+
+/**
+ * What the board sends when a queued row moves or pauses. Both routes take a
+ * narrow body, so the union names each shape instead of leaving it untyped.
+ */
+export type WorkBoardQueueWrite = { directory: string; ids: string[] } | { paused: boolean };
 
 export function workBoardFeedback(activity: WorkBoardActivity | undefined, unavailable: boolean, needsReview: boolean, hasUnseenTurn: boolean): 'unknown' | 'blocked' | undefined {
   if (unavailable || !activity) return 'unknown';
@@ -20,13 +43,9 @@ export function workBoardFeedback(activity: WorkBoardActivity | undefined, unava
 export function workBoardLane(
   card: WorkBoardCard,
   activity: WorkBoardActivity | undefined,
-  queue: 'queued' | 'building' | undefined,
-  // The session holds a build lease the server parked for review. Such a lease
-  // still owns the project's build lane, so the card stays where the queue put
-  // it until the user resolves the lease, never in Done.
-  needsReview = false,
+  queue: WorkBoardQueueState | undefined,
 ): WorkBoardLane {
-  if (queue) return queue;
+  if (queue) return 'queue';
   // A new user turn after parking reopens the card without a UI-only marker.
   const messages = [...(activity?.messages ?? [])].reverse();
   const lastUser = messages.find(message => message.role === 'user');
@@ -36,9 +55,9 @@ export function workBoardLane(
   if ((card.stage === 'todo' || card.stage === 'done') && latestTurn <= parkedAt && !activity?.busy) return card.stage;
   if (lastUser && (!assistant || lastUser.time.created > assistant.time.created)) return 'plan';
   if (assistant?.role === 'assistant' && assistant.agent.toLowerCase() === 'build') {
-    if (activity?.busy) return 'building';
-    // A queue lease awaiting review is unfinished work, not history.
-    if (needsReview) return 'building';
+    // A queue lease awaiting review is unfinished work, not history, and the
+    // queue input above already placed it. History alone settles a Build turn.
+    if (activity?.busy) return 'queue';
     // The last agent was Build and the session is idle. Whether that turn
     // succeeded, failed or was stopped, no work is running, so the card is
     // history: it belongs in Done. A queue lease is the one exception above --
@@ -66,6 +85,44 @@ export function workBoardCompletionTime(card: WorkBoardCard, activity: WorkBoard
     (message.role === 'user' || message.role === 'assistant') && message.time.created > completedAt)) return completedAt;
   if (workBoardLane(card, activity, undefined) !== 'done') return 0;
   return [...(activity?.messages ?? [])].reverse().find(message => message.role === 'idle')?.time.created ?? 0;
+}
+
+/**
+ * The build queue as one column: the lease the server is running now, then the
+ * waiting items in dispatch order, then any queue entry the board has no card
+ * for. Entries without a card are still the queue's work; leaving them out
+ * would show a shorter queue than the project actually has.
+ */
+export type WorkBoardQueueRow = {
+  itemId: string;
+  sessionId: string;
+  title: string;
+  snippet: string;
+  paused: boolean;
+  position: number;
+};
+
+export function workBoardQueueRows(
+  queued: readonly { id: string; sessionId: string; content: string; paused: boolean }[],
+  titleFor: (sessionId: string) => string,
+): WorkBoardQueueRow[] {
+  return queued.map((item, index) => ({
+    itemId: item.id,
+    sessionId: item.sessionId,
+    title: titleFor(item.sessionId),
+    snippet: item.content.trim().split('\n').find(line => line.trim())?.trim() || '',
+    paused: item.paused,
+    position: index,
+  }));
+}
+
+/** The full project order with one row moved by `delta`, or null at an end. */
+export function workBoardReordered(ids: readonly string[], index: number, delta: number): string[] | null {
+  const target = index + delta;
+  if (index < 0 || index >= ids.length || target < 0 || target >= ids.length) return null;
+  const order = [...ids];
+  [order[index], order[target]] = [order[target], order[index]];
+  return order;
 }
 
 type Selection = { providerID: string; modelID: string; variant?: string };

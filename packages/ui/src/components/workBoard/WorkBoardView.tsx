@@ -1,4 +1,5 @@
 import React from 'react';
+import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -18,18 +19,21 @@ import { createSession } from '@/sync/session-actions';
 import { hasActiveSubagent } from '@/sync/global-session-status';
 import { hasRunningShell } from '@/sync/background-shells';
 import { opencodeClient } from '@/lib/opencode/client';
+import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, markWorkBoardCardViewed, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
 import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
-import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
+import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, type WorkBoardActivity, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
 import { SavedTodoBrief } from './SavedTodoBrief';
 
-const lanes: WorkBoardLane[] = ['todo', 'plan', 'queued', 'building', 'done'];
+const lanes: WorkBoardLane[] = ['todo', 'plan', 'queue', 'done'];
+
+const queueErrorSchema = z.object({ error: z.string() });
 
 /**
  * The one mark a card can show before its title: live activity, or — for a
@@ -58,6 +62,103 @@ function WorkBoardSessionFeedback({ sessionId, activity, unavailable, needsRevie
   const liveActivity = useSessionTurnActivity(sessionId);
   const feedback = workBoardFeedback(activity, unavailable, needsReview, unseenCount > 0 && liveActivity === null);
   return feedback ? <p className={feedback === 'blocked' ? 'text-xs text-[var(--status-warning-text)]' : 'text-xs text-muted-foreground'}>{t(`workBoard.${feedback}`)}</p> : null;
+}
+
+/**
+ * The Build queue lane. The project runs one build at a time, so the running
+ * lease sits above the gap and everything waiting sits below it, in the order
+ * the queue will dispatch them. A queued row carries the same controls the
+ * Build queue pane offers, because it is the same queue.
+ */
+function WorkBoardQueueColumn({ rows, active, activeTitle, order, busy, error, onOpen, onMove, onTogglePause, onCancel, onNewBuild }: {
+  rows: WorkBoardQueueRow[];
+  active: { sessionId: string; needsReview?: boolean; startedAt: number } | undefined;
+  activeTitle: string;
+  order: string[];
+  busy: boolean;
+  error: string;
+  onOpen: (sessionId: string) => void;
+  onMove: (itemId: string, delta: number) => void;
+  onTogglePause: (row: { itemId: string; sessionId: string; paused: boolean }) => void;
+  onCancel: (row: { itemId: string; sessionId: string }) => void;
+  onNewBuild: () => void;
+}) {
+  const { t } = useI18n();
+  // The active slot keeps its height whether or not a build is running, so the
+  // rows below it do not jump when one starts or finishes.
+  return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
+    {error && <p role="alert" className="mb-2 px-1 text-xs text-[var(--status-error-text)]">{error}</p>}
+    {active
+      ? <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} onOpen={() => onOpen(active.sessionId)} />
+      : <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
+          className="mb-1 h-auto w-full flex-col items-start gap-1 rounded-md border border-dashed border-border px-2.5 py-3 text-xs font-normal text-muted-foreground"
+          aria-label={t('workBoard.newBuild')}>
+          <span className="flex items-center gap-1.5 font-medium"><Icon name="add" className="size-3.5" />{t('workBoard.newBuild')}</span>
+          <span>{t('workBoard.noneRunning')}</span>
+        </Button>}
+    <div className="flex items-center gap-2 px-1 pb-2 pt-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground" aria-hidden="true">
+      {t('workBoard.upNext')}
+      <span className="h-px flex-1 bg-border" />
+      <span className="font-medium normal-case tracking-normal">{t('workBoard.queuedCount', { count: rows.length })}</span>
+    </div>
+    {!rows.length && <p className="px-1 py-3 text-xs text-muted-foreground">{t('workBoard.queueEmpty')}</p>}
+    <div className="space-y-3">
+      {rows.map((row, index) => <div key={row.itemId}
+        className="group relative flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded bg-[var(--interactive-selection)] text-[10px] font-semibold tabular-nums text-muted-foreground">{index + 1}</span>
+        <button type="button" className="min-w-0 flex-1 truncate text-start"
+          onClick={() => onOpen(row.sessionId)}>
+          <span dir="auto" className="block truncate text-xs font-medium leading-5 hover:underline">{row.title}</span>
+          <span dir="auto" className="block truncate text-[11px] text-muted-foreground">{row.paused ? t('workBoard.paused') : row.snippet || row.sessionId.slice(0, 9)}</span>
+        </button>
+        <div className="flex shrink-0 items-center gap-0.5 opacity-40 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
+          <Button size="icon" variant="ghost" className="size-6" disabled={busy || index === 0}
+            aria-label={t('workBoard.moveUp', { title: row.title })} title={t('workBoard.moveUp', { title: row.title })}
+            onClick={() => onMove(row.itemId, -1)}><Icon name="arrow-up-s" className="size-3.5" /></Button>
+          <Button size="icon" variant="ghost" className="size-6" disabled={busy || index === order.length - 1}
+            aria-label={t('workBoard.moveDown', { title: row.title })} title={t('workBoard.moveDown', { title: row.title })}
+            onClick={() => onMove(row.itemId, 1)}><Icon name="arrow-down-s" className="size-3.5" /></Button>
+          <Button size="icon" variant="ghost" className="size-6" disabled={busy}
+            aria-label={t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}
+            title={t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}
+            onClick={() => onTogglePause(row)}><Icon name={row.paused ? 'play' : 'time'} className="size-3.5" /></Button>
+          <Button size="icon" variant="ghost" className="size-6 hover:text-[var(--status-error-text)]" disabled={busy}
+            aria-label={t('workBoard.cancelBuild', { title: row.title })} title={t('workBoard.cancelBuild', { title: row.title })}
+            onClick={() => onCancel(row)}><Icon name="close" className="size-3.5" /></Button>
+        </div>
+      </div>)}
+    </div>
+  </div>;
+}
+
+/**
+ * The build the project is running now. A lease awaiting review keeps the error
+ * treatment — the server will not release it on its own — while a lease that is
+ * actually running gets the moving band, so "working" and "stuck" never look
+ * the same.
+ */
+function WorkBoardActiveBuild({ title, needsReview, onOpen }: { title: string; needsReview: boolean; onOpen: () => void }) {
+  const { t } = useI18n();
+  return <button type="button" onClick={onOpen}
+    className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
+      + (needsReview
+        ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
+        : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]')}
+    aria-label={t('workBoard.openBuild', { title })}>
+    {!needsReview && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
+    <span className="relative flex min-w-0 items-center gap-2">
+      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
+        <Icon name={needsReview ? 'alert' : 'terminal-box'} className="size-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
+        <span className="block truncate text-[11px] text-muted-foreground">{t(needsReview ? 'workBoard.needsReview' : 'workBoard.buildingNow')}</span>
+      </span>
+      {!needsReview && <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--status-info)]">
+        <span className="size-1.5 rounded-full bg-[var(--status-success)] motion-safe:animate-pulse" />{t('workBoard.active')}
+      </span>}
+    </span>
+  </button>;
 }
 
 export function WorkBoardView() {
@@ -132,7 +233,9 @@ export function WorkBoardView() {
   // board cards arrive with it, and a lane that will fill should say so rather
   // than claim to be empty and then gain cards.
   const sessionsLoading = useGlobalSessionsStore(state => !state.hasLoaded && state.status !== 'error');
-  const { snapshot: queue, error: queueError } = useBuildQueueSnapshot();
+  const { snapshot: queue, error: queueError, refresh: refreshQueue } = useBuildQueueSnapshot();
+  const [queueBusy, setQueueBusy] = React.useState(false);
+  const [queueActionError, setQueueActionError] = React.useState('');
   const generation = React.useRef(0);
   const refreshSequence = React.useRef(0);
   const refreshing = React.useRef(false);
@@ -145,6 +248,12 @@ export function WorkBoardView() {
   }, [cards, sessions, directory]);
   const cardsRef = React.useRef(visibleCards);
   cardsRef.current = visibleCards;
+  // A stable identity for the linked card set, so the activity read reruns when
+  // the set itself changes rather than only when its size does.
+  const visibleCardIds = React.useMemo(
+    () => visibleCards.filter(card => card.sessionId).map(card => card.id).sort().join('\n'),
+    [visibleCards],
+  );
   const sessionVersions = React.useRef(new Map<string, number>());
   const messageCache = React.useRef(new Map<string, WorkBoardActivity['messages']>());
   const versionsRef = React.useRef(new Map(sessions.map(session => [session.id, session.time.updated])));
@@ -248,7 +357,11 @@ export function WorkBoardView() {
     void readActivity();
     const timer = setInterval(() => void readActivity(), 5000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [directory, visibleCards.length]);
+    // The linked card set, not just its size: the history cache is keyed by card
+    // id, so a same-length replacement would otherwise keep serving the previous
+    // card's read. A card entering or leaving the queue changes what its turn
+    // means, and the read must follow that.
+  }, [directory, visibleCardIds]);
 
   const mutate = async (action: () => Promise<void>) => {
     const token = generation.current;
@@ -326,12 +439,39 @@ export function WorkBoardView() {
     finally { setBusy(false); }
   };
 
-  const laneFor = (card: WorkBoardCard) => {
-    const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
-    const queued = !queueError && queue?.queued.some(item => item.sessionId === card.sessionId);
-    return workBoardLane(card, unavailable.has(card.id) ? undefined : activities.get(card.id),
-      active ? 'building' : queued ? 'queued' : undefined, Boolean(active?.needsReview));
+  // The queue column shows one project's work. Membership and order come from
+  // the server snapshot, never from card order, so a queued build the board has
+  // no card for still appears, and a move sends the queue's own order.
+  const queuedItems = React.useMemo(
+    () => (queueError || !queue ? [] : queue.queued.filter(item => item.directory === directory)),
+    [directory, queue, queueError],
+  );
+  const activeBuild = React.useMemo(
+    () => (!queueError && queue ? queue.active.find(item => item.directory === directory) : undefined),
+    [directory, queue, queueError],
+  );
+  const sessionTitleFor = React.useCallback(
+    (sessionId: string) => sessions.find(session => session.id === sessionId)?.title
+      || t('workBoard.sessionFallback', { id: sessionId.slice(0, 9) }),
+    [sessions, t],
+  );
+  const queueRows = React.useMemo(() => workBoardQueueRows(queuedItems, sessionTitleFor), [queuedItems, sessionTitleFor]);
+  const queueOrder = React.useMemo(() => queuedItems.map(item => item.id), [queuedItems]);
+
+  const queueStateFor = (card: WorkBoardCard): WorkBoardQueueState | undefined => {
+    if (queueError || !queue || !card.sessionId) return undefined;
+    const index = queuedItems.findIndex(item => item.sessionId === card.sessionId);
+    if (index >= 0) {
+      const item = queuedItems[index];
+      return { itemId: item.id, paused: Boolean(item.paused), active: false, needsReview: false, order: queueOrder };
+    }
+    const active = queue.active.find(item => item.sessionId === card.sessionId);
+    if (!active) return undefined;
+    return { itemId: active.itemId, paused: false, active: true, needsReview: Boolean(active.needsReview), order: queueOrder };
   };
+
+  const laneFor = (card: WorkBoardCard) => workBoardLane(card,
+    unavailable.has(card.id) ? undefined : activities.get(card.id), queueStateFor(card));
   // A lease awaiting review is unfinished work the server will not release on
   // its own; completing its card would hide that resolution. Manual Done stays
   // out of reach for it.
@@ -353,13 +493,50 @@ export function WorkBoardView() {
     if (result.failed.length) throw new Error(t('workBoard.completeFailed', { count: result.failed.length }) + '\n'
       + result.failed.map(failure => `${workBoardCardTitle(targets.find(card => card.id === failure.id)?.text ?? failure.id, [])}: ${failure.error}`).join('\n'));
   });
-  const newCard = (lane: 'todo' | 'plan' | 'building') => {
+  const newCard = (lane: 'todo' | 'plan' | 'queue') => {
     useSessionUIStore.getState().openNewSessionDraft({
       selectedProjectId: projectId, target: 'project', directoryOverride: directory,
       origin: lane === 'todo' ? 'workBoard' : lane === 'plan' ? 'workBoardPlan' : 'workBoardBuild',
     });
     useUIStore.getState().closeMainSurfaces();
   };
+
+  // Queue rows act on the queue itself. The board is a second surface on the
+  // same server state, so every one of these refreshes the snapshot rather than
+  // guessing the result.
+  const queueMutate = async (url: string, method: 'PUT' | 'DELETE', body?: WorkBoardQueueWrite) => {
+    setQueueBusy(true);
+    setQueueActionError('');
+    try {
+      const init: RequestInit = { method };
+      if (body) {
+        init.headers = { 'Content-Type': 'application/json' };
+        init.body = JSON.stringify(body);
+      }
+      const response = await runtimeFetch(url, init);
+      if (!response.ok) {
+        const detail = queueErrorSchema.safeParse(await response.json().catch(() => null));
+        throw new Error(detail.success ? detail.data.error : `HTTP ${response.status}`);
+      }
+      await refreshQueue();
+    } catch (cause) {
+      setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
+    } finally {
+      setQueueBusy(false);
+    }
+  };
+  const moveQueued = (itemId: string, delta: number) => {
+    const index = queueOrder.indexOf(itemId);
+    const order = workBoardReordered(queueOrder, index, delta);
+    if (!order) return;
+    void queueMutate('/api/build-queue/order', 'PUT', { directory, ids: order });
+  };
+  const toggleQueuedPause = (row: { itemId: string; sessionId: string; paused: boolean }) =>
+    void queueMutate('/api/build-queue/sessions/' + encodeURIComponent(row.sessionId) +
+      '/items/' + encodeURIComponent(row.itemId) + '/pause', 'PUT', { paused: !row.paused });
+  const cancelQueued = (row: { itemId: string; sessionId: string }) =>
+    void queueMutate('/api/build-queue/sessions/' + encodeURIComponent(row.sessionId) +
+      '/items/' + encodeURIComponent(row.itemId), 'DELETE');
 
   return <div className="absolute inset-0 z-10 flex flex-col bg-background" aria-label={t('workBoard.title')}>
     <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
@@ -387,7 +564,7 @@ export function WorkBoardView() {
         return <section key={lane} className="flex min-w-[240px] flex-1 flex-col rounded-lg bg-surface-muted" aria-label={t(`workBoard.${lane}`)}>
           <div className="flex items-center gap-2 px-3 py-3">
             <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{inLane.length}</span></h2>
-            {(lane === 'todo' || lane === 'plan' || lane === 'building') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane !== 'todo' && !agents.some(agent => agent.name === (lane === 'plan' ? 'plan' : 'build')))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : lane === 'plan' ? 'workBoard.newPlan' : 'workBoard.newBuild')} title={t(lane === 'todo' ? 'workBoard.newTodo' : lane === 'plan' ? 'workBoard.newPlan' : 'workBoard.newBuild')}><Icon name="add" className="size-4" /></Button>}
+            {(lane === 'todo' || lane === 'plan') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane === 'plan' && !agents.some(agent => agent.name === 'plan'))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')} title={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')}><Icon name="add" className="size-4" /></Button>}
             {lane === 'plan' && <DropdownMenu>
               <DropdownMenuTrigger asChild><Button size="sm" variant="ghost" disabled={busy || !inLane.length} aria-label={t('workBoard.laneActions')}><Icon name="more" className="size-4" /></Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end"><DropdownMenuItem onClick={() => {
@@ -396,7 +573,19 @@ export function WorkBoardView() {
               }}>{t('workBoard.completeAll')}</DropdownMenuItem></DropdownMenuContent>
             </DropdownMenu>}
           </div>
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">
+          {lane === 'queue' ? <WorkBoardQueueColumn
+            rows={queueRows}
+            active={activeBuild}
+            activeTitle={activeBuild ? sessionTitleFor(activeBuild.sessionId) : ''}
+            order={queueOrder}
+            busy={queueBusy}
+            error={queueActionError}
+            onOpen={sessionId => useSessionUIStore.getState().setCurrentSession(sessionId, directory)}
+            onMove={moveQueued}
+            onTogglePause={toggleQueuedPause}
+            onCancel={cancelQueued}
+            onNewBuild={() => newCard('queue')}
+          /> : <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">
             {!inLane.length && <p className="px-2 py-4 text-xs text-muted-foreground">{
               loading ? t('common.loading')
                 : error ? t('workBoard.unknown')
@@ -406,10 +595,9 @@ export function WorkBoardView() {
             {inLane.map(card => {
               const activity = activities.get(card.id);
               const statusUnknown = Boolean(card.sessionId) && (!activity || unavailable.has(card.id));
-              const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
               const hasRunningTurn = Boolean(activity?.busy);
-              const canReturnToTodo = Boolean(card.sessionId) && lane !== 'todo' && lane !== 'queued'
-                && lane !== 'building' && !hasRunningTurn && !statusUnknown && !queueError && queue !== null;
+              const canReturnToTodo = Boolean(card.sessionId) && lane !== 'todo' && !hasRunningTurn
+                && !statusUnknown && !queueError && queue !== null;
               const canRemove = lane === 'todo' && !hasRunningTurn
                 && (!card.sessionId || (!statusUnknown && !queueError && queue !== null));
               const title = workBoardCardTitle(card.text, card.attachments);
@@ -445,10 +633,10 @@ export function WorkBoardView() {
                     </DropdownMenuContent>
                   </DropdownMenu>}
                 </div>}
-                {card.sessionId && <WorkBoardSessionFeedback sessionId={card.sessionId} activity={activity} unavailable={statusUnknown} needsReview={Boolean(active?.needsReview)} />}
+                {card.sessionId && <WorkBoardSessionFeedback sessionId={card.sessionId} activity={activity} unavailable={statusUnknown} needsReview={Boolean(queueStateFor(card)?.needsReview)} />}
               </article>;
             })}
-          </div>
+          </div>}
         </section>;
       })}
     </div>}

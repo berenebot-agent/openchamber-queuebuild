@@ -1,6 +1,6 @@
 # Work board
 
-The work board groups project work into To-do, Plan, Queued, Building, and Done.
+The work board groups project work into To-do, Plan, Build queue, and Done.
 The existing Build queue panel remains available while a session is open.
 Open it from the **Work board** button in the session sidebar header. Project
 tabs across the board header switch between project boards. Choose **+** to add
@@ -15,9 +15,25 @@ Choose **+** in the To-do column header to start a card. It opens a composer alr
 highlighted while that mode is active. A board the user has opened keeps a
 **Work Board** button beside the chat in every session, which returns to the
 board's last project.
-The **+** buttons in Plan and Building open a fresh composer for the board's
-project with the corresponding agent selected. Nothing runs until submission.
-Build submissions enter the existing queue and may appear in Queued first.
+The **+** button in Plan opens a fresh composer for the board's project with the
+Plan agent selected. In the Build queue column, **New Build session** sits where
+the running build would be and opens a fresh composer with the Build agent
+selected. Nothing runs until submission. Build submissions enter the existing
+queue and appear in the Build queue column.
+
+The Build queue column is the project's queue, not a copy of it. The build the
+project is running now sits at the top, under a gap, and the builds waiting sit
+below it in the order the queue will dispatch them. That running build is the
+only card on the board that carries a moving diagonal band, so work in progress
+reads apart from work that is merely waiting. A build the server has parked for
+review keeps its error treatment instead, because it is not running.
+Hovering a waiting row reaches the same controls the Build queue panel offers:
+move up, move down, pause or resume, and cancel. Each one writes to the queue and
+the column redraws from the refreshed snapshot.
+The column lists every queued build for the project, including one the board has
+no card for, so it never shows a shorter queue than the project actually has.
+Rows act on the queue's own order, so a move keeps the builds the board cannot
+see. A queued build with no board card has no card action: it is queue work.
 
 While the board is open it owns the top of the window: the header shows
 **Work board** with a back button, instead of the last opened session's title.
@@ -71,7 +87,7 @@ another submission. A lost response can mean the original prompt was accepted.
 
 ## Continue work
 
-Build submissions use the existing project Build queue. Queued and active work
+Build submissions use the existing project Build queue. Waiting and active work
 is shown using the queue's server state. Open the session and choose the Build
 agent to submit implementation work through the normal composer. A linked card
 follows the agent of its last assistant turn: a Build turn that is not running
@@ -83,11 +99,11 @@ including background subagents and commands. The appearance setting for
 animated activity indicators applies to cards too. Finished unread turns show
 the session list's unread icon.
 
-A build the queue still holds for review is the one exception. It stays in
-Building until the user resolves the lease, because the server will not release
-that lease on its own and the card must not leave the lane behind it. The card
-offers no Move to Done, Back to To-do, or remove action while that lease is
-unresolved.
+A build the queue still holds for review is the one exception. It stays in the
+Build queue column until the user resolves the lease, because the server will
+not release that lease on its own and the card must not leave the lane behind
+it. The card offers no Move to Done, Back to To-do, or remove action while that
+lease is unresolved.
 
 Lanes follow a card's saved stage and live state, so the board reads each linked
 session's history to place it. It reads every linked card's history at once, and

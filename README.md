@@ -56,10 +56,12 @@ After a successful build, open `http://localhost:3000`. Persist the included `./
 
 ### Work board in this fork
 
-Open **Work board** from the session sidebar to see To-do, Plan, Queued,
-Building, and Done columns. Use **Save to To-do** in the composer to save text
+Open **Work board** from the session sidebar to see To-do, Plan, Build queue,
+and Done columns. Use **Save to To-do** in the composer to save text
 and files without starting an LLM. **Start Plan** creates a planning session
-from the saved brief. The Build queue remains available inside chats.
+from the saved brief. The Build queue column shows the build running now above
+the ones waiting, with reorder, pause and cancel on hover. The Build queue
+remains available inside chats.
 See the [work board guide](docs/WORK_BOARD.md) for promotion, recovery, and
 supported interfaces.
 

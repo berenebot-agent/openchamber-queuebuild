@@ -76,11 +76,16 @@ test('board actions, live activity and viewed turn attention use shared session 
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 30)); });
     expect(container.querySelector('header button[aria-label="New to-do"]')).toBeNull();
-    for (const [label, lane, origin] of [['New to-do', 'To-do', 'workBoard'], ['New Plan session', 'Plan', 'workBoardPlan'], ['New Build session', 'Building', 'workBoardBuild']]) {
+    // Creating a new build now happens from the queue column's empty active
+    // slot, beside the two lanes that still open a composer directly.
+    for (const [label, lane, origin] of [['New to-do', 'To-do', 'workBoard'], ['New Plan session', 'Plan', 'workBoardPlan']]) {
       expect(button(label).closest('section')?.getAttribute('aria-label')).toBe(lane);
       await act(async () => button(label).click());
       expect(draftSpy.mock.calls.at(-1)).toEqual([{ selectedProjectId: 'project', target: 'project', directoryOverride: '/repo', origin }]);
     }
+    expect(button('New Build session').closest('section')?.getAttribute('aria-label')).toBe('Build queue');
+    await act(async () => button('New Build session').click());
+    expect(draftSpy.mock.calls.at(-1)).toEqual([{ selectedProjectId: 'project', target: 'project', directoryOverride: '/repo', origin: 'workBoardBuild' }]);
     const done = container.querySelector('section[aria-label="Done"]');
     expect([...done!.querySelectorAll('article')].map(article => article.textContent)).toEqual(['Newer completion', 'Older completion']);
     await act(async () => { button('Column actions').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); await new Promise(resolve => setTimeout(resolve, 20)); });
@@ -226,7 +231,7 @@ test('a completed card shows the green completion mark until it is opened, then 
   }
 });
 
-test('an idle Build session is Done, but a build the queue holds for review stays in Building', async () => {
+test('an idle Build session is Done, but a build the queue holds for review stays in the queue column', async () => {
   const dom = new Window({ url: 'http://localhost' });
   const globals = {
     window: dom, document: dom.document, navigator: dom.navigator,
@@ -282,12 +287,13 @@ test('an idle Build session is Done, but a build the queue holds for review stay
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  const laneOf = (title: string) => container.querySelector(`button[title="${title}"]`)!.closest('article')!.closest('section')!.getAttribute('aria-label');
+  const cardOf = (title: string) => container.querySelector(`button[title="${title}"]`);
+  const laneOf = (title: string) => cardOf(title)!.closest('article')!.closest('section')!.getAttribute('aria-label');
   // History arrives on the board's own poll, whose timing is not ours to
   // guarantee. Settle on the observable lane instead of a fixed delay.
   const settle = async (title: string, lane: string) => {
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      if (container.querySelector(`button[title="${title}"]`) && laneOf(title) === lane) return;
+      if (cardOf(title) && laneOf(title) === lane) return;
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); });
     }
     throw new Error(`Card "${title}" never reached lane ${lane}; saw ${laneOf(title)}`);
@@ -297,19 +303,135 @@ test('an idle Build session is Done, but a build the queue holds for review stay
     // A failed Build turn with nothing running is history, not pending work.
     await settle('Finished build', 'Done');
     expect(laneOf('Finished build')).toBe('Done');
-    // The lease the server is holding for review pins its card, and says so.
-    await settle('Build needing review', 'Building');
-    expect(laneOf('Build needing review')).toBe('Building');
-    const reviewCard = container.querySelector('button[title="Build needing review"]')!.closest('article')!;
-    expect(reviewCard.textContent).toContain('Needs attention');
-    // Completion would hide the resolution the server is waiting for, so the
-    // card offers no lane-changing action at all. Both cards read the same idle
-    // Build history: only the queue lease separates them.
-    expect(reviewCard.querySelector('[aria-label="Actions for Build needing review"]')).toBeNull();
+    // The lease the server is holding for review keeps its work in the queue
+    // column, shown as the running build and marked for review: the server will
+    // not release it, so the board must not present it as settled history.
+    const queue = container.querySelector('section[aria-label="Build queue"]')!;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 80)); });
+    expect(queue.textContent).toContain('Waiting for review before the queue continues');
+    // A parked lease is not running, so it carries no moving band.
+    expect(queue.querySelector('.oc-build-stripes')).toBeNull();
+    // Its card left the board's lanes entirely: it is queue work now, and it
+    // offers no card action that could hide the resolution being waited on.
+    expect(container.querySelector('button[title="Build needing review"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Actions for Build needing review"]')).toBeNull();
     // The plain history card is already Done, so it offers no completion. The
     // action menu itself is covered by the other behavior test; here the
     // contract is which cards expose one at all.
     expect(container.querySelector('[aria-label="Actions for Finished build"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    useSessionDisplayStore.setState(sessionDisplay);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+test('the build queue column runs one ordered list with its own row controls', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = {
+    window: dom, document: dom.document, navigator: dom.navigator,
+    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
+    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
+    KeyboardEvent: dom.KeyboardEvent,
+    getComputedStyle: dom.getComputedStyle.bind(dom),
+    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projects = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  const sessionDisplay = useSessionDisplayStore.getState();
+  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
+  useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  useSessionDisplayStore.setState({ animatedActivityIndicators: false });
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+  // Three queued builds in dispatch order and one still running. None of them
+  // has a board card, and all three must still appear.
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue')) {
+      if (init?.method) requests.push({ url, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null });
+      return Response.json({
+        revision: 1, issues: [],
+        active: [{ directory: '/repo', sessionId: 'running', itemId: 'active1', startedAt: 1 }],
+        queued: [
+          { id: 'queued1', sessionId: 's1', directory: '/repo', content: 'First build', createdAt: 1, order: 0, paused: false },
+          { id: 'queued2', sessionId: 's2', directory: '/repo', content: 'Second build', createdAt: 2, order: 1, paused: true },
+          { id: 'queued3', sessionId: 's3', directory: '/repo', content: 'Third build', createdAt: 3, order: 2, paused: false },
+        ],
+      });
+    }
+    if (url.includes('/api/work-board')) return Response.json({ cards: [] });
+    return Response.json({});
+  });
+  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
+  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const lane = () => container.querySelector('section[aria-label="Build queue"]')!;
+  const click = async (label: string) => {
+    const target = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    if (!target) throw new Error(`Missing control: ${label}`);
+    await act(async () => { target.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+  };
+  try {
+    await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
+    // One column: the running build above the gap, the waiting ones below it in
+    // the queue's own dispatch order rather than any card order.
+    const text = lane().textContent ?? '';
+    expect(text).toContain('Up next');
+    expect(text.indexOf('Building now')).toBeLessThan(text.indexOf('Up next'));
+    // Rows are keyed by the queue's own order, and each shows the prompt that
+    // will run. A paused row says so where the snippet would otherwise be.
+    const titles = [...lane().querySelectorAll('button[title^="Move "]')]
+      .map(element => element.getAttribute('title')!.replace(/^Move /, '').replace(/ (up|down)$/, ''))
+      .filter((title, index, all) => all.indexOf(title) === index);
+    expect(titles).toEqual(['Session s1', 'Session s2', 'Session s3']);
+    expect(text).toContain('First build');
+    expect(text).toContain('Third build');
+    expect(text).toContain('Paused');
+    expect(text.indexOf('First build')).toBeLessThan(text.indexOf('Paused'));
+    // The running build carries its own mark, and its row is not a queued one.
+    expect(lane().querySelector('.oc-build-stripes')).not.toBeNull();
+    // Up is a no-op on the first row and the control says so.
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s1 up"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s3 down"]')?.disabled).toBe(true);
+    // A move sends the project's whole order with just those two swapped, so
+    // the queue never loses a row the board cannot see.
+    await click('Move Session s2 up');
+    expect(requests.at(-1)?.method).toBe('PUT');
+    expect(requests.at(-1)?.url.endsWith('/api/build-queue/order')).toBe(true);
+    expect(requests.at(-1)?.body).toEqual({ directory: '/repo', ids: ['queued2', 'queued1', 'queued3'] });
+    await click('Resume Session s2');
+    expect(requests.at(-1)?.method).toBe('PUT');
+    expect(requests.at(-1)?.url.endsWith('/api/build-queue/sessions/s2/items/queued2/pause')).toBe(true);
+    expect(requests.at(-1)?.body).toEqual({ paused: false });
+    await click('Cancel Session s3');
+    // The pause and cancel routes name the session and the item separately.
+    expect(requests.at(-1)?.method).toBe('DELETE');
+    expect(requests.at(-1)?.url.endsWith('/api/build-queue/sessions/s3/items/queued3')).toBe(true);
+    expect(requests.at(-1)?.body).toBeNull();
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();

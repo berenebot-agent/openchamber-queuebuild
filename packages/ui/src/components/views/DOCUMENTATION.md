@@ -67,9 +67,19 @@ surfaces, prepares, or holds the queue. Titles in the pane come from a
 subscribed session list, so a poll that arrives before its session materializes
 does not leave rows labelled "Session ses_...".
 
-A build awaiting review has a red card. Recovery controls stay in the paused
-banner, with no additional controls on the session card. Open session opens its
-chat. Continue queue opens a shared dialog showing the reported problem and
+The work board's Build queue column is a second surface on this same queue, not
+a copy of it: `WorkBoardView` renders the acting build above a gap and the
+waiting builds below it, and its hover controls write the pane's own routes. The
+column lists every queued build for the project, including one the board has no
+card, and a move sends the queue's full project order so entries the board
+cannot see are never dropped. The running build carries the only moving band on
+the board (`oc-build-stripes`, hue from `status.info`, still under reduced
+motion); a lease parked for review keeps its error treatment instead. Recovery
+controls for a review lease stay in the pane's paused banner.
+
+A build awaiting review has a red card. On the board's queue column a parked
+lease is the acting build and says so, with no moving band and no additional
+controls on the session card. Open session opens its chat. Continue queue opens a shared dialog showing the reported problem and
 explaining that acknowledgement releases the build without rerunning it or
 discarding its changes. A failed request leaves the dialog open with a visible
 error. Confirmation captures the directory and lease item ID; the server rejects
