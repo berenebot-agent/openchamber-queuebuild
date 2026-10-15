@@ -213,10 +213,10 @@ export const BuildQueueView: React.FC = () => {
             <Icon name="route" className="size-5 mx-auto text-muted-foreground" />
             <div className="mt-2 text-xs font-medium">Queue is clear</div>
             <div className="mt-1 text-[11px] text-muted-foreground">Send a prompt to the Build agent to add one.</div>
-          </div> : <div className="rounded-lg border border-border/70 overflow-hidden divide-y divide-border/60">
-            {items.map((item, index) => <div key={item.id} className="px-3 py-3 group hover:bg-interactive-hover transition-colors">
+          </div> : <div className="space-y-2">
+            {items.map((item, index) => <div key={item.id} className="group rounded-lg border border-border bg-surface-elevated px-3.5 py-3 transition-colors hover:bg-interactive-hover">
               <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-border/70 text-xs font-semibold tabular-nums text-muted-foreground">
+                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-border text-xs font-semibold tabular-nums text-muted-foreground">
                   {index + 1}
                 </span>
                 <button type="button" onClick={() => openSession(item.sessionId)} className="min-w-0 flex-1 text-start focus-visible:outline-none focus-visible:underline">
@@ -224,7 +224,7 @@ export const BuildQueueView: React.FC = () => {
                   <p className="mt-1 text-xs leading-5 text-muted-foreground line-clamp-2 break-words">{snippet(item.content)}</p>
                 </button>
               </div>
-              <div className="mt-2.5 flex items-center justify-end gap-1">
+              <div className="mt-2 flex items-center justify-end gap-1">
                 <Button size="xs" variant="ghost" disabled={busy}
                   aria-label={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
                   title={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
