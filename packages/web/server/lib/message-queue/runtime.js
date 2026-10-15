@@ -436,6 +436,26 @@ export function createMessageQueueRuntime({
   // builds, and reordering cannot rely on their position. Persisted data is
   // left as it is: this only decides what the queue dispatches and shows.
   const isBuildItem = (item) => item.buildQueue === true && item.sendConfig?.agent?.toLowerCase() === 'build';
+  /**
+   * One lane slot per session: a further Build prompt joins the item the
+   * session already holds instead of taking a second place in the project
+   * order. Text, attachments and context join it the way they would ride one
+   * queued message; the id, position, pause state and captured selection stay
+   * with the slot the user created first.
+   */
+  const appendToBuildSlot = (item, incoming) => {
+    const content = [item.content, incoming.content].filter(Boolean).join('\n\n');
+    const text = [item.text, incoming.text].filter(Boolean).join('\n\n');
+    if (content.length > CONTENT_CHAR_LIMIT || text.length > CONTENT_CHAR_LIMIT) {
+      throw new TypeError('item content is too long');
+    }
+    item.content = content;
+    item.text = text;
+    if (incoming.attachments.length > 0) item.attachments = [...item.attachments, ...incoming.attachments];
+    if (incoming.context.length > 0) item.context = [...item.context, ...incoming.context];
+    if (incoming.agentMention && !item.agentMention) item.agentMention = incoming.agentMention;
+    if (incoming.contextPreview && !item.contextPreview) item.contextPreview = incoming.contextPreview;
+  };
   const pendingBuilds = (directory) => Array.from(queues.entries())
     .flatMap(([sessionId, queue]) => queue.items.filter(item => isBuildItem(item) && (!directory || queue.directory === directory))
       .map(item => ({ sessionId, directory: queue.directory, item })))
@@ -757,6 +777,17 @@ export function createMessageQueueRuntime({
       return;
     }
     if (idle !== true || children !== false || !completed) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
+    // The lane belongs to the session, not to one turn: what the user sent while
+    // the Build ran (a queued follow-up, or a steer already inside the running
+    // turn) is delivered by the session's own queue, and its lane is released
+    // only once that queue is empty. A pending build of this same session is the
+    // lane's own next work — the project order picks it up — so it does not hold
+    // the lane.
+    const remaining = queues.get(lease.sessionId)?.items ?? [];
+    if (remaining.some(item => !isBuildItem(item)) || sending.has(lease.sessionId)) {
+      scheduleBuildMonitor(directory, buildRecheckMs);
+      return;
+    }
     activeBuilds.delete(directory);
     commit(lease.sessionId);
     wakeProject(directory);
@@ -1148,6 +1179,29 @@ export function createMessageQueueRuntime({
     if (parkingSessions.has(sessionId)) throw httpError('Session is being parked to To-do', 409);
     const originalQueue = queues.get(sessionId);
     if (originalQueue && originalQueue.directory !== directory) throw httpError('session queue directory mismatch', 409);
+    // One lane slot per session. A Build prompt only takes a place in the
+    // project order when its session does not already hold one: the session
+    // that owns the lane collects its next prompt in its own queue until the
+    // lane is released, and a session that already waits appends to the item it
+    // holds. Either way the session keeps one row and one place.
+    if (isBuildItem(parsed)) {
+      const lease = activeBuilds.get(directory);
+      const slot = (originalQueue?.items ?? []).find(entry => isBuildItem(entry));
+      if (lease?.sessionId === sessionId && !lease.needsReview) {
+        // The lane is already this session's: the prompt needs no second place
+        // in the order, and the session's own queue delivers it in turn.
+        delete parsed.buildQueue;
+      } else if (slot && sending.get(sessionId) !== slot.id) {
+        appendToBuildSlot(slot, parsed);
+        const result = commit(sessionId);
+        armDispatch(sessionId);
+        return { ...result, itemId: slot.id };
+      } else if (slot) {
+        // The held item is mid-send and cannot take more text without losing
+        // it; this prompt joins the session's own queue instead.
+        delete parsed.buildQueue;
+      }
+    }
     if (originalQueue && originalQueue.items.length >= MAX_ITEMS_PER_SESSION && originalQueue.items.some(item => isBuildItem(item) || item.scheduledTask)) throw httpError('queue is full; managed jobs cannot be discarded', 409);
     if (parsed.scheduledTask) {
       for (const queue of queues.values()) {

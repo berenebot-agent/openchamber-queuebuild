@@ -175,6 +175,19 @@ The fork extends this queue with a project-wide lane for `build`-agent prompts
 captures those prompts, including the first prompt of a new session, which it
 queues against a session it creates first
 (`packages/ui/src/components/chat/composer/submit/buildQueueRouting.ts`).
+One session holds one lane slot. A Build prompt for a session that already
+waits appends to the item that session holds — its text, attachments and
+context join it, and its id, place in the project order, pause state and
+captured selection stay — so a session never appears twice in the pane however
+many prompts are pending for it. A prompt for the session that holds the lease
+is not a lane entry at all: it joins that session's own queue, the one
+OpenChamber delivers when the session goes idle, and an explicit steer is not
+intercepted either (a steer exists only for a session that is not idle), so
+OpenCode's own inbox takes it into the running turn.
+The lane is held for the session, not for one turn: the monitor releases it
+only once the session has nothing left to deliver. What the user sent while the
+Build ran goes out first, and a pending Build of that same session is the
+lane's own next work, so it does not hold the lane.
 Pending builds can be paused individually (`item.buildPaused`). Paused items
 remain in their project order, can still be reordered or cancelled, and are
 skipped when selecting the next runnable build. A paused head still holds its

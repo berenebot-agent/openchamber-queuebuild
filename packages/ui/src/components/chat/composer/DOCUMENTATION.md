@@ -149,7 +149,9 @@ time per project. The rule is `shouldQueueBuildPrompt` in
 session and for the first message of a new one. The first message has no
 session id yet, so its draft is materialized first and the prompt is queued
 against the created session. Plan-agent prompts, shell mode, the BTW composer,
-and local slash commands are not intercepted.
+local slash commands, and an explicit steer (`delivery`, set only for a session
+that is not idle) are not intercepted: a steer belongs to the session's own
+running turn, and only the queue is serialized.
 
 `BackgroundShellsStrip` lists the commands that went to the background (not the ones
 a turn is waiting for, see `background` in `sync/background-shells.ts`) of

@@ -41,10 +41,11 @@ describe('shouldQueueBuildPrompt', () => {
         expect(shouldQueueBuildPrompt(facts({ queuedOnly: true }))).toBe(false);
     });
 
-    test('does intercept steer submissions when Build queue is enabled', () => {
-        expect(shouldQueueBuildPrompt(facts({ hasDelivery: true }))).toBe(true);
-        expect(shouldQueueBuildPrompt(facts({ hasDelivery: true, agentName: 'plan' }))).toBe(false);
-        expect(shouldQueueBuildPrompt(facts({ hasDelivery: true, directoryEnabled: false }))).toBe(false);
+    test('leaves an explicit steer to the session\'s own running turn', () => {
+        // `delivery` is only set when the session is not idle, so this is a steer
+        // into the turn that is already running: OpenCode's inbox takes it, and
+        // only the queue is serialized.
+        expect(shouldQueueBuildPrompt(facts({ hasDelivery: true }))).toBe(false);
     });
 
     test('needs something to send', () => {

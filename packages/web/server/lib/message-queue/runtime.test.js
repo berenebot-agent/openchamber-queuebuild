@@ -1054,6 +1054,93 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('appends a further build prompt into the session\'s single lane slot', async () => {
+    const harness = createRuntime();
+    const { runtime, openCode } = harness;
+    openCode.state.active[SESSION] = { type: 'running' };
+    openCode.state.active[SECOND] = { type: 'running' };
+    const first = await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await runtime.setBuildPaused(SESSION, first.itemId, true);
+    const merged = await runtime.enqueue(SESSION, DIRECTORY, item({
+      content: 'more',
+      text: 'more',
+      buildQueue: true,
+      sendConfig: { providerID: 'anthropic', modelID: 'other-model', agent: 'build' },
+      attachments: [{
+        id: 'attach-1', filename: 'notes.txt', mimeType: 'text/plain', size: 3, source: 'local', dataUrl: 'data:text/plain,hi',
+      }],
+      context: [{ kind: 'synthetic', text: 'attached context' }],
+    }));
+    await runtime.flush();
+
+    // The prompt joins the item the session already holds: same id, one row,
+    // still ahead of the project's second build, and still paused.
+    expect(merged.itemId).toBe(first.itemId);
+    expect(runtime.buildSnapshot().queued.map(entry => [entry.sessionId, entry.id, entry.paused]))
+      .toEqual([[SESSION, first.itemId, true], [SECOND, waiting.itemId, false]]);
+    // Text, attachments and context ride that slot; its captured selection and
+    // its place in the order stay as the user first set them.
+    const stored = JSON.parse(fs.readFileSync(path.join(harness.dataDir, 'message-queue.json'), 'utf8'));
+    const items = stored.sessions[SESSION].items;
+    expect(items).toHaveLength(1);
+    expect(items[0].content).toBe('first\n\nmore');
+    expect(items[0].text).toBe('first\n\nmore');
+    expect(items[0].attachments.map(entry => entry.filename)).toEqual(['notes.txt']);
+    expect(items[0].context).toEqual([{ kind: 'synthetic', text: 'attached context' }]);
+    expect(items[0].sendConfig).toEqual({ providerID: 'anthropic', modelID: 'claude', agent: 'build' });
+    runtime.stop();
+  });
+
+  it('gives the lane owner\'s next build prompt to its own queue, not a second slot', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 40, buildRecheckMs: 20 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(60);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+
+    // The session owns the lane, so the next prompt is just a message to it.
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'more', text: 'more', buildQueue: true }));
+    expect(runtime.buildSnapshot().queued).toHaveLength(0);
+    const queued = runtime.sessionSnapshot(SESSION).items;
+    expect(queued).toHaveLength(1);
+    expect(queued[0].buildQueue).toBeUndefined();
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('keeps the lane with the session until its own queue drains', async () => {
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    runtime.start();
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+      await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+      await settle(50);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+      // A follow-up reaches the owner while its Build turn runs. The session's
+      // own queue holds it; here a UI hold stands in for the running turn.
+      await runtime.setHold(SESSION, true);
+      await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'follow-up', text: 'follow-up', buildQueue: true }));
+      expect(runtime.buildSnapshot().queued.map(entry => entry.sessionId)).toEqual([SECOND]);
+
+      // The Build turn ends with a completed reply, and a build for another
+      // session is next in the project order.
+      openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+      emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
+      await settle(60);
+      expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+      // Once that queue drains, the lane moves on to the project's next build.
+      await runtime.setHold(SESSION, false);
+      await settle(150);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'follow-up', 'second']);
+      expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SECOND]);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
   it('pauses dirty repositories without making commits or dropping queued builds', async () => {
     let dirty = true;
     const { runtime, openCode } = createRuntime({
@@ -1171,14 +1258,26 @@ describe('project-wide build queue', () => {
   });
 
   it('rejects within-session reversal that would deadlock dispatch', async () => {
-    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
-    openCode.state.active[SESSION] = { type: 'running' };
-    await runtime.enqueue(SESSION, DIRECTORY, item({ text: 'first', buildQueue: true }));
-    await runtime.enqueue(SESSION, DIRECTORY, item({ text: 'second', buildQueue: true }));
-    const ids = runtime.buildSnapshot().queued.map(entry => entry.id);
-    await expect(runtime.reorderBuilds(DIRECTORY, ids.reverse())).rejects.toMatchObject({ status: 409 });
-    runtime.stop();
-    await runtime.flush();
+    // A queue file from a version that let one session hold two lane slots.
+    const first = createRuntime({ checkBuildGit: async () => null });
+    first.openCode.state.active[SESSION] = { type: 'running' };
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await first.runtime.flush();
+    const file = path.join(first.dataDir, 'message-queue.json');
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const held = stored.sessions[SESSION].items[0];
+    stored.sessions[SESSION].items = [held, { ...held, id: 'queued-legacy-second', buildOrder: (held.buildOrder ?? 1) + 1 }];
+    fs.writeFileSync(file, JSON.stringify(stored));
+    first.runtime.stop();
+
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null });
+    await second.runtime.load();
+    const ids = second.runtime.buildSnapshot().queued.map(entry => entry.id);
+    expect(ids).toHaveLength(2);
+    await expect(second.runtime.reorderBuilds(DIRECTORY, ids.slice().reverse())).rejects.toMatchObject({ status: 409 });
+    expect(second.runtime.buildSnapshot().queued.map(entry => entry.id)).toEqual(ids);
+    second.runtime.stop();
+    await second.runtime.flush();
   });
 
   it('cancellation wakes the next project build', async () => {

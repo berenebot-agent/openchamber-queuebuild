@@ -27,7 +27,11 @@ export interface BuildQueueSubmitFacts {
     message: string;
     /** A queue-only submit is already queue work. */
     queuedOnly: boolean;
-    /** A steer must not bypass a project-managed Build queue. */
+    /**
+     * The submit is an explicit steer into a turn that is already running
+     * (OpenCode's own delivery). The lane does not take it: the session's own
+     * inbox is where a steer belongs, and only the queue is serialized.
+     */
     hasDelivery: boolean;
 }
 
@@ -39,4 +43,5 @@ export const shouldQueueBuildPrompt = (facts: BuildQueueSubmitFacts): boolean =>
     && facts.directoryEnabled
     && facts.hasContent
     && facts.agentName?.toLowerCase() === 'build'
-    && !facts.message.trimStart().startsWith('/');
+    && !facts.message.trimStart().startsWith('/')
+    && !facts.hasDelivery;

@@ -1738,7 +1738,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Build turns are accepted immediately and dispatched server-side, one
         // session at a time per project. A first build prompt has no session
         // yet, so its draft is materialized before the queue can hold it. Plan
-        // turns are never intercepted.
+        // turns are never intercepted, and an explicit steer into a running
+        // turn stays with that session's own inbox (`hasDelivery`).
         const buildQueueDirectory = messageQueueTarget?.directory ?? currentSessionDirectoryForSync ?? currentDirectory ?? null;
         if (shouldQueueBuildPrompt({
             serverOwnedQueue: isServerOwnedMessageQueue(),
