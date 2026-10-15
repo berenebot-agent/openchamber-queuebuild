@@ -76,6 +76,12 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
     try { return res.json({ card: await store.update(req.params.id, req.body) }); }
     catch (error) { return failure(res, error); }
   });
+  // Records that the user looked at a completed card, so every connected client
+  // shares one acknowledgement. Scoped to a card id, which the board already has.
+  app.post('/api/work-board/:id/viewed', json, async (req, res) => {
+    try { return res.json({ card: await store.viewed(req.params.id) }); }
+    catch (error) { return failure(res, error); }
+  });
   app.delete('/api/work-board/:id', async (req, res) => {
     try {
       if (!(await store.delete(req.params.id))) return res.status(404).json({ error: 'Work board card not found' });

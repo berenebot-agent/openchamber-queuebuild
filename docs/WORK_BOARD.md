@@ -105,6 +105,12 @@ completion is saved on the server and uses its completion time for Done ordering
 Submitting a later Plan or Build prompt reopens the card. Completion preserves
 the conversation and never starts, stops, or cancels work.
 
+A finished card shows the session list's green checkbox until the user opens the
+card, which acknowledges that completion on the server and clears the mark for
+every client sharing the board. A card that is completed again, or manually moved
+to Done again, marks itself again without any reset step. A card returning to
+To-do drops the acknowledgement along with the completion.
+
 The three-dot menu beside Plan's **+** offers **Move all cards to Done**.
 The confirmation lists the cards and their count for the selected project.
 Busy cards and cards with unavailable status are excluded, with their count

@@ -519,6 +519,7 @@ const persistedWorkBoardCardSchema = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
   completedAt: z.number().optional(),
+  viewedAt: z.number().optional(),
   attachments: z.array(z.object({
     id: z.string(),
     filename: z.string(),

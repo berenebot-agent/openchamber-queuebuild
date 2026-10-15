@@ -145,6 +145,83 @@ test('board actions, live activity and viewed turn attention use shared session 
     for (const [name, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);
       else Reflect.deleteProperty(globalThis, name);
+     }
+  }
+});
+
+test('a completed card shows the green completion mark until it is opened, then clears on the server', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = {
+    window: dom, document: dom.document, navigator: dom.navigator,
+    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
+    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
+    KeyboardEvent: dom.KeyboardEvent,
+    getComputedStyle: dom.getComputedStyle.bind(dom),
+    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projects = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  // One manually completed card (no session, so no turn activity mark can hide
+  // it) and one already-acknowledged card that must stay bare.
+  const cards: WorkBoardCard[] = [
+    { id: 'unviewed', directory: '/repo', text: 'Finished build', attachments: [], stage: 'done', createdAt: 10, updatedAt: 10, completedAt: 10 },
+    { id: 'viewed', directory: '/repo', text: 'Already seen', attachments: [], stage: 'done', createdAt: 5, updatedAt: 5, completedAt: 5, viewedAt: 5 },
+  ];
+  const viewedRequests: string[] = [];
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
+    if (url.includes('/viewed')) {
+      viewedRequests.push(url);
+      return Response.json({ card: { ...cards[0], viewedAt: 10 } });
+    }
+    if (url.includes('/api/work-board')) return Response.json({ cards });
+    return Response.json({});
+  });
+  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
+  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
+  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
+  useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const card = (title: string) => container.querySelector(`button[title="${title}"]`)!.closest('article')!;
+  try {
+    await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 30)); });
+    // The finished, unacknowledged card carries exactly one green checkbox.
+    const mark = card('Finished build').querySelector('[data-session-activity-indicator="unread"]');
+    expect(mark).not.toBeNull();
+    expect(mark!.querySelector('use')?.getAttribute('href')).toBe('#oc-checkbox-circle');
+    expect(card('Finished build').querySelectorAll('[data-session-activity-indicator]')).toHaveLength(1);
+    // A card whose completion was already acknowledged shows no mark at all.
+    expect(card('Already seen').querySelector('[data-session-activity-indicator]')).toBeNull();
+    await act(async () => { card('Finished build').querySelector<HTMLButtonElement>('button[title="Finished build"]')!.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(viewedRequests).toHaveLength(1);
+    expect(viewedRequests[0]).toContain('/api/work-board/unviewed/viewed');
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
     }
   }
 });

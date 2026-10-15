@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardShowsCompletionMark } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -80,6 +80,21 @@ describe('compact card feedback', () => {
     expect(workBoardFeedback({ messages: [idle], busy: false }, false, true, false)).toBe('blocked');
     expect(workBoardFeedback({ messages: [failed, user(7)], busy: true }, false, false, true)).toBeUndefined();
     expect(workBoardFeedback({ messages: [user(2), idle], busy: false }, false, false, true)).toBeUndefined();
+  });
+});
+
+describe('completion mark', () => {
+  test('marks a finished card until that completion is acknowledged', () => {
+    expect(workBoardShowsCompletionMark({ ...card, stage: 'done', completedAt: 6 })).toBe(true);
+    expect(workBoardShowsCompletionMark({ ...card, stage: 'done', completedAt: 6, viewedAt: 6 })).toBe(false);
+    // A card that never finished has nothing to acknowledge.
+    expect(workBoardShowsCompletionMark(card)).toBe(false);
+    expect(workBoardShowsCompletionMark({ ...card, stage: 'done', updatedAt: 9 })).toBe(false);
+  });
+  test('a later completion marks the card again without any reset', () => {
+    const acknowledged: WorkBoardCard = { ...card, stage: 'done', completedAt: 6, viewedAt: 6 };
+    expect(workBoardShowsCompletionMark(acknowledged)).toBe(false);
+    expect(workBoardShowsCompletionMark({ ...acknowledged, completedAt: 12, updatedAt: 12 })).toBe(true);
   });
 });
 

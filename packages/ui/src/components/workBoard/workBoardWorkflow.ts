@@ -38,6 +38,18 @@ export function workBoardLane(card: WorkBoardCard, activity: WorkBoardActivity |
   return 'plan';
 }
 
+/**
+ * Whether a card should show the session-style completion mark: it is finished
+ * and the user has not yet acknowledged this completion. Scoped to one
+ * completion — a later Done writes a newer `completedAt`, so the mark returns
+ * on its own with no reset step. A card that was never completed has nothing to
+ * acknowledge and never shows the mark.
+ */
+export function workBoardShowsCompletionMark(card: WorkBoardCard): boolean {
+  if (card.completedAt === undefined) return false;
+  return card.completedAt > (card.viewedAt ?? 0);
+}
+
 export function workBoardCompletionTime(card: WorkBoardCard, activity: WorkBoardActivity | undefined): number {
   const completedAt = card.completedAt ?? card.updatedAt;
   if (card.stage === 'done' && !activity?.busy && !activity?.messages.some(message =>

@@ -10,6 +10,7 @@ The authenticated API is registered before the generic OpenCode proxy:
 - `POST /api/work-board` accepts `{ directory, text, attachments }` and returns `{ card }` with status 201.
 - `POST /api/work-board/sessions/:sessionId/todo` accepts `{ directory, sessionDirectory?, text, attachments }` and returns `{ card }`. The board directory and the session's worktree directory may differ. The queue runtime rejects queued, active, or uncertain work and holds queue dispatch while checking idleness and saving.
 - `PATCH /api/work-board/:id` accepts `text`, `attachments`, `sessionId`, and/or `stage`, and returns `{ card }`.
+- `POST /api/work-board/:id/viewed` acknowledges the card's current completion and returns `{ card }`. It is the only writer of `viewedAt`, requires no body, and leaves `updatedAt` alone so the completion's stale check still compares against the last real change. An unknown card is a 404; a card with nothing to acknowledge is returned unchanged. The acknowledgement lives on the server, so every client sharing the board clears the mark together.
 - `DELETE /api/work-board/:id` removes the card and returns `{ ok: true }`.
 - `POST /api/work-board/complete` accepts `{ directory, targets }`. Each target
   has `id`, `updatedAt`, `text`, and optional `sessionId` and `sessionDirectory`.
@@ -18,7 +19,7 @@ The authenticated API is registered before the generic OpenCode proxy:
   guard. Missing queue checks fail closed. Bulk writes are independent atomic
   card writes, so one failed card does not block unrelated cards.
 
-A card has `id`, `directory`, `text`, `attachments`, `createdAt`, `updatedAt`, and `stage`. `sessionId` and `completedAt` are optional. Stages are `todo`, `plan`, and `done`. Existing version 1 files remain readable without conversion. An attachment has `id`, `filename`, `mimeType`, `size`, and a validated base64 `dataUrl`. Text or at least one attachment is required. JSON bodies are limited to 50 MiB. The server checks base64 syntax, MIME consistency, and decoded size.
+A card has `id`, `directory`, `text`, `attachments`, `createdAt`, `updatedAt`, and `stage`. `sessionId`, `completedAt`, and `viewedAt` are optional. Stages are `todo`, `plan`, and `done`. Existing version 1 files remain readable without conversion. An attachment has `id`, `filename`, `mimeType`, `size`, and a validated base64 `dataUrl`. Text or at least one attachment is required. JSON bodies are limited to 50 MiB. The server checks base64 syntax, MIME consistency, and decoded size.
 
 Only the completion operation writes `done`; generic PATCH cannot bypass the
 idle guard. Completion preserves saved text and attachments. Stored target ids,
@@ -26,7 +27,7 @@ directories, session links, and `updatedAt` must still match. An inherited
 session uses `session:<sessionId>` as its target id and gets a durable card on
 first completion. An existing link prevents duplicate inherited cards. The
 server sets `completedAt`; later submitted turns override this saved intent.
-Returning to To-do clears the completion timestamp.
+Returning to To-do clears the completion timestamp and any acknowledgement of it.
 
 Promotion to `plan` requires a persisted session link. A card linked to one session cannot be linked to another. Clients persist the session link before sending and change stage only after the send succeeds. The card contents remain available after a failed send. A linked To-do offers an Open session action so the user can inspect an ambiguous send before submitting again. The client never automatically retries a linked card.
 

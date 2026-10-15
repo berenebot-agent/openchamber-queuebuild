@@ -7,7 +7,7 @@ const attachmentSchema = z.object({
 });
 const cardSchema = z.object({
   id: z.string(), directory: z.string(), text: z.string(), attachments: z.array(attachmentSchema),
-  createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().optional(), sessionId: z.string().optional(), stage: z.enum(['todo', 'plan', 'done']),
+  createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().optional(), viewedAt: z.number().optional(), sessionId: z.string().optional(), stage: z.enum(['todo', 'plan', 'done']),
 });
 export type WorkBoardAttachment = z.infer<typeof attachmentSchema>;
 export type WorkBoardCard = z.infer<typeof cardSchema>;
@@ -56,4 +56,8 @@ export async function updateWorkBoardCard(id: string, changes: CardChanges): Pro
 }
 export async function deleteWorkBoardCard(id: string): Promise<void> {
   z.object({ ok: z.literal(true) }).parse(await request(`/api/work-board/${encodeURIComponent(id)}`, 'DELETE'));
+}
+/** Acknowledge a completed card the user opened, so every client shares it. */
+export async function markWorkBoardCardViewed(id: string): Promise<WorkBoardCard> {
+  return z.object({ card: cardSchema }).parse(await request(`/api/work-board/${encodeURIComponent(id)}/viewed`, 'POST')).card;
 }

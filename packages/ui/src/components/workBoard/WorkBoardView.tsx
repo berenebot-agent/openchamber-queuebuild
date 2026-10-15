@@ -21,9 +21,9 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
+import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, markWorkBoardCardViewed, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
 import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
-import { workBoardLane, workBoardCompletionTime, workBoardFeedback, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
+import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
@@ -31,10 +31,19 @@ import { SavedTodoBrief } from './SavedTodoBrief';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queued', 'building', 'done'];
 
-function WorkBoardSessionActivity({ sessionId }: { sessionId: string }) {
+/**
+ * The one mark a card can show before its title: live activity, or — for a
+ * finished card the user has not acknowledged — the session list's green
+ * completion checkbox. The two are mutually exclusive so a card never carries
+ * two marks that mean different things.
+ */
+function WorkBoardCardMark({ card }: { card: WorkBoardCard }) {
+  // An unlinked card has no session to look up; the empty id matches nothing in
+  // either index. The hooks stay unconditional so render order never changes.
+  const sessionId = card.sessionId ?? '';
   const activity = useSessionTurnActivity(sessionId);
   const unseenCount = useSessionUnseenCount(sessionId);
-  const state = activity ?? (unseenCount > 0 ? 'unread' : null);
+  const state = activity ?? (unseenCount > 0 ? 'unread' : null) ?? (workBoardShowsCompletionMark(card) ? 'unread' : null);
   return state ? <SessionActivityIndicator state={state} tooltip /> : null;
 }
 
@@ -252,6 +261,13 @@ export function WorkBoardView() {
       setBusy(false);
     }
   };
+  // Acknowledges the completion the user just opened, so every client clears
+  // the mark. Only stored cards have a server record; an inherited card is
+  // completed on demand and gains one then.
+  const acknowledge = (card: WorkBoardCard) => {
+    if (!workBoardShowsCompletionMark(card) || card.id.startsWith('session:')) return;
+    void markWorkBoardCardViewed(card.id).then(() => { void refresh(); }).catch(() => {});
+  };
   const open = (card: WorkBoardCard) => {
     if (!card.sessionId) return;
     const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
@@ -397,8 +413,9 @@ export function WorkBoardView() {
                   {files.map(file => <div key={file.id} className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.filename}</span><Button size="xs" variant="ghost" disabled={busy} onClick={() => setFiles(previous => previous.filter(item => item.id !== file.id))} aria-label={t('workBoard.remove')}><Icon name="close" className="size-3" /></Button></div>)}
                   <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || (!text.trim() && !files.length)} onClick={() => void mutate(async () => { await updateWorkBoardCard(card.id, { text, attachments: files }); setEditing(null); })}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>{t('workBoard.cancel')}</Button></div>
                 </> : <div className="flex min-w-0 items-center gap-1">
-                  {card.sessionId && <WorkBoardSessionActivity sessionId={card.sessionId} />}
+                  <WorkBoardCardMark card={card} />
                   <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title} onClick={() => {
+                    acknowledge(card);
                     if (card.sessionId) { open(card); return; }
                     setEditing(card.id); setText(card.text); setFiles(card.attachments);
                   }}>{title}</button>

@@ -124,4 +124,20 @@ describe('work board HTTP routes', () => {
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
   });
 
+  it('shares one completion acknowledgement across clients and rejects unknown cards', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-viewed-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const completed = await store.complete(await store.create({ directory: '/repo', text: 'Finished brief', attachments: [] }));
+      const app = express();
+      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      await request(app).post('/api/work-board/missing/viewed').expect(404);
+      const acknowledged = await request(app).post(`/api/work-board/${encodeURIComponent(completed.id)}/viewed`).expect(200);
+      expect(acknowledged.body.card).toMatchObject({ id: completed.id, viewedAt: completed.completedAt });
+      // A second client sees the acknowledgement through a plain read.
+      const listed = await request(app).get('/api/work-board').query({ directory: '/repo' }).expect(200);
+      expect(listed.body.cards[0].viewedAt).toBe(completed.completedAt);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
 });

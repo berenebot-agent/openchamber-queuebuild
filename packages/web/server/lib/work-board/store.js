@@ -31,7 +31,7 @@ const updateSchema = z.object({
 const cardSchema = z.object({
   id: nonempty, directory: nonempty, text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number().finite(), updatedAt: z.number().finite(),
-  completedAt: z.number().finite().optional(),
+  completedAt: z.number().finite().optional(), viewedAt: z.number().finite().optional(),
   sessionId: nonempty.optional(), stage: z.enum(['todo', 'plan', 'done']),
 }).refine(value => value.stage !== 'plan' || value.sessionId, 'Plan card requires a session')
   .refine(value => value.text.trim() || value.attachments.length, 'Card has no content');
@@ -100,6 +100,21 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
         stage: 'done', completedAt: at, updatedAt: at });
       await write(current ? cards.map(entry => entry.id === current.id ? card : entry) : [...cards, card]);
       return card;
+    }),
+    // Acknowledges the completion the user just looked at. The mark is scoped to
+    // one completion: a later Done writes a newer `completedAt`, which shows the
+    // mark again without any reset. `updatedAt` is deliberately untouched so the
+    // board's stale-completion check still compares against the last real change.
+    viewed: cardId => serialized(async () => {
+      const cards = await read();
+      const index = cards.findIndex(card => card.id === cardId);
+      if (index < 0) throw Object.assign(new Error('Work board card not found'), { status: 404 });
+      const current = cards[index];
+      if (current.completedAt === undefined || current.viewedAt !== undefined && current.viewedAt >= current.completedAt) return current;
+      const next = { ...current, viewedAt: current.completedAt };
+      const updated = [...cards]; updated[index] = next;
+      await write(updated);
+      return next;
     }),
     parkSession: input => serialized(async () => {
       const parsed = parkSchema.safeParse(input);

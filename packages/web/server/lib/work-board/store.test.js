@@ -179,4 +179,46 @@ describe('work board persistence', () => {
       expect(await store.list()).toEqual([card]);
     } finally { await remove(dataDir); }
   });
+
+  it('acknowledges one completion at a time, durably and without disturbing the card', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      const original = await store.create(input());
+      // An unknown card is a 404. A card that exists but is not completed has
+      // nothing to acknowledge, so it is returned untouched rather than failing.
+      await expect(store.viewed('missing')).rejects.toMatchObject({ status: 404 });
+      expect(await store.viewed(original.id)).toEqual(original);
+      expect((await store.list('/project'))).toEqual([original]);
+      const completed = await store.complete(original);
+      expect(completed.viewedAt).toBeUndefined();
+      const viewed = await store.viewed(original.id);
+      expect(viewed).toMatchObject({ id: original.id, stage: 'done', completedAt: completed.completedAt, viewedAt: completed.completedAt });
+      // Acknowledging is not a content change, so the board's stale-completion
+      // check still compares against the completion's own `updatedAt`.
+      expect(viewed.updatedAt).toBe(completed.updatedAt);
+      expect(viewed.text).toBe(completed.text);
+      // Re-acknowledging is a no-op rather than a rewrite.
+      expect(await store.viewed(original.id)).toEqual(viewed);
+      expect((await createWorkBoardStore({ dataDir }).list('/project'))).toEqual([viewed]);
+      // Completing again is a new completion, so the mark returns by timestamp.
+      const again = await store.complete(viewed);
+      expect(again.completedAt).toBeGreaterThan(viewed.completedAt);
+      expect(again.viewedAt).toBeLessThan(again.completedAt);
+      // Returning to To-do drops the acknowledged completion entirely.
+      const parked = await store.parkSession({ directory: '/project', sessionId: 'session1', text: 'Back', attachments: [] });
+      expect(parked.completedAt).toBeUndefined();
+      expect(parked.viewedAt).toBeUndefined();
+    } finally { await remove(dataDir); }
+  });
+
+  it('keeps the acknowledged mark when a viewed write fails', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      const completed = await store.complete(await store.create(input()));
+      const failing = createWorkBoardStore({ dataDir, fs: { ...fs, rename: async () => { throw new Error('disk failure'); } } });
+      await expect(failing.viewed(completed.id)).rejects.toThrow('disk failure');
+      // The durable board is untouched: the card is still unacknowledged.
+      expect(await store.list()).toEqual([completed]);
+    } finally { await remove(dataDir); }
+  });
 });
