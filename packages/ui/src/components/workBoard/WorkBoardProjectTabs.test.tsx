@@ -45,6 +45,7 @@ function Harness() {
     openProjectIds={openProjectIds}
     activeProjectId={activeProjectId}
     disabled={false}
+    badges={new Map()}
     onSelect={setActiveProjectId}
     onAdd={projectId => {
       setOpenProjectIds(current => [...current, projectId]);

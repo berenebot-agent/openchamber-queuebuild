@@ -25,7 +25,7 @@ import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-sw
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, markWorkBoardCardViewed, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
 import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
-import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, type WorkBoardActivity, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
+import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, type WorkBoardActivity, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
@@ -446,6 +446,12 @@ export function WorkBoardView() {
     () => (queueError || !queue ? [] : queue.queued.filter(item => item.directory === directory)),
     [directory, queue, queueError],
   );
+  // Every open tab carries its own project's build count, so the header reads as
+  // an overview of which projects are building without switching tabs.
+  const buildBadges = React.useMemo(
+    () => workBoardBuildBadges(visibleProjectTabs, queue, Boolean(queueError)),
+    [visibleProjectTabs, queue, queueError],
+  );
   const activeBuild = React.useMemo(
     () => (!queueError && queue ? queue.active.find(item => item.directory === directory) : undefined),
     [directory, queue, queueError],
@@ -546,6 +552,7 @@ export function WorkBoardView() {
         openProjectIds={visibleProjectTabs.map(project => project.id)}
         activeProjectId={projectId}
         disabled={busy}
+        badges={buildBadges}
         onSelect={nextProjectId => setWorkBoardProjectTabs(runtimeKey, {
           projectIds: visibleProjectTabs.map(project => project.id),
           activeProjectId: nextProjectId,

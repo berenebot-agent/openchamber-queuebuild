@@ -39,6 +39,17 @@ While the board is open it owns the top of the window: the header shows
 **Work board** with a back button, instead of the last opened session's title.
 Sessions live inside a board, not the other way around.
 
+Each project tab in that header carries the project's build load, so the open
+tabs read as an overview of which projects are building without switching
+between them. A blue spinner counts every build in that project's queue — the
+running one plus everything waiting — so one running build already reads as
+one, and a build can never be hidden inside a total that looks idle. A project
+with an empty queue shows no mark at all, never a zero. The spinner follows the
+appearance setting for animated activity indicators, like the marks in the
+session list. When the queue state cannot be read, that project's tab shows an
+amber exclamation instead, so an unreachable queue is never mistaken for an
+idle project.
+
 ## Save a to-do
 
 Write the initial brief in the chat composer and attach files, then choose

@@ -125,6 +125,56 @@ export function workBoardReordered(ids: readonly string[], index: number, delta:
   return order;
 }
 
+/**
+ * What a project tab says about that project's build queue. `count` is every
+ * build in the queue — the running lease plus everything waiting — so one
+ * running build already reads as one, and it never reports zero: a project with
+ * an empty queue shows no badge at all, which is the absence of this record.
+ */
+export type WorkBoardBuildBadge = {
+  count: number;
+  error: boolean;
+};
+
+const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
+
+/**
+ * One badge per project, keyed by project id, from the server's queue snapshot.
+ * A queue error is not "nothing building": every open tab carries the error
+ * badge so the failure is visible where the user is looking, rather than
+ * silently reading as an idle project. Directories are normalised the same way
+ * the Build queue pane does, so a worktree's queue does not inflate its root
+ * project's badge.
+ */
+export function workBoardBuildBadges(
+  projects: readonly { id: string; path: string }[],
+  queue: { active: readonly { directory: string }[]; queued: readonly { directory: string }[] } | null,
+  queueError: boolean,
+): Map<string, WorkBoardBuildBadge> {
+  const badges = new Map<string, WorkBoardBuildBadge>();
+  if (!projects.length) return badges;
+  if (queueError || !queue) {
+    for (const project of projects) badges.set(project.id, { count: 0, error: true });
+    return badges;
+  }
+  const running = new Map<string, number>();
+  for (const lease of queue.active) {
+    const key = projectKey(lease.directory);
+    running.set(key, (running.get(key) ?? 0) + 1);
+  }
+  const waiting = new Map<string, number>();
+  for (const item of queue.queued) {
+    const key = projectKey(item.directory);
+    waiting.set(key, (waiting.get(key) ?? 0) + 1);
+  }
+  for (const project of projects) {
+    const key = projectKey(project.path);
+    const count = (running.get(key) ?? 0) + (waiting.get(key) ?? 0);
+    if (count > 0) badges.set(project.id, { count, error: false });
+  }
+  return badges;
+}
+
 type Selection = { providerID: string; modelID: string; variant?: string };
 type PromotionDependencies = {
   create: (directory: string, title: string, selection: Selection) => Promise<{ id: string }>;

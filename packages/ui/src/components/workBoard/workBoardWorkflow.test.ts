@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -117,6 +117,33 @@ describe('build queue column', () => {
     const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
     const paused = { ...waiting(), paused: true };
     expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), idle], busy: false }, paused)).toBe('queue');
+  });
+});
+
+describe('project build badges', () => {
+  const queue = {
+    active: [{ directory: '/repo' }],
+    queued: [{ directory: '/repo' }, { directory: '/repo' }],
+  };
+  test('counts the running lease and everything waiting for that project', () => {
+    const badges = workBoardBuildBadges([{ id: 'a', path: '/repo' }, { id: 'b', path: '/other' }], queue, false);
+    // One building plus two waiting is three, even though only one is running.
+    expect(badges.get('a')).toEqual({ count: 3, error: false });
+    // A project with an empty queue has no badge at all, not a zero.
+    expect(badges.has('b')).toBe(false);
+  });
+  test('normalises trailing slashes and backslashes before matching', () => {
+    const badges = workBoardBuildBadges([{ id: 'a', path: '/repo/' }], { active: [], queued: [{ directory: '\\repo' }] }, false);
+    expect(badges.get('a')).toEqual({ count: 1, error: false });
+  });
+  test('a queue error marks every tab rather than reading as idle', () => {
+    const projects = [{ id: 'a', path: '/repo' }, { id: 'b', path: '/other' }];
+    const failed = workBoardBuildBadges(projects, queue, true);
+    const missing = workBoardBuildBadges(projects, null, false);
+    for (const badges of [failed, missing]) {
+      expect(badges.get('a')).toEqual({ count: 0, error: true });
+      expect(badges.get('b')).toEqual({ count: 0, error: true });
+    }
   });
 });
 
