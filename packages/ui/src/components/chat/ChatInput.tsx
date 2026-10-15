@@ -13,7 +13,8 @@ import { useSelectionStore } from '@/sync/selection-store';
 import { prepareUserMessageResume } from '@/sync/user-message-resume';
 import { prepareLocalAttachments, useDraftAttachedFiles, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { createWorkBoardCard } from '@/lib/workBoardApi';
+import { createWorkBoardCard, saveSessionToTodo } from '@/lib/workBoardApi';
+import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { Button } from '@/components/ui/button';
 import { captureWorkBoardAttachments } from '@/components/workBoard/workBoardWorkflow';
 import { openParallelComposer } from '@/lib/multirun/openParallelComposer';
@@ -1355,9 +1356,23 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
     }, [attachedFiles.length, hasDrafts, hasLinkedReferences, isBtwActive]);
 
+    const [todoMode, setTodoMode] = React.useState(false);
+    React.useEffect(() => { setTodoMode(false); }, [currentSessionId, newSessionDraftOpen, activeRuntimeKey]);
     const [savingTodo, setSavingTodo] = React.useState(false);
+    const { snapshot: todoBuildQueue, error: todoQueueError } = useBuildQueueSnapshot();
+    const todoQueueBlocked = Boolean(currentSessionId && (
+        todoBuildQueue?.queued.some(item => item.sessionId === currentSessionId)
+        || todoBuildQueue?.active.some(item => item.sessionId === currentSessionId)
+    ));
+    const todoAvailable = !savingTodo && (!currentSessionId || (
+        currentSessionPhase === 'idle' && !autoReviewRunning && !hasQueuedMessages
+        && !todoQueueBlocked && !todoQueueError && todoBuildQueue !== null
+    ));
     const saveToTodo = React.useCallback(async () => {
-        if (savingTodo || !chatDraftIdentity) return;
+        if (savingTodo || !chatDraftIdentity || !todoAvailable) {
+            if (!todoAvailable) toast.error('Remove queued messages and wait for the session to become idle before saving to To-Do');
+            return;
+        }
         const draft = getCurrentInputSnapshot().message;
         if (!draft.trim() && !attachedFiles.length) return;
         const identityKey = getChatDraftIdentityKey(chatDraftIdentity);
@@ -1373,7 +1388,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (!project) { toast.error(t('workBoard.noProject')); return; }
         setSavingTodo(true);
         try {
-            await createWorkBoardCard(project.path, draft, files);
+            if (currentSessionId && !newSessionDraftOpen) {
+                await saveSessionToTodo(currentSessionId, project.path, sourceDirectory ?? project.path, draft, files);
+            } else {
+                await createWorkBoardCard(project.path, draft, files);
+            }
             const currentIdentity = currentChatDraftIdentityRef.current;
             if (runtime !== getRuntimeKey() || !currentIdentity || identityKey !== getChatDraftIdentityKey(currentIdentity)) return;
             // Keep edits made while the save was in flight in the composer.
@@ -1387,7 +1406,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         } catch (cause) {
             toast.error(cause instanceof Error ? cause.message : t('workBoard.failed'));
         } finally { setSavingTodo(false); }
-    }, [savingTodo, chatDraftIdentity, attachedFiles, getCurrentInputSnapshot, newSessionDraftOpen, newSessionDraft.selectedProjectId, currentDirectory, currentSessionDirectoryForSync, clearAttachedFiles, t]);
+    }, [savingTodo, chatDraftIdentity, attachedFiles, getCurrentInputSnapshot, newSessionDraftOpen, newSessionDraft.selectedProjectId, currentDirectory, currentSessionDirectoryForSync, currentSessionId, clearAttachedFiles, t, todoAvailable]);
 
     // Keep a ref to handleSubmit so callbacks don't depend on it.
     type SubmitOptions = {
@@ -1681,6 +1700,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
 
     const handleSubmit = async (options?: SubmitOptions) => {
+        if (todoMode && !isBtwActive && !parallel.isActive && !options?.queuedOnly) { await saveToTodo(); return; }
         // Comment mode's only submit is attach; every other send path must be
         // inert while it is open.
         if (isMobileCommentOpen()) return;
@@ -2407,6 +2427,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     // Primary action for send/queue button — respects selected follow-up behavior
     const handlePrimaryAction = React.useCallback(() => {
+        if (todoMode && !isBtwActive && !parallel.isActive) { void saveToTodo(); return; }
         // Comment mode owns the composer; its only primary action is attach.
         if (isMobileCommentOpen()) return;
         const inputSnapshot = getCurrentInputSnapshot();
@@ -2418,7 +2439,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         } else {
             void handleSubmitRef.current();
         }
-    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isMobileCommentOpen]);
+    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isMobileCommentOpen, todoMode, saveToTodo]);
 
     // Draft welcome presets: submit immediately.
     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
@@ -2677,6 +2698,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // every queued message into the running turn.
             if (!hasContent) return;
 
+            if (todoMode && !isBtwActive && !parallel.isActive) { void saveToTodo(); return; }
             // Queueing / steering only works when there's an existing busy
             // session (or an active auto-review run).
             const canQueue = !isBtwActive && inputMode === 'normal' && hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
@@ -2722,6 +2744,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [abortCurrentOperation, btwSessionId, clearAbortPrompt, currentSessionId, isBtwActive]);
 
     const handleCycleAgent = React.useCallback((direction: 1 | -1 = 1) => {
+        const modes = ['todo', 'plan', 'build'].filter(mode => mode === 'todo' || agents.some(agent => agent.name === mode));
+        const index = modes.indexOf(todoMode ? 'todo' : currentAgentName);
+        if (!isBtwActive && !parallel.isActive && index >= 0 && modes.length > 1) {
+            const next = modes[(index + direction + modes.length) % modes.length];
+            if (next === 'todo') { if (todoAvailable) setTodoMode(true); return; }
+            setTodoMode(false);
+            if (!columnPinned) setAgent(next);
+            if (currentSessionId) saveSessionAgentSelection(currentSessionId, next);
+            return;
+        }
         // Auto hides the agent control, so the shortcut must not change a
         // choice the user cannot see.
         if (isAutoModel(currentProviderId, currentModelId)) return;
@@ -2734,7 +2766,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (currentSessionId) {
             saveSessionAgentSelection(currentSessionId, nextAgentName);
         }
-    }, [agents, columnPinned, currentAgentName, currentModelId, currentProviderId, currentSessionId, setAgent, saveSessionAgentSelection]);
+    }, [agents, columnPinned, currentAgentName, currentModelId, currentProviderId, currentSessionId, setAgent, saveSessionAgentSelection, todoMode, todoAvailable, isBtwActive, parallel.isActive]);
 
     // Height the failed-dictation salvage text needs. Its overlay sits
     // absolutely over the composer, so the composer must be able to grow for
@@ -4052,13 +4084,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ) : null;
     // Null exactly when the suggestion row alone would have been: the mobile
     // pill picks its shape from whether a top row exists.
-    const todoRow = !isVSCode && !isMobile && !isBtwActive && (message.trim() || attachedFiles.length) ? (
-        <div className="flex justify-end border-b border-border/60 px-3 py-1">
-            <Button type="button" size="xs" variant="ghost" disabled={savingTodo} onClick={() => void saveToTodo()}>
-                <Icon name="todo" className="size-3.5" />{t('workBoard.saveTodo')}
-            </Button>
-        </div>
-    ) : null;
+    const todoRow = null; // Saved via the composer mode rather than a separate button.
     const composerTopRows = todoRow || worktreeSetupRow || spaceWaitRow || goalRow || autoReviewRow || backgroundShellsRow || revertRow || buildQueueRow || queueRow || doneHintRow || reviewHintRow || suggestionRow ? (
         <>
             {todoRow}
@@ -4532,6 +4558,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         canSend={canSend}
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
+                        todoMode={todoMode && !isBtwActive && !parallelActive}
+                        todoAvailable={todoAvailable}
+                        onTodoModeChange={!isBtwActive && !parallelActive ? setTodoMode : undefined}
                         isExpandedInput={isExpandedInput}
                         permissionMode={shownPermissionMode}
                         isPermissionAutoAcceptInteractive={isPermissionAutoAcceptInteractive}

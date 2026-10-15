@@ -12,7 +12,7 @@ const cardSchema = z.object({
 export type WorkBoardAttachment = z.infer<typeof attachmentSchema>;
 export type WorkBoardCard = z.infer<typeof cardSchema>;
 type CardChanges = { text?: string; attachments?: WorkBoardAttachment[]; sessionId?: string; stage?: 'todo' | 'plan' };
-type BoardWrite = CardChanges | { directory: string; text: string; attachments: WorkBoardAttachment[] };
+type BoardWrite = CardChanges | { directory: string; text: string; attachments: WorkBoardAttachment[]; sessionDirectory?: string };
 
 async function request(path: string, method = 'GET', body?: BoardWrite) {
   const runtime = getRuntimeKey();
@@ -35,6 +35,9 @@ export async function fetchWorkBoard(directory: string): Promise<WorkBoardCard[]
 }
 export async function createWorkBoardCard(directory: string, text: string, attachments: WorkBoardAttachment[]): Promise<WorkBoardCard> {
   return z.object({ card: cardSchema }).parse(await request('/api/work-board', 'POST', { directory, text, attachments })).card;
+}
+export async function saveSessionToTodo(sessionId: string, directory: string, sessionDirectory: string, text: string, attachments: WorkBoardAttachment[]): Promise<WorkBoardCard> {
+  return z.object({ card: cardSchema }).parse(await request(`/api/work-board/sessions/${encodeURIComponent(sessionId)}/todo`, 'POST', { directory, sessionDirectory, text, attachments })).card;
 }
 export async function updateWorkBoardCard(id: string, changes: CardChanges): Promise<WorkBoardCard> {
   return z.object({ card: cardSchema }).parse(await request(`/api/work-board/${encodeURIComponent(id)}`, 'PATCH', changes)).card;

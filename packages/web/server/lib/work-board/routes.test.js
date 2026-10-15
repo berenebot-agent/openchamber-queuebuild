@@ -49,7 +49,7 @@ describe('work board HTTP routes', () => {
       const messageQueueRuntime = {
         parkSession: async (id, directory, save) => {
           expect([id, directory]).toEqual(['session1', '/repo']);
-          return save([{ text: 'Queued implementation', attachments: [], context: [] }]);
+          return save([]);
         },
       };
       const app = express();
@@ -57,7 +57,6 @@ describe('work board HTTP routes', () => {
       const response = await request(app).post('/api/work-board/sessions/session1/todo')
         .send({ directory: '/repo', text: 'Additional note', attachments: [] }).expect(200);
       expect(response.body.card).toMatchObject({ id: original.id, sessionId: 'session1', stage: 'todo' });
-      expect(response.body.card.text).toContain('Queued implementation');
       expect(response.body.card.text).toContain('Additional note');
       expect(await store.list('/repo')).toHaveLength(1);
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }

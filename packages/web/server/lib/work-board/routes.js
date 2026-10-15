@@ -33,23 +33,18 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
       if (!messageQueueRuntime?.parkSession) throw Object.assign(new Error('To-do parking is unavailable'), { status: 503 });
       const body = z.object({
         directory: z.string().trim().min(1),
+        sessionDirectory: z.string().trim().min(1).optional(),
         text: z.string().default(''),
         attachments: z.array(z.unknown()).default([]),
       }).parse(req.body);
       const directory = await resolveDirectory(req, body.directory);
+      const sessionDirectory = body.sessionDirectory ? await resolveDirectory(req, body.sessionDirectory) : directory;
       const sessionId = z.string().trim().min(1).parse(req.params.sessionId);
-      const card = await messageQueueRuntime.parkSession(sessionId, directory, async pending => {
-        const queuedFiles = pending.flatMap(item => {
-          if (item.context?.length) throw Object.assign(new Error('Queued build has additional context; remove it manually before parking'), { status: 409 });
-          return (item.attachments ?? []).map(file => {
-            if (!file.dataUrl || !file.size) throw Object.assign(new Error('Queued build has an attachment that cannot be saved to To-do'), { status: 409 });
-            return { id: file.id, filename: file.filename, mimeType: file.mimeType, size: file.size, dataUrl: file.dataUrl };
-          });
-        });
+      const card = await messageQueueRuntime.parkSession(sessionId, sessionDirectory, async () => {
         const existing = (await store.list(directory)).find(entry => entry.sessionId === sessionId);
-        const parts = [existing?.text, ...pending.map(item => item.text || item.content), body.text].filter(value => typeof value === 'string' && value.trim());
+        const parts = [existing?.text, body.text].filter(value => typeof value === 'string' && value.trim());
         const text = [...new Set(parts)].join('\n\n');
-        const attachments = [...(existing?.attachments ?? []), ...queuedFiles, ...body.attachments];
+        const attachments = [...(existing?.attachments ?? []), ...body.attachments];
         if (!text.trim() && !attachments.length) throw Object.assign(new Error('Add notes before parking this session'), { status: 400 });
         if (existing) return store.update(existing.id, { text, attachments, stage: 'todo' });
         const created = await store.create({ directory, text, attachments });

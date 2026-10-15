@@ -53,6 +53,9 @@ interface ComposerFooterProps {
     canSend: boolean;
     canAbort: boolean;
     hasContent: boolean;
+    todoMode?: boolean;
+    todoAvailable?: boolean;
+    onTodoModeChange?: (enabled: boolean) => void;
     isExpandedInput: boolean;
     permissionMode: PermissionMode;
     isPermissionAutoAcceptInteractive: boolean;
@@ -127,6 +130,9 @@ function ComposerFooterView(props: ComposerFooterProps) {
         canSend,
         canAbort,
         hasContent,
+        todoMode = false,
+        todoAvailable = true,
+        onTodoModeChange,
         isExpandedInput,
         permissionMode,
         isPermissionAutoAcceptInteractive,
@@ -300,7 +306,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
                     </div>
                     <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')} data-dictation-chain="true">
                         {waitingForOpenCode ? <OpenCodeStartupNote className="flex-shrink-0" /> : null}
-                        {parallelRun ? <div className="flex-1" /> : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} /> : pinnedSelection ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={currentSessionId} selection={pinnedSelection} agentSelectable /> : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} />}
+                        {parallelRun ? <div className="flex-1" /> : isBtw ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={modelSessionId ?? null} selection={btwSelection} /> : pinnedSelection ? <ModelControls className="flex-1 min-w-0 justify-end" sessionId={currentSessionId} selection={pinnedSelection} agentSelectable /> : <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} onRunInParallel={onRunInParallel} todoMode={todoMode} onTodoModeChange={onTodoModeChange} todoAvailable={todoAvailable} />}
                         {!isBtw ? <MemoComposerDictation
                             radius={chatInputRadius}
                             isMobile={isMobile}
@@ -339,7 +345,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
                             footerIconButtonClass={footerIconButtonClass}
                             sendIconSizeClass={sendIconSizeClass}
                             stopIconSizeClass={stopIconSizeClass}
-                            canSend={canSend}
+                            canSend={canSend && (!todoMode || todoAvailable)}
                             canAbort={canAbort}
                             hasContent={hasContent}
                             currentSessionId={currentSessionId}
@@ -347,6 +353,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
                             onPrimaryAction={onPrimaryAction}
                             onQueueMessage={onQueueMessage}
                             onAbort={onAbort}
+                            sendLabel={todoMode ? 'Save to To-Do' : undefined}
                         />}
                     </div>
                 </>

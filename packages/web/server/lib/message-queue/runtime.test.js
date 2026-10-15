@@ -1313,18 +1313,11 @@ describe('project-wide build queue', () => {
   });
 
 
-  it('parks queued builds without dispatch and exposes their full payload', async () => {
+  it('rejects To-Do parking for queued builds without dispatch', async () => {
     const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
     await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'Build a widget' }));
-    let captured;
-    const card = await runtime.parkSession(SESSION, DIRECTORY, async items => {
-      captured = items;
-      return { id: 'saved-card' };
-    });
-    expect(card.id).toBe('saved-card');
-    expect(captured[0].text).toBe('Build a widget');
-    await settle(80);
-    expect(runtime.buildSnapshot().queued).toHaveLength(0);
+    await expect(runtime.parkSession(SESSION, DIRECTORY, async () => ({ id: 'saved-card' }))).rejects.toMatchObject({ status: 409 });
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
     expect(promptCalls(openCode)).toHaveLength(0);
     runtime.stop();
     await runtime.flush();
@@ -1340,20 +1333,14 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
-  it('blocks dispatch during the board write and leaves the queue intact if it fails', async () => {
-    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
-    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
-    let release;
-    const gate = new Promise(resolve => { release = resolve; });
-    const parking = runtime.parkSession(SESSION, DIRECTORY, async () => {
-      await gate;
-      throw new Error('disk full');
+  it('saves an idle session and propagates a failing board write', async () => {
+    const { runtime } = createRuntime();
+    const card = await runtime.parkSession(SESSION, DIRECTORY, async queued => {
+      expect(queued).toHaveLength(0);
+      return { id: 'saved' };
     });
-    await settle(80);
-    expect(promptCalls(openCode)).toHaveLength(0);
-    release();
-    await expect(parking).rejects.toThrow('disk full');
-    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    expect(card.id).toBe('saved');
+    await expect(runtime.parkSession(SESSION, DIRECTORY, async () => { throw new Error('disk full'); })).rejects.toThrow('disk full');
     runtime.stop();
     await runtime.flush();
   });

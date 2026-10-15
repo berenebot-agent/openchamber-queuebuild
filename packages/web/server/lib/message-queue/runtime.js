@@ -1315,29 +1315,19 @@ export function createMessageQueueRuntime({
       if (sending.has(sessionId) || Array.from(activeBuilds.values()).some(lease => lease.sessionId === sessionId)) {
         throw httpError('Session has an active or uncertain build', 409);
       }
-      if (queue?.items.some(item => !isBuildItem(item))) {
-        throw httpError('Session has ordinary queued messages; resolve them before parking', 409);
+      if (queue?.items.length) {
+        throw httpError('Remove queued messages from the Build Queue before saving to To-Do', 409);
       }
       const idle = await isSessionIdle(sessionId, directory);
       const subagents = idle === true ? await hasWorkingSubagents(sessionId) : null;
       if (idle !== true || subagents !== false) throw httpError('Session is active or its idle status is unavailable', 409);
-      const pending = queues.get(sessionId)?.items ?? [];
+      // Dispatch is blocked by parkingSessions while this check and save run.
+      if (queues.get(sessionId)?.items.length) throw httpError('Remove queued messages before saving to To-Do', 409);
       if (sending.has(sessionId) || Array.from(activeBuilds.values()).some(lease => lease.sessionId === sessionId)) {
         throw httpError('Session started executing while parking', 409);
       }
-      const card = await saveCard(pending);
-      if (pending.length) {
-        const current = queues.get(sessionId);
-        if (!current || current.items.length !== pending.length || current.items.some((item, index) => item.id !== pending[index].id)) {
-          throw httpError('Session queue changed during parking', 409);
-        }
-        setQueueItems(sessionId, current.directory, []);
-        commit(sessionId);
-        await writePromise;
-        if (persistenceError) throw httpError('Could not persist removal from the Build Queue', 500);
-        wakeProject(directory);
-      }
-      return card;
+      return await saveCard([]);
+
     } finally {
       parkingSessions.delete(sessionId);
       armDispatch(sessionId);

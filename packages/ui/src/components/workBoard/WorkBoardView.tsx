@@ -16,7 +16,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { fetchWorkBoard, createWorkBoardCard, updateWorkBoardCard, deleteWorkBoardCard, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
+import { fetchWorkBoard, createWorkBoardCard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
 import { workBoardLane, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queued', 'building', 'done'];
@@ -274,11 +274,8 @@ export function WorkBoardView() {
                     {card.sessionId && <Button size="xs" variant="outline" onClick={() => open(card)}>{t('workBoard.openSession')}</Button>}
                     {lane === 'todo' && <Button size="xs" variant="ghost" disabled={busy} onClick={() => { setEditing(card.id); setText(card.text); setFiles(card.attachments); }}>{t('workBoard.edit')}</Button>}
                     {card.sessionId && lane !== 'todo' && lane !== 'queued' && lane !== 'building' && !activity?.busy && !statusUnknown && <Button size="xs" variant="ghost" disabled={busy} onClick={() => void mutate(async () => {
-                      if (cards.some(saved => saved.id === card.id)) await updateWorkBoardCard(card.id, { stage: 'todo' });
-                      else {
-                        const saved = await createWorkBoardCard(card.directory, card.text, []);
-                        await updateWorkBoardCard(saved.id, { sessionId: card.sessionId, stage: 'todo' });
-                      }
+                      const actualSessionDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
+                      await saveSessionToTodo(card.sessionId!, card.directory, actualSessionDirectory, card.text, []);
                     })}>{t('workBoard.backTodo')}</Button>}
                     {lane === 'todo' && !activity?.busy && <Button size="xs" variant="ghost" disabled={busy} onClick={() => void mutate(async () => { await deleteWorkBoardCard(card.id); })}>{t('workBoard.remove')}</Button>}
                   </div>

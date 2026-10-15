@@ -356,6 +356,10 @@ type ModelControlsProps = {
     onMobilePanelChange?: (panel: MobileControlsPanel) => void;
     /** Offers "Run on several models" at the top of the desktop model picker. */
     onRunInParallel?: () => void;
+    /** To-Do is a virtual composer mode, not an OpenCode agent. */
+    todoMode?: boolean;
+    onTodoModeChange?: (enabled: boolean) => void;
+    todoAvailable?: boolean;
 } & (
     | { selection?: never; sessionId?: never; agentSelectable?: never }
     | {
@@ -371,6 +375,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     mobilePanel,
     onMobilePanelChange,
     onRunInParallel,
+    todoMode = false,
+    onTodoModeChange,
+    todoAvailable = true,
     selection,
     sessionId: controlledSessionId,
     agentSelectable = false,
@@ -1464,6 +1471,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     }, [commitVariantSelectionForModel, currentModelId, currentProviderId]);
 
     const handleAgentChange = React.useCallback((agentName: string, options?: { closeModelSelector?: boolean }) => {
+        onTodoModeChange?.(false);
         if (selection) {
             if (!agentSelectable || !controlledSessionId) return;
             // The pick belongs to the controlled session only; the app-wide
@@ -1502,6 +1510,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         setAgent,
         setAgentMenuOpen,
         selection,
+        onTodoModeChange,
     ]);
 
     const handleCycleAgentFromModelPicker = React.useCallback((direction: 1 | -1) => {
@@ -1592,6 +1601,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const isModelLabelTruncated = useIsTextTruncated(modelLabelRef, [currentModelDisplayName, isCompact]);
 
     const getAgentDisplayName = () => {
+        if (todoMode) return 'To-Do';
         if (!uiAgentName) {
             const buildAgent = primaryAgents.find(agent => agent.name === 'build');
             const defaultAgent = buildAgent || primaryAgents[0];
@@ -2347,6 +2357,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 contentMaxHeightClassName="max-h-[min(52dvh,360px)]"
             >
                 <div className="flex flex-col gap-2">
+                    {onTodoModeChange && <button type="button" disabled={!todoAvailable} className={cn('flex w-full items-center gap-2 rounded-xl border py-2.5 px-3 text-start font-semibold', todoMode ? 'border-border bg-interactive-selection' : 'border-border/40', !todoAvailable && 'opacity-50')} onClick={() => { onTodoModeChange(true); closeMobilePanel(); }}>
+                        <Icon name="todo" className="size-4" />To-Do {todoMode && <Icon name="check" className="ms-auto size-4" />}
+                    </button>}
                     {selectableDesktopAgents.map((agent) => {
                         const isSelected = agent.name === uiAgentName;
                         const agentColor = getAgentColor(agent.name);
@@ -3051,13 +3064,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                             </>
                                         ) : (
                                             <>
-                                                <Icon name="ai-agent"
+                                                <Icon name={todoMode ? 'todo' : 'ai-agent'}
                                                     className={cn(
                                                         controlIconSize,
                                                         'flex-shrink-0',
-                                                        uiAgentName ? '' : 'text-muted-foreground'
+                                                        uiAgentName && !todoMode ? '' : 'text-muted-foreground'
                                                     )}
-                                                    style={uiAgentName ? { color: getAgentColor(uiAgentName).color } : undefined}
+                                                    style={uiAgentName && !todoMode ? { color: getAgentColor(uiAgentName).color } : undefined}
                                                 />
                                                 <span
                                                     className={cn(
@@ -3066,7 +3079,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                                         'font-medium min-w-0 truncate',
                                                         isDesktop ? 'max-w-[220px]' : undefined
                                                     )}
-                                                    style={uiAgentName ? { color: getAgentColor(uiAgentName).color } : undefined}
+                                                    style={uiAgentName && !todoMode ? { color: getAgentColor(uiAgentName).color } : undefined}
                                                 >
                                                     {getAgentDisplayName()}
                                                 </span>
@@ -3093,6 +3106,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 </div>
                                 <ScrollableOverlay outerClassName="max-h-[min(400px,calc(var(--available-height)-4rem))] flex-1">
                                     <div className="p-1">
+                                        {onTodoModeChange && !agentSearchQuery.trim() && <DropdownMenuItem disabled={!todoAvailable} className="typography-meta" onSelect={() => { onTodoModeChange(true); setIsAgentSelectorOpen(false); }}>
+                                            <Icon name="todo" className="size-3.5" /><span className="font-medium">To-Do</span>{todoMode && <Icon name="check" className="ms-auto size-4" />}
+                                        </DropdownMenuItem>}
                                         {!agentSearchQuery.trim() && defaultAgentName && (
                                             <>
                                                 <DropdownMenuItem
@@ -3175,13 +3191,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                     </>
                 ) : (
                     <>
-                        <Icon name="ai-agent"
+                        <Icon name={todoMode ? 'todo' : 'ai-agent'}
                             className={cn(
                                 controlIconSize,
                                 'flex-shrink-0',
-                                uiAgentName ? '' : 'text-muted-foreground'
+                                uiAgentName && !todoMode ? '' : 'text-muted-foreground'
                             )}
-                            style={uiAgentName ? { color: getAgentColor(uiAgentName).color } : undefined}
+                            style={uiAgentName && !todoMode ? { color: getAgentColor(uiAgentName).color } : undefined}
                         />
                         <span
                             className={cn(
@@ -3190,7 +3206,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 'font-medium truncate min-w-0',
                                 isMobile && 'max-w-[60px]'
                             )}
-                            style={uiAgentName ? { color: getAgentColor(uiAgentName).color } : undefined}
+                            style={uiAgentName && !todoMode ? { color: getAgentColor(uiAgentName).color } : undefined}
                         >
                             {getAgentDisplayName()}
                         </span>
