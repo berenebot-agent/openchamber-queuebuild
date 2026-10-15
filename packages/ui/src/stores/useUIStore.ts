@@ -947,6 +947,10 @@ interface UIStore {
   /** The issues and pull requests board. */
   isSourceBoardOpen: boolean;
   isWorkBoardOpen: boolean;
+  /** Ephemeral return navigation after entering a session from the Work Board. */
+  workBoardReturnSessionId: string | null;
+  /** Remembers the Kanban project's selection across a session visit. */
+  workBoardProjectId: string | null;
   openGuestPageId: string | null;
   worktreesPageProjectId: string | null;
   /** The project whose isolated spaces fill the main area, opened from its menu in the sidebar. */
@@ -1248,6 +1252,8 @@ interface UIStore {
   setUsageStatsPageOpen: (open: boolean) => void;
   setSourceBoardOpen: (open: boolean) => void;
   setWorkBoardOpen: (open: boolean) => void;
+  setWorkBoardReturnSessionId: (sessionId: string | null) => void;
+  setWorkBoardProjectId: (projectId: string | null) => void;
   setOpenGuestPage: (id: string | null) => void;
   setWorktreesPageProjectId: (projectId: string | null) => void;
   setSpacesPageProjectId: (projectId: string | null) => void;
@@ -1473,6 +1479,8 @@ export const useUIStore = create<UIStore>()(
         isUsageStatsPageOpen: false,
         isSourceBoardOpen: false,
         isWorkBoardOpen: false,
+        workBoardReturnSessionId: null,
+        workBoardProjectId: null,
         openGuestPageId: null,
         worktreesPageProjectId: null,
         spacesPageProjectId: null,
@@ -2398,7 +2406,13 @@ export const useUIStore = create<UIStore>()(
 
         setWorkBoardOpen: (open) => {
           get().closeMainSurfaces();
-          set({ isWorkBoardOpen: open });
+          set({ isWorkBoardOpen: open, ...(open ? { workBoardReturnSessionId: null } : {}) });
+        },
+        setWorkBoardReturnSessionId: (sessionId) => {
+          set({ workBoardReturnSessionId: sessionId });
+        },
+        setWorkBoardProjectId: (projectId) => {
+          set({ workBoardProjectId: projectId });
         },
         setSourceBoardOpen: (open) => {
           set(open

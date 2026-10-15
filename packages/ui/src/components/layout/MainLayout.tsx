@@ -1,5 +1,7 @@
 import React from 'react';
 import { Header } from './Header';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/icon/Icon';
 import { Sidebar } from './Sidebar';
 import { SidebarTopBar } from './SidebarTopBar';
 import { useSidebarPeek } from './useSidebarPeek';
@@ -117,6 +119,8 @@ export const MainLayout: React.FC = () => {
     const isUsageStatsPageOpen = useUIStore((state) => state.isUsageStatsPageOpen);
     const isSourceBoardOpen = useUIStore((state) => state.isSourceBoardOpen);
     const isWorkBoardOpen = useUIStore((state) => state.isWorkBoardOpen);
+    const workBoardReturnSessionId = useUIStore((state) => state.workBoardReturnSessionId);
+    const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const worktreesPageProjectId = useUIStore((state) => state.worktreesPageProjectId);
     // The spaces page exists only while the feature's switch is on.
     const isSpacesPageOpen = useUIStore((state) => state.isolatedSpacesEnabled && state.spacesPageProjectId !== null);
@@ -133,7 +137,10 @@ export const MainLayout: React.FC = () => {
     React.useEffect(() => {
         if (openGuestPageId && !guestPage) useUIStore.getState().setOpenGuestPage(null);
     }, [openGuestPageId, guestPage]);
-    React.useEffect(() => subscribeRuntimeEndpointChanged(() => useUIStore.getState().setOpenGuestPage(null)), []);
+    React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
+        useUIStore.getState().setOpenGuestPage(null);
+        useUIStore.getState().setWorkBoardReturnSessionId(null);
+    }), []);
     React.useEffect(() => followZonePlacementOfOtherWindows(), []);
     // Any full-page surface replacing the chat area. While open, the chat is
     // fully hidden (not just covered) so none of its floating chrome bleeds
@@ -153,7 +160,10 @@ export const MainLayout: React.FC = () => {
             // Draft identity change covers re-opening a draft while one is
             // already open (the boolean alone never transitions then).
             const draftOpened = Boolean(state.newSessionDraft?.open) && state.newSessionDraft !== prev.newSessionDraft;
-            if (sessionSelected || draftOpened) closeSurfacePages();
+            if (sessionSelected || draftOpened) {
+                closeSurfacePages();
+                useUIStore.getState().setWorkBoardReturnSessionId(null);
+            }
         });
         return () => {
             unsubscribeSession();
@@ -219,6 +229,20 @@ export const MainLayout: React.FC = () => {
                                             <div className={cn('absolute inset-0', isSurfacePageOpen && 'invisible')}>
                                                 <ErrorBoundary><ChatView active={!isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary>
                                             </div>
+                                            {!isSurfacePageOpen && !isSettingsDialogOpen && currentSessionId && workBoardReturnSessionId === currentSessionId && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="xs"
+                                                    className="absolute inset-s-3 top-3 z-30 gap-1.5 border-border/70 bg-background/95 shadow-sm backdrop-blur-sm"
+                                                    onClick={() => useUIStore.getState().setWorkBoardOpen(true)}
+                                                    aria-label="Back to Work Board"
+                                                    title="Back to Work Board"
+                                                >
+                                                    <Icon name="arrow-left" className="size-3.5" />
+                                                    Work Board
+                                                </Button>
+                                            )}
                                             <ErrorBoundary><OnDemand needed={isRunOverviewOpen} load={loadRunOverview} onFailure={closeMainSurfaces} /></ErrorBoundary>
                                             <ErrorBoundary><OnDemand needed={isScheduledTasksPageOpen} load={loadScheduledTasksDialog} onFailure={closeMainSurfaces} /></ErrorBoundary>
                                             <ErrorBoundary><OnDemand needed={isArchivePageOpen} load={loadArchiveView} onFailure={closeMainSurfaces} /></ErrorBoundary>

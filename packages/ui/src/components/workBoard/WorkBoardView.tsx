@@ -1,5 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { workBoardCardTitle } from './workBoardCardTitle';
 import { Icon } from '@/components/icon/Icon';
 import { ModelSelector } from '@/components/sections/agents/ModelSelector';
 import { useI18n } from '@/lib/i18n';
@@ -25,7 +27,17 @@ export function WorkBoardView() {
   const { t } = useI18n();
   const projects = useProjectsStore(state => state.projects);
   const activeProjectId = useProjectsStore(state => state.activeProjectId);
-  const [projectId, setProjectId] = React.useState(activeProjectId ?? projects[0]?.id ?? '');
+  const savedProjectId = useUIStore(state => state.workBoardProjectId);
+  const [projectId, setProjectId] = React.useState(() =>
+    projects.some(project => project.id === savedProjectId) ? savedProjectId! : activeProjectId ?? projects[0]?.id ?? ''
+  );
+  React.useEffect(() => {
+    if (projects.some(project => project.id === projectId)) return;
+    const fallback = projects.find(project => project.id === savedProjectId)?.id
+      ?? projects.find(project => project.id === activeProjectId)?.id
+      ?? projects[0]?.id ?? '';
+    if (fallback !== projectId) setProjectId(fallback);
+  }, [projects, projectId, savedProjectId, activeProjectId]);
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
   const [cards, setCards] = React.useState<WorkBoardCard[]>([]);
   const [activities, setActivities] = React.useState<Map<string, WorkBoardActivity>>(new Map());
@@ -169,8 +181,13 @@ export function WorkBoardView() {
   };
   const open = (card: WorkBoardCard) => {
     if (!card.sessionId) return;
-    useSessionUIStore.getState().setCurrentSession(card.sessionId, card.directory);
+    const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
+    useSessionUIStore.getState().setCurrentSession(card.sessionId, actualDirectory);
     useUIStore.getState().closeMainSurfaces();
+    // Set after selecting the session: selection closes surfaces and clears
+    // any previous return target. This click establishes the new one.
+    useUIStore.getState().setWorkBoardProjectId(projectId);
+    useUIStore.getState().setWorkBoardReturnSessionId(card.sessionId);
   };
   const promote = (card: WorkBoardCard) => void mutate(async () => {
     if (card.sessionId) { open(card); return; }
@@ -221,7 +238,10 @@ export function WorkBoardView() {
       <h1 className="text-lg font-semibold">{t('workBoard.title')}</h1>
       <label className="flex items-center gap-2 text-xs text-muted-foreground">
         {t('workBoard.chooseProject')}
-        <select value={projectId} disabled={busy} onChange={event => setProjectId(event.target.value)} className="rounded-md border border-border bg-surface-elevated p-1 text-foreground">
+        <select value={projectId} disabled={busy} onChange={event => {
+          setProjectId(event.target.value);
+          useUIStore.getState().setWorkBoardProjectId(event.target.value);
+        }} className="rounded-md border border-border bg-surface-elevated p-1 text-foreground">
           {projects.map(project => <option key={project.id} value={project.id}>{project.label || project.path.split('/').at(-1)}</option>)}
         </select>
       </label>
@@ -251,37 +271,40 @@ export function WorkBoardView() {
             {inLane.map(card => {
               const activity = activities.get(card.id);
               const statusUnknown = Boolean(card.sessionId) && (!activity || unavailable.has(card.id));
-              const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
-              const lastIdle = [...(activity?.messages ?? [])].reverse().find(message => message.role === 'idle');
-              const lastPrompt = [...(activity?.messages ?? [])].reverse().find(message => message.role === 'user');
-              const blocked = active?.needsReview || (!activity?.busy && lastIdle?.role === 'idle' && lastIdle.outcome !== 'succeeded'
-                && lastIdle.time.created >= (lastPrompt?.time.created ?? 0));
-              return <article key={card.id} className="rounded-lg border border-border bg-surface-elevated p-3">
+              const hasRunningTurn = Boolean(activity?.busy);
+              const canReturnToTodo = Boolean(card.sessionId) && lane !== 'todo' && lane !== 'queued'
+                && lane !== 'building' && !hasRunningTurn && !statusUnknown;
+              const canRemove = lane === 'todo' && !hasRunningTurn;
+              const title = workBoardCardTitle(card.text, card.attachments);
+              return <article key={card.id} className="group relative rounded-md border border-border bg-surface-elevated px-2.5 py-1.5">
                 {editing === card.id ? <>
                   <label className="text-xs font-medium">{t('workBoard.brief')}<textarea value={text} onChange={event => setText(event.target.value)} className="mt-2 min-h-32 w-full rounded-md border border-border bg-background p-2 text-sm" /></label>
                   <label className="mt-2 block text-xs">{t('workBoard.addFiles')}<input type="file" multiple disabled={busy} onChange={event => { void addFiles(event.target.files); event.target.value = ''; }} className="mt-1 block w-full text-xs" /></label>
                   {files.map(file => <div key={file.id} className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.filename}</span><Button size="xs" variant="ghost" disabled={busy} onClick={() => setFiles(previous => previous.filter(item => item.id !== file.id))} aria-label={t('workBoard.remove')}><Icon name="close" className="size-3" /></Button></div>)}
                   <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || (!text.trim() && !files.length)} onClick={() => void mutate(async () => { await updateWorkBoardCard(card.id, { text, attachments: files }); setEditing(null); })}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>{t('workBoard.cancel')}</Button></div>
-                </> : <>
-                  <button type="button" className="line-clamp-4 w-full whitespace-pre-wrap break-words text-start text-sm font-medium hover:underline" onClick={() => {
+                </> : <div className="flex min-w-0 items-center gap-1">
+                  <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title} onClick={() => {
                     if (card.sessionId) { open(card); return; }
                     setEditing(card.id); setText(card.text); setFiles(card.attachments);
-                  }}>{card.text || card.attachments[0]?.filename}</button>
-                  {card.attachments.map(file => <p key={file.id} className="mt-2 truncate text-xs text-muted-foreground">{file.filename}</p>)}
-                  {statusUnknown && <p className="mt-2 text-xs text-muted-foreground">{t('workBoard.unknown')}</p>}
-                  {blocked && <p className="mt-2 text-xs text-[var(--status-warning-text)]">{t('workBoard.blocked')}</p>}
-                  {lane === 'todo' && card.sessionId && <p className="mt-2 text-xs text-muted-foreground">{t('workBoard.inspect')}</p>}
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {!card.sessionId && <Button size="xs" disabled={busy} onClick={() => promote(card)}>{t('workBoard.startPlan')}</Button>}
-                    {card.sessionId && <Button size="xs" variant="outline" onClick={() => open(card)}>{t('workBoard.openSession')}</Button>}
-                    {lane === 'todo' && <Button size="xs" variant="ghost" disabled={busy} onClick={() => { setEditing(card.id); setText(card.text); setFiles(card.attachments); }}>{t('workBoard.edit')}</Button>}
-                    {card.sessionId && lane !== 'todo' && lane !== 'queued' && lane !== 'building' && !activity?.busy && !statusUnknown && <Button size="xs" variant="ghost" disabled={busy} onClick={() => void mutate(async () => {
-                      const actualSessionDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
-                      await saveSessionToTodo(card.sessionId!, card.directory, actualSessionDirectory, card.text, []);
-                    })}>{t('workBoard.backTodo')}</Button>}
-                    {lane === 'todo' && !activity?.busy && <Button size="xs" variant="ghost" disabled={busy} onClick={() => void mutate(async () => { await deleteWorkBoardCard(card.id); })}>{t('workBoard.remove')}</Button>}
-                  </div>
-                </>}
+                  }}>{title}</button>
+                  {(!card.sessionId || canReturnToTodo || canRemove) && <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" disabled={busy} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" title="Card actions" aria-label={`Actions for ${title}`}>
+                        <Icon name="more" className="size-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {!card.sessionId && <DropdownMenuItem onClick={() => promote(card)}>{t('workBoard.startPlan')}</DropdownMenuItem>}
+                      {canReturnToTodo && <DropdownMenuItem onClick={() => void mutate(async () => {
+                        const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
+                        await saveSessionToTodo(card.sessionId!, card.directory, actualDirectory, card.text, []);
+                      })}>{t('workBoard.backTodo')}</DropdownMenuItem>}
+                      {canRemove && <DropdownMenuItem onClick={() => void mutate(async () => {
+                        await deleteWorkBoardCard(card.id);
+                      })}>{t('workBoard.remove')}</DropdownMenuItem>}
+                    </DropdownMenuContent>
+                  </DropdownMenu>}
+                </div>}
               </article>;
             })}
           </div>
