@@ -131,4 +131,52 @@ describe('work board persistence', () => {
       expect(await store.list()).toHaveLength(2);
     } finally { await remove(dataDir); }
   });
+
+  it('reads the file once and serves later reads from the committed list', async () => {
+    const { dataDir } = await setup();
+    try {
+      let reads = 0;
+      const store = createWorkBoardStore({ dataDir, fs: { ...fs, readFile: async (...args) => {
+        reads += 1;
+        return fs.readFile(...args);
+      } } });
+      const card = await store.create(input());
+      expect(reads).toBe(1);
+      expect(await store.list('/project')).toEqual([card]);
+      expect(await store.list()).toEqual([card]);
+      expect(reads).toBe(1);
+      // A write commits a new list, and later reads see it without re-reading.
+      const updated = await store.update(card.id, { text: 'Edited' });
+      expect(reads).toBe(1);
+      expect(await store.list('/project')).toEqual([updated]);
+      expect(reads).toBe(1);
+    } finally { await remove(dataDir); }
+  });
+
+  it('does not cache a failed write and keeps serving the committed board', async () => {
+    const { dataDir } = await setup();
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const card = await store.create(input());
+      const failing = createWorkBoardStore({ dataDir, fs: { ...fs, rename: async () => { throw new Error('disk failure'); } } });
+      await expect(failing.create({ ...input(), text: 'second' })).rejects.toThrow('disk failure');
+      // The failed writer's own cache must still describe the durable file.
+      expect(await failing.list()).toEqual([card]);
+    } finally { await remove(dataDir); }
+  });
+
+  it('treats malformed data as a read failure and does not cache a guessed board', async () => {
+    const { dataDir } = await setup();
+    try {
+      await fs.writeFile(path.join(dataDir, 'work-board.json'), '{ not json', 'utf8');
+      const store = createWorkBoardStore({ dataDir });
+      await expect(store.list()).rejects.toThrow();
+      // A retry must re-read rather than serve an empty list built from the failure.
+      await expect(store.list()).rejects.toThrow();
+      // Repairing the file recovers, so the failure left no poisoned cache.
+      await fs.writeFile(path.join(dataDir, 'work-board.json'), JSON.stringify({ version: 1, cards: [] }), 'utf8');
+      const card = await store.create(input());
+      expect(await store.list()).toEqual([card]);
+    } finally { await remove(dataDir); }
+  });
 });

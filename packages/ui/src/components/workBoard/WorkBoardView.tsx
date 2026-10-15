@@ -22,6 +22,7 @@ import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
+import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
 import { workBoardLane, workBoardCompletionTime, workBoardFeedback, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab } from './workBoardProjectState';
@@ -117,6 +118,11 @@ export function WorkBoardView() {
   const agents = useConfigStore(state => state.agents);
   const sessions = useGlobalSessionsStore(state => state.activeSessions);
   const sessionsError = useGlobalSessionsStore(state => state.status === 'error');
+  // The store seeds from localStorage and only then loads pages, so `status`
+  // still reports idle/loading while the sidebar list fills in. Session-derived
+  // board cards arrive with it, and a lane that will fill should say so rather
+  // than claim to be empty and then gain cards.
+  const sessionsLoading = useGlobalSessionsStore(state => !state.hasLoaded && state.status !== 'error');
   const { snapshot: queue, error: queueError } = useBuildQueueSnapshot();
   const generation = React.useRef(0);
   const refreshSequence = React.useRef(0);
@@ -149,6 +155,7 @@ export function WorkBoardView() {
       const next = await fetchWorkBoard(directory);
       if (token !== generation.current || sequence !== refreshSequence.current || runtime !== getRuntimeKey()) return;
       setCards(next);
+      persistWorkBoardCards(directory, next);
       setError('');
     } catch (cause) {
       if (token === generation.current && sequence === refreshSequence.current && runtime === getRuntimeKey()) {
@@ -161,7 +168,10 @@ export function WorkBoardView() {
 
   React.useEffect(() => {
     generation.current += 1;
-    setCards([]);
+    // Paint the board's own cards from the last visit before the fetch lands,
+    // so the first frame already shows the user their board instead of an empty
+    // one that fills in. The fetch replaces this seed with authoritative cards.
+    setCards(directory ? readWorkBoardCards(directory) ?? [] : []);
     setLoading(true);
     setError('');
     setActionError('');
@@ -176,7 +186,7 @@ export function WorkBoardView() {
     window.addEventListener('focus', onFocus);
     const timer = setInterval(onFocus, 30000);
     return () => { generation.current += 1; clearInterval(timer); window.removeEventListener('focus', onFocus); };
-  }, [refresh]);
+  }, [directory, refresh]);
 
   // History identifies the agent that actually ran. Live status decides whether
   // a completed step can be treated as a settled turn.
@@ -364,7 +374,12 @@ export function WorkBoardView() {
             </DropdownMenu>}
           </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">
-            {!inLane.length && <p className="px-2 py-4 text-xs text-muted-foreground">{loading ? t('common.loading') : error ? t('workBoard.unknown') : t('workBoard.empty')}</p>}
+            {!inLane.length && <p className="px-2 py-4 text-xs text-muted-foreground">{
+              loading ? t('common.loading')
+                : error ? t('workBoard.unknown')
+                : lane === 'plan' && sessionsLoading ? t('common.loading')
+                : t('workBoard.empty')
+            }</p>}
             {inLane.map(card => {
               const activity = activities.get(card.id);
               const statusUnknown = Boolean(card.sessionId) && (!activity || unavailable.has(card.id));

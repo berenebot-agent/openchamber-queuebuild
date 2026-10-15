@@ -10,9 +10,11 @@ import {
   persistIcon,
   persistManagedChatSessions,
   persistSessions,
+  persistWorkBoardCards,
   readDirCache,
   readGlobalSessionSnapshot,
   readManagedChatSessions,
+  readWorkBoardCards,
 } from "./persist-cache"
 import { getSyncPerformanceDiagnostics, setSyncPerformanceDiagnosticsEnabled } from "./performance-diagnostics"
 
@@ -379,5 +381,58 @@ describe("persisted global session snapshot", () => {
     expect(seeded.length).toBeGreaterThan(0)
     expect(seeded.length).toBeLessThan(200)
     expect(seeded.every((item) => Number(item.id.slice(4)) >= 200 - seeded.length)).toBe(true)
+  })
+})
+
+describe("persisted work board cards", () => {
+  const boardDirectory = "/repo"
+  const otherBoardDirectory = "/other"
+  const card = (id: string, dataUrl = "data:text/plain;base64,aGk=") => ({
+    id,
+    directory: boardDirectory,
+    text: `Brief ${id}`,
+    sessionId: undefined,
+    stage: "todo" as const,
+    createdAt: 1,
+    updatedAt: 2,
+    attachments: [{ id: `${id}-file`, filename: "notes.txt", mimeType: "text/plain", size: 2, dataUrl }],
+  })
+  const cardsKey = () => [...storage.values.keys()].find((key) => key.endsWith(".workBoardCards")) ?? ""
+
+  test("round-trips a directory's cards without attachment bytes", () => {
+    persistWorkBoardCards(boardDirectory, [card("a"), card("b")])
+
+    const seeded = readWorkBoardCards(boardDirectory) ?? []
+    expect(seeded.map((item) => item.id)).toEqual(["a", "b"])
+    expect(seeded[0].text).toBe("Brief a")
+    // The filename survives for the title; the payload does not.
+    expect(seeded[0].attachments.map((file) => file.filename)).toEqual(["notes.txt"])
+    expect(seeded[0].attachments[0].dataUrl).toBe("")
+    expect(storage.getItem(cardsKey())).not.toContain("base64")
+  })
+
+  test("is scoped by directory and by runtime", () => {
+    persistWorkBoardCards(boardDirectory, [card("a")])
+
+    expect(readWorkBoardCards(otherBoardDirectory)).toBeUndefined()
+
+    switchRuntimeEndpoint({ apiBaseUrl: "https://runtime-other.test", runtimeKey: "runtime-other" })
+    expect(readWorkBoardCards(boardDirectory)).toBeUndefined()
+    switchRuntimeEndpoint({ apiBaseUrl: "https://runtime-default.test", runtimeKey: "runtime-default" })
+    expect(readWorkBoardCards(boardDirectory)?.map((item) => item.id)).toEqual(["a"])
+  })
+
+  test("drops a foreign record and forgets a directory's cards", () => {
+    persistWorkBoardCards(boardDirectory, [card("kept")])
+
+    // A record missing the fields the board dereferences is dropped, not crashed on.
+    const parsed = readWorkBoardCards(boardDirectory)
+    expect(parsed?.map((item) => item.id)).toEqual(["kept"])
+
+    storage.setItem(cardsKey(), JSON.stringify([{ id: "a" }, card("b")]))
+    expect(readWorkBoardCards(boardDirectory)?.map((item) => item.id)).toEqual(["b"])
+
+    forgetDirCache(boardDirectory)
+    expect(readWorkBoardCards(boardDirectory)).toBeUndefined()
   })
 })

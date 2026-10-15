@@ -48,13 +48,27 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
     queue = result.catch(() => {});
     return result;
   };
+  /**
+   * The parsed card list of the last successful read. The whole file is
+   * re-parsed on every request otherwise, attachments included, and a card list
+   * can approach 50 MiB. Only this store process writes the file, so a
+   * successful read stays valid until a write replaces it.
+   */
+  let cachedCards;
   const read = async () => {
+    if (cachedCards !== undefined) return cachedCards;
     let raw;
     try { raw = await fs.readFile(filePath, 'utf8'); }
-    catch (error) { if (error?.code === 'ENOENT') return []; throw error; }
+    catch (error) { if (error?.code === 'ENOENT') { cachedCards = []; return cachedCards; } throw error; }
     const stored = storedSchema.safeParse(JSON.parse(raw));
-    if (!stored.success) throw new Error('Invalid persisted work board');
-    return stored.data.cards;
+    if (!stored.success) {
+      // Malformed data is a read failure, and a later write must not replace it
+      // with a board built from a guess. Do not let a retry see a cached list.
+      cachedCards = undefined;
+      throw new Error('Invalid persisted work board');
+    }
+    cachedCards = stored.data.cards;
+    return cachedCards;
   };
   const write = async cards => {
     await fs.mkdir(dataDir, { recursive: true });
@@ -66,6 +80,9 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       await fs.rm(temp, { force: true }).catch(() => {});
       throw error;
     }
+    // The rename is the commit point: the new list is durable now, so it is the
+    // list every later read must see.
+    cachedCards = cards;
   };
   return {
     list: (directory, sessionId) => serialized(async () => (await read()).filter(card =>

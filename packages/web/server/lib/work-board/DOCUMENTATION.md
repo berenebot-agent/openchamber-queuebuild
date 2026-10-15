@@ -2,6 +2,8 @@
 
 The work board stores prompt cards in `work-board.json` under the OpenChamber data directory. It is server-owned state, separate from the message queue. Writes run serially within the server process and publish through a same-directory temporary file and atomic rename. A failed write leaves the prior board file in place.
 
+The store keeps the parsed card list of the last successful read in memory (`createWorkBoardStore`). Only this store process writes the file, so that list stays valid until a write replaces it, and a successful write makes the new list the one every later read sees. Without it every request re-parses the whole file, attachments included, and a card list can approach 50 MiB. A first read that finds malformed data is still a read failure: it caches nothing, so the failure never turns into a remembered empty board, and a later write cannot replace the file with a guess.
+
 The authenticated API is registered before the generic OpenCode proxy:
 
 - `GET /api/work-board?directory=<path>` returns `{ cards }` scoped to the resolved directory. Optional `sessionId` filters by the linked session, independently of its worktree directory. The session view uses this filter to restore saved briefs without reading unrelated attachment payloads. Omitting both filters returns the full list. Supplying both applies both filters.

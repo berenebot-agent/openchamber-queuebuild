@@ -4,12 +4,15 @@
  * VCS info, project metadata, icons, and a bounded session-list snapshot are
  * cached to localStorage per runtime and directory so they survive reloads.
  * A bounded global snapshot of active sessions outside the managed chats root
- * seeds the global session store for the first sidebar paint.
+ * seeds the global session store for the first sidebar paint. The work board's
+ * own cards are cached per directory too, without attachment bytes, so the board
+ * paints its cards before the fetch lands.
  * Message/part data is always loaded from the server.
  */
 
 import type { Session, Vcs } from "@/lib/opencode/model"
 import type { ProjectMeta } from "./types"
+import type { WorkBoardCard } from "@/lib/workBoardApi"
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from "@/lib/runtime-switch"
 import { countSyncPersistenceSerialization, countSyncPersistenceStorageWrite } from "./performance-diagnostics"
 import { isChatDirectoryPath } from "@/lib/chatDirectories"
@@ -74,7 +77,7 @@ function storagePrefixForRuntime(runtimeKey: string, directory: string): string 
 // Typed cache helpers
 // ---------------------------------------------------------------------------
 
-type CacheKey = "vcs" | "projectMeta" | "icon" | "sessions"
+type CacheKey = "vcs" | "projectMeta" | "icon" | "sessions" | "workBoardCards"
 
 function cacheKey(directory: string, key: CacheKey): string {
   return `${storagePrefix(directory)}.${key}`
@@ -363,7 +366,7 @@ export function persistSessions(directory: string, sessions: Session[] | undefin
  */
 export function forgetDirCache(directory: string): void {
   pendingSessionWrites.delete(cacheKey(directory, "sessions"))
-  for (const key of ["vcs", "projectMeta", "icon", "sessions"] as const) writeCache(directory, key, undefined)
+  for (const key of ["vcs", "projectMeta", "icon", "sessions", "workBoardCards"] as const) writeCache(directory, key, undefined)
 }
 
 export function readManagedChatSessions(expectedRuntimeKey = getRuntimeKey()): Session[] {
@@ -495,4 +498,62 @@ export function persistProjectMeta(directory: string, meta: ProjectMeta | undefi
 /** Write icon to cache */
 export function persistIcon(directory: string, icon: string | undefined): void {
   writeCache(directory, "icon", icon)
+}
+
+// ---------------------------------------------------------------------------
+// Work board card snapshot
+// ---------------------------------------------------------------------------
+
+/**
+ * A board card as persisted for the first paint. Attachment `dataUrl` is the
+ * card's bulk — up to 50 MiB each — and no board render reads it, so it is left
+ * out; the authoritative fetch replaces the whole card before any edit or send
+ * needs the bytes back.
+ */
+const persistedWorkBoardCardSchema = z.object({
+  id: z.string().min(1),
+  directory: z.string(),
+  text: z.string(),
+  sessionId: z.string().optional(),
+  stage: z.enum(["todo", "plan", "done"]),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  completedAt: z.number().optional(),
+  attachments: z.array(z.object({
+    id: z.string(),
+    filename: z.string(),
+    mimeType: z.string(),
+    size: z.number(),
+  })).default([]),
+})
+
+function toPersistedWorkBoardCard(card: WorkBoardCard): z.infer<typeof persistedWorkBoardCardSchema> {
+  const { attachments, ...rest } = card
+  return {
+    ...rest,
+    attachments: attachments.map(({ id, filename, mimeType, size }) => ({ id, filename, mimeType, size })),
+  }
+}
+
+/**
+ * The board cards last painted for a directory, or undefined when none were
+ * stored. These are a first-paint seed and never proof a card still exists;
+ * the authoritative list replaces them, attachment bytes included.
+ */
+export function readWorkBoardCards(directory: string): WorkBoardCard[] | undefined {
+  const cached = readCache<unknown>(directory, "workBoardCards")
+  if (!Array.isArray(cached)) return undefined
+  return cached.flatMap((record) => {
+    const parsed = persistedWorkBoardCardSchema.safeParse(record)
+    if (!parsed.success) return []
+    const { attachments, ...rest } = parsed.data
+    // A seeded card carries no attachment bytes; the fetch that replaces it
+    // brings them, and no render or save path reads them before then.
+    return [{ ...rest, attachments: attachments.map((file) => ({ ...file, dataUrl: "" })) }]
+  })
+}
+
+/** Persist a directory's board cards so the next open paints them at once. */
+export function persistWorkBoardCards(directory: string, cards: WorkBoardCard[]): void {
+  writeCache(directory, "workBoardCards", cards.map(toPersistedWorkBoardCard))
 }
