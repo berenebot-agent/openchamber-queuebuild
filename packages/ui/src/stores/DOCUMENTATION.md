@@ -12,6 +12,8 @@ Project tabs and their selected project are persisted per runtime. Closing a tab
 only removes it from that runtime's tab list.
 `workBoardProjectId` remembers the last visited board for the chat's return
 button. It is navigation intent and does not own card contents or completion.
+It is persisted, so the button survives a reload. The button renders only while
+the remembered id still names a project in the loaded project list.
 The board's Plan promotion reads `useConfigStore.resolveAgentModel('plan')`
 without mutating the current composer selection. This uses the active config
 directory's remembered agent model, pinned agent model, project/settings default,
@@ -173,6 +175,11 @@ Version 25 also persists Work Board project tabs and the selected project per
 runtime. Older state has no tab entry, so the board seeds one tab from the
 active project or first registered project. An explicit empty tab list remains
 empty after reload.
+
+The last visited Work Board project is persisted too, so the chat's "Back to
+Work Board" button is still there after a reload. State written before the field
+existed starts with no remembered board, so the button appears after the first
+board is visited.
 
 Context-panel session chats render in this app as a chat column pinned to
 their session (`ChatView` `pinnedSession`, see the sync documentation's

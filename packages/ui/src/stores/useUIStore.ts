@@ -64,6 +64,12 @@ const workBoardProjectTabsByRuntimeSchema = z.record(z.string(), workBoardProjec
   .catch({})
   .transform(states => Object.fromEntries(Object.entries(states).filter(([runtimeKey]) => runtimeKey.trim())));
 
+// The last visited Work Board project, as it comes off persisted storage. A
+// malformed value reads as "no board visited" rather than resurrecting a button
+// that opens nothing. Whether the id still names a project is decided where the
+// button renders, against the loaded project list.
+const workBoardProjectIdSchema = z.string().trim().min(1).nullable();
+
 // The docked column and the tree-only panel share one pixel width.
 export const clampContextEditorTreeWidth = (width: number): number =>
   Math.min(480, Math.max(200, Math.round(width)));
@@ -3608,6 +3614,7 @@ export const useUIStore = create<UIStore>()(
           sidebarWidth: state.sidebarWidth,
           contextPanelByDirectory: state.contextPanelByDirectory,
           workBoardProjectTabsByRuntime: state.workBoardProjectTabsByRuntime,
+          workBoardProjectId: state.workBoardProjectId,
           contextRailOrder: state.contextRailOrder,
           contextRailHiddenSurfaces: state.contextRailHiddenSurfaces,
           contextSurfaceZones: state.contextSurfaceZones,
@@ -3745,7 +3752,13 @@ export const useUIStore = create<UIStore>()(
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,
           fileEditorVimMappings: state.fileEditorVimMappings,
-        })
+        }),
+        // A payload stored under the same version skips `migrate`, so the
+        // remembered board is validated here on every hydration.
+        onRehydrateStorage: () => (state) => {
+          if (!state || workBoardProjectIdSchema.safeParse(state.workBoardProjectId).success) return;
+          state.setWorkBoardProjectId(null);
+        },
       }
     ),
     {

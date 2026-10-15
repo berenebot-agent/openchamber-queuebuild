@@ -26,6 +26,7 @@ import { ProjectActionsProvider } from './ProjectActionsProvider';
 import { RunAutoFusion } from '@/lib/multirun/autoFusion';
 
 import { useUIStore } from '@/stores/useUIStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSpacesStore } from '@/lib/spaces/spaces-store';
 import { useUpdatePolling } from '@/hooks/useUpdatePolling';
@@ -120,6 +121,11 @@ export const MainLayout: React.FC = () => {
     const isSourceBoardOpen = useUIStore((state) => state.isSourceBoardOpen);
     const isWorkBoardOpen = useUIStore((state) => state.isWorkBoardOpen);
     const workBoardProjectId = useUIStore((state) => state.workBoardProjectId);
+    // The remembered board is only usable while its project still exists. The
+    // project list is seeded from the last confirmed server list before it
+    // loads again, so this holds on the first frame after a reload.
+    const projects = useProjectsStore((state) => state.projects);
+    const hasWorkBoardProject = workBoardProjectId !== null && projects.some((project) => project.id === workBoardProjectId);
     const worktreesPageProjectId = useUIStore((state) => state.worktreesPageProjectId);
     // The spaces page exists only while the feature's switch is on.
     const isSpacesPageOpen = useUIStore((state) => state.isolatedSpacesEnabled && state.spacesPageProjectId !== null);
@@ -230,7 +236,7 @@ export const MainLayout: React.FC = () => {
                                                 return to, from any session — not only the one a card
                                                 launched. `workBoardProjectId` records that board, so
                                                 the button appears once a board has been visited. */}
-                                            {!isSurfacePageOpen && !isSettingsDialogOpen && workBoardProjectId !== null && (
+                                            {!isSurfacePageOpen && !isSettingsDialogOpen && hasWorkBoardProject && (
                                                 <Button
                                                     type="button"
                                                     variant="outline"
