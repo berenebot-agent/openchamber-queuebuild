@@ -54,8 +54,17 @@ Build submissions use the existing project Build queue. Queued and active work
 is shown using the queue's server state. Open the session and choose the Build
 agent to submit implementation work through the normal composer. A successful,
 settled Build turn moves to Done. Done does not certify tests or a release.
-Failed or stopped turns show an attention notice. An unavailable status stays
-visible as an error and is never treated as proof of completion.
+Linked cards show the same live activity icons as the session list, including
+background subagents and commands. The appearance setting for animated activity
+indicators applies to cards too. Finished unread turns show the session list's
+unread icon.
+
+Failed or stopped unread turns show an attention notice. Opening the session
+from the board or session list clears that notice and the unread icon. Another
+unread failed or stopped turn can show the notice again. Build-queue recovery
+warnings remain until resolved, even after opening the session.
+An unavailable status stays visible as an error and is never treated as proof
+of completion.
 Compact cards retain these notices below their titles. Linked-card removal
 and return actions wait for known session and queue state.
 
@@ -89,5 +98,6 @@ and the dedicated mobile layouts do not provide a board entry point.
 Stored cards belong to the OpenChamber server and are available to other
 browser profiles connected to that server.
 The board refreshes stored cards on focus, after writes, and every 30 seconds
-while visible. Live turn status is checked every 5 seconds. History reads are
+while visible. Activity icons subscribe to the session list's live status index.
+Lane classification also checks turn status every 5 seconds. History reads are
 bounded and cached until the session changes.

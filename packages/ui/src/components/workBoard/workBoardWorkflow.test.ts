@@ -65,17 +65,21 @@ describe('work board lanes', () => {
 
 describe('compact card feedback', () => {
   test('reports unknown activity even if cached history succeeded', () => {
-    expect(workBoardFeedback(undefined, false, false)).toBe('unknown');
-    expect(workBoardFeedback({ messages: [idle], busy: false }, true, false)).toBe('unknown');
+    expect(workBoardFeedback(undefined, false, false, false)).toBe('unknown');
+    expect(workBoardFeedback({ messages: [idle], busy: false }, true, false, false)).toBe('unknown');
   });
-  test('keeps failed, stopped and uncertain turns visible without marking a new turn blocked', () => {
+  test('clears viewed failures and stops, while queue recovery still needs attention', () => {
     const failed: Message = { ...idle, outcome: 'failed', error: undefined };
     const stopped: Message = { ...idle, outcome: 'interrupted' };
-    expect(workBoardFeedback({ messages: [user(2), failed], busy: false }, false, false)).toBe('blocked');
-    expect(workBoardFeedback({ messages: [user(2), stopped], busy: false }, false, false)).toBe('blocked');
-    expect(workBoardFeedback({ messages: [idle], busy: false }, false, true)).toBe('blocked');
-    expect(workBoardFeedback({ messages: [failed, user(7)], busy: true }, false, false)).toBeUndefined();
-    expect(workBoardFeedback({ messages: [user(2), idle], busy: false }, false, false)).toBeUndefined();
+    for (const outcome of [failed, stopped]) {
+      const activity = { messages: [user(2), outcome], busy: false };
+      expect(workBoardFeedback(activity, false, false, true)).toBe('blocked');
+      expect(workBoardFeedback(activity, false, false, false)).toBeUndefined();
+      expect(workBoardFeedback(activity, false, true, false)).toBe('blocked');
+    }
+    expect(workBoardFeedback({ messages: [idle], busy: false }, false, true, false)).toBe('blocked');
+    expect(workBoardFeedback({ messages: [failed, user(7)], busy: true }, false, false, true)).toBeUndefined();
+    expect(workBoardFeedback({ messages: [user(2), idle], busy: false }, false, false, true)).toBeUndefined();
   });
 });
 

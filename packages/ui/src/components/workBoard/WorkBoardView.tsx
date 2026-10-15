@@ -4,6 +4,9 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { workBoardCardTitle } from './workBoardCardTitle';
 import { Icon } from '@/components/icon/Icon';
+import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
+import { useSessionTurnActivity } from '@/sync/global-session-status';
+import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useI18n } from '@/lib/i18n';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -24,6 +27,26 @@ import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab } from './workBoardProjectState';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queued', 'building', 'done'];
+
+function WorkBoardSessionActivity({ sessionId }: { sessionId: string }) {
+  const activity = useSessionTurnActivity(sessionId);
+  const unseenCount = useSessionUnseenCount(sessionId);
+  const state = activity ?? (unseenCount > 0 ? 'unread' : null);
+  return state ? <SessionActivityIndicator state={state} tooltip /> : null;
+}
+
+function WorkBoardSessionFeedback({ sessionId, activity, unavailable, needsReview }: {
+  sessionId: string;
+  activity: WorkBoardActivity | undefined;
+  unavailable: boolean;
+  needsReview: boolean;
+}) {
+  const { t } = useI18n();
+  const unseenCount = useSessionUnseenCount(sessionId);
+  const liveActivity = useSessionTurnActivity(sessionId);
+  const feedback = workBoardFeedback(activity, unavailable, needsReview, unseenCount > 0 && liveActivity === null);
+  return feedback ? <p className={feedback === 'blocked' ? 'text-xs text-[var(--status-warning-text)]' : 'text-xs text-muted-foreground'}>{t(`workBoard.${feedback}`)}</p> : null;
+}
 
 export function WorkBoardView() {
   const { t } = useI18n();
@@ -342,7 +365,6 @@ export function WorkBoardView() {
               const activity = activities.get(card.id);
               const statusUnknown = Boolean(card.sessionId) && (!activity || unavailable.has(card.id));
               const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
-              const feedback = card.sessionId ? workBoardFeedback(activity, statusUnknown, Boolean(active?.needsReview)) : undefined;
               const hasRunningTurn = Boolean(activity?.busy);
               const canReturnToTodo = Boolean(card.sessionId) && lane !== 'todo' && lane !== 'queued'
                 && lane !== 'building' && !hasRunningTurn && !statusUnknown && !queueError && queue !== null;
@@ -356,6 +378,7 @@ export function WorkBoardView() {
                   {files.map(file => <div key={file.id} className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.filename}</span><Button size="xs" variant="ghost" disabled={busy} onClick={() => setFiles(previous => previous.filter(item => item.id !== file.id))} aria-label={t('workBoard.remove')}><Icon name="close" className="size-3" /></Button></div>)}
                   <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || (!text.trim() && !files.length)} onClick={() => void mutate(async () => { await updateWorkBoardCard(card.id, { text, attachments: files }); setEditing(null); })}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>{t('workBoard.cancel')}</Button></div>
                 </> : <div className="flex min-w-0 items-center gap-1">
+                  {card.sessionId && <WorkBoardSessionActivity sessionId={card.sessionId} />}
                   <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title} onClick={() => {
                     if (card.sessionId) { open(card); return; }
                     setEditing(card.id); setText(card.text); setFiles(card.attachments);
@@ -379,7 +402,7 @@ export function WorkBoardView() {
                     </DropdownMenuContent>
                   </DropdownMenu>}
                 </div>}
-                {feedback && <p className={feedback === 'blocked' ? 'text-xs text-[var(--status-warning-text)]' : 'text-xs text-muted-foreground'}>{t(`workBoard.${feedback}`)}</p>}
+                {card.sessionId && <WorkBoardSessionFeedback sessionId={card.sessionId} activity={activity} unavailable={statusUnknown} needsReview={Boolean(active?.needsReview)} />}
               </article>;
             })}
           </div>

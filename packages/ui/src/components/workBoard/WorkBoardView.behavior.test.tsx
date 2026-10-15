@@ -7,11 +7,14 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useNotificationStore } from '@/sync/notification-store';
+import { applyGlobalSessionStatusSnapshot, useGlobalSessionStatusStore } from '@/sync/global-session-status';
+import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { opencodeClient } from '@/lib/opencode/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 
-test('column add buttons carry project and agent intent; bulk completion lists cards before sending', async () => {
+test('board actions, live activity and viewed turn attention use shared session behavior', async () => {
   const dom = new Window({ url: 'http://localhost' });
   const globals = {
     window: dom, document: dom.document, navigator: dom.navigator,
@@ -31,6 +34,10 @@ test('column add buttons carry project and agent intent; bulk completion lists c
   const ui = useUIStore.getState();
   const config = useConfigStore.getState();
   const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  const sessionDisplay = useSessionDisplayStore.getState();
   const cards: WorkBoardCard[] = [
     { id: 'todo', directory: '/repo', text: 'Saved brief', attachments: [], stage: 'todo', createdAt: 1, updatedAt: 1 },
     { id: 'plan', directory: '/repo', text: 'Inherited plan', attachments: [], stage: 'plan', sessionId: 'session1', createdAt: 1, updatedAt: 1 },
@@ -46,12 +53,17 @@ test('column add buttons carry project and agent intent; bulk completion lists c
     return Response.json({});
   });
   const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
-  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
+  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [
+    { info: { id: 'failed', sessionID: 'session1', role: 'idle', outcome: 'interrupted', time: { created: 5 } }, parts: [] },
+  ], cursor: {} });
   const draftSpy = spyOn(useSessionUIStore.getState(), 'openNewSessionDraft').mockImplementation(() => {});
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
   useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
   useConfigStore.setState({ agents: ['plan', 'build'].map(name => ({ id: name, name, displayName: name, mode: 'primary', hidden: false, request: { settings: {}, headers: {}, body: {} }, permissions: [] })) });
   useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  useNotificationStore.getState().append({ type: 'turn-complete', session: 'session1', directory: '/repo', time: Date.now(), viewed: false });
+  useSessionDisplayStore.setState({ animatedActivityIndicators: false });
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -82,10 +94,32 @@ test('column add buttons carry project and agent intent; bulk completion lists c
     if (!confirm) throw new Error('Missing confirmation');
     await act(async () => { confirm.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
     expect(completionRequests).toBe(1);
+    const linkedCard = () => container.querySelector('button[title="Inherited plan"]')!.closest('article')!;
+    expect(linkedCard().textContent).toContain('Needs attention');
+    expect(linkedCard().querySelector('[data-session-activity-indicator="unread"]')).not.toBeNull();
+    // These updates use the same live index as the sidebar, without waiting
+    // for the board's five-second history/status poll.
+    await act(async () => applyGlobalSessionStatusSnapshot('/repo', { session1: { type: 'busy' } }));
+    expect(linkedCard().querySelector('[data-session-activity-indicator="running"] use')?.getAttribute('href')).toBe('#oc-circle');
+    await act(async () => useSessionDisplayStore.getState().setAnimatedActivityIndicators(true));
+    expect(linkedCard().querySelector('.activity-spinner')).not.toBeNull();
+    await act(async () => applyGlobalSessionStatusSnapshot('/repo', {}));
+    expect(linkedCard().querySelector('.activity-spinner')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('button[title="Inherited plan"]')!.click());
+    expect(useSessionUIStore.getState().currentSessionId).toBe('session1');
+    expect(linkedCard().textContent).not.toContain('Needs attention');
+    expect(linkedCard().querySelector('[data-session-activity-indicator]')).toBeNull();
+    await act(async () => useNotificationStore.getState().append({ type: 'error', session: 'session1', directory: '/repo', time: Date.now(), viewed: false }));
+    expect(linkedCard().textContent).toContain('Needs attention');
+    // Opening through another session entry point uses this same transition.
+    await act(async () => useSessionUIStore.getState().setCurrentSession('session1', '/repo'));
+    expect(linkedCard().textContent).not.toContain('Needs attention');
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore(); draftSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config); useGlobalSessionsStore.setState(sessions);
+    useNotificationStore.setState(notifications); useSessionUIStore.setState(sessionUI);
+    useGlobalSessionStatusStore.setState(sessionStatus); useSessionDisplayStore.setState(sessionDisplay);
     await dom.happyDOM.close();
     for (const [name, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);

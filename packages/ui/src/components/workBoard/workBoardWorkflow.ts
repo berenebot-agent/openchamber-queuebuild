@@ -7,12 +7,12 @@ export type WorkBoardActivity = {
   busy: boolean;
 };
 
-export function workBoardFeedback(activity: WorkBoardActivity | undefined, unavailable: boolean, needsReview: boolean): 'unknown' | 'blocked' | undefined {
+export function workBoardFeedback(activity: WorkBoardActivity | undefined, unavailable: boolean, needsReview: boolean, hasUnseenTurn: boolean): 'unknown' | 'blocked' | undefined {
   if (unavailable || !activity) return 'unknown';
   const messages = [...activity.messages].reverse();
   const lastIdle = messages.find(message => message.role === 'idle');
   const lastPrompt = messages.find(message => message.role === 'user');
-  if (needsReview || (!activity.busy && lastIdle?.role === 'idle' && lastIdle.outcome !== 'succeeded'
+  if (needsReview || (hasUnseenTurn && !activity.busy && lastIdle?.role === 'idle' && lastIdle.outcome !== 'succeeded'
     && lastIdle.time.created >= (lastPrompt?.time.created ?? 0))) return 'blocked';
   return undefined;
 }
