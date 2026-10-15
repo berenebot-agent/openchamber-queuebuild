@@ -20,6 +20,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict: Record<I18nKey, string> = {
+  'buildQueue.recovery.continue': 'Continuar la cola',
+  'buildQueue.recovery.title': '¿Continuar la cola?',
+  'buildQueue.recovery.description': 'Confirma el problema indicado y libera esta compilación. Sus cambios permanecen en el disco. No se volverá a ejecutar. La siguiente compilación comienza cuando la cola esté lista.',
+  'buildQueue.recovery.confirm': 'Confirmar y continuar',
+  'buildQueue.recovery.fallback': 'La compilación anterior necesita revisión.',
   "opencodeCompatibility.bundled": "OpenCode viene incluido en OpenChamber. Actualiza OpenChamber para obtener OpenCode v2.",
   "opencodeCompatibility.title": "Se requiere OpenCode v2",
   "opencodeCompatibility.outdatedTitle": "Actualiza OpenCode",

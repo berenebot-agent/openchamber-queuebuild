@@ -19,6 +19,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict = {
+  'buildQueue.recovery.continue': 'متابعة قائمة الانتظار',
+  'buildQueue.recovery.title': 'متابعة قائمة الانتظار؟',
+  'buildQueue.recovery.description': 'أقرّ بالمشكلة المبلغ عنها وحرّر هذا البناء. تبقى تغييراته على القرص ولن يُشغّل مجددًا. يبدأ البناء التالي عندما تكون قائمة الانتظار جاهزة.',
+  'buildQueue.recovery.confirm': 'الإقرار والمتابعة',
+  'buildQueue.recovery.fallback': 'يحتاج البناء السابق إلى مراجعة.',
   'opencodeCompatibility.bundled': 'يأتي OpenCode مضمّنًا مع OpenChamber. حدّث OpenChamber للحصول على OpenCode v2.',
   'opencodeCompatibility.title': 'يلزم OpenCode v2',
   'opencodeCompatibility.outdatedTitle': 'تحديث OpenCode',

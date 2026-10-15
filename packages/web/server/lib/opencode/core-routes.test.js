@@ -2,9 +2,29 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createTunnelAuth } from './tunnel-auth.js';
+import { registerMessageQueueRoutes } from '../message-queue/runtime.js';
 import { registerAuthAndAccessRoutes, registerCommonRequestMiddleware, registerServerStatusRoutes } from './core-routes.js';
 
 describe('core-routes', () => {
+  it('parses JSON for build recovery, reordering, and pause through the real middleware', async () => {
+    const app = express();
+    registerCommonRequestMiddleware(app, { express });
+    const runtime = {
+      resolveBuild: vi.fn(async () => ({ active: [] })),
+      reorderBuilds: vi.fn(async () => ({ queued: [] })),
+      setBuildPaused: vi.fn(async () => ({ queued: [] })),
+    };
+    registerMessageQueueRoutes(app, runtime);
+    await request(app).post('/api/build-queue/resolve')
+      .send({ directory: '/repo', action: 'skip' }).expect(200);
+    expect(runtime.resolveBuild).toHaveBeenCalledWith('/repo', 'skip', undefined);
+    await request(app).put('/api/build-queue/order')
+      .send({ directory: '/repo', ids: ['item-1'] }).expect(200);
+    expect(runtime.reorderBuilds).toHaveBeenCalledWith('/repo', ['item-1']);
+    await request(app).put('/api/build-queue/sessions/ses_test/items/item-1/pause')
+      .send({ paused: true }).expect(200);
+    expect(runtime.setBuildPaused).toHaveBeenCalledWith('ses_test', 'item-1', true);
+  });
   afterEach(() => {
     vi.useRealTimers();
   });

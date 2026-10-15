@@ -1398,4 +1398,112 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('does not strand a build lease when a later turn of its session is aborted', async () => {
+    // The build turn runs and completes; the operator then asks a follow-up in
+    // the same chat and stops that one. The abort names the session twice over,
+    // but it is not the lease's turn, so the project's build lane must flow on.
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    runtime.start();
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'first' }));
+      await runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'second' }));
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+      expect(runtime.buildSnapshot().active[0].needsReview).not.toBe(true);
+
+      // The lease's own turn has a completed reply; a Stop now belongs to what
+      // came after it.
+      openCode.state.tail = [
+        { type: 'idle', outcome: 'succeeded', time: { created: Date.now() } },
+        { type: 'assistant', time: { completed: Date.now() } },
+      ];
+      emit({ type: 'session.idle', properties: { sessionID: SESSION, aborted: true, reason: 'user' } });
+      await settle(60);
+
+      expect(runtime.buildSnapshot().active[0]?.reviewReason).not.toBe('aborted');
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('parks a build lease whose own turn is aborted before it completes', async () => {
+    // A genuine interrupt: the only completed reply in the session predates
+    // this lease's turn, so the lane stops. A human can still release it, and
+    // doing so lets the queued successor run.
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10, buildCompletionGraceMs: 10_000 });
+    runtime.start();
+    try {
+      // An older, unrelated finished turn: evidence exists, but not for the lease.
+      openCode.state.tail = [{ type: 'assistant', time: { completed: 1 } }];
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'first' }));
+      await runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'second' }));
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+      expect(runtime.buildSnapshot().active[0].needsReview).not.toBe(true);
+
+      openCode.state.active[SESSION] = { type: 'running' };
+      // Completed tool steps are not successful turn completion evidence.
+      openCode.state.tail = [{ type: 'assistant', time: { created: Date.now(), completed: Date.now() } }];
+      emit({ type: 'session.idle', properties: { sessionID: SESSION, aborted: true, reason: 'user' } });
+      await settle(60);
+
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'aborted' });
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+      await expect(runtime.resolveBuild(DIRECTORY, 'skip')).rejects.toMatchObject({ status: 409 });
+      delete openCode.state.active[SESSION];
+      await expect(runtime.resolveBuild(DIRECTORY, 'skip', 'stale-item')).rejects.toMatchObject({ status: 409 });
+      await runtime.resolveBuild(DIRECTORY, 'skip');
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('finds a successful build turn on an older message page after a later interruption', async () => {
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    runtime.start();
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await settle(60);
+      openCode.state.active[SESSION] = { type: 'running' };
+      const succeededAt = Date.now();
+      const originalFetch = openCode.fetchImpl.getMockImplementation();
+      openCode.fetchImpl.mockImplementation((url, init) => {
+        const parsed = new URL(url);
+        if (parsed.pathname.endsWith('/message') && parsed.searchParams.get('limit') === '50') {
+          if (parsed.searchParams.get('cursor') === 'older') {
+            return Promise.resolve(Response.json({ data: [
+              { type: 'idle', outcome: 'succeeded', time: { created: succeededAt } },
+            ], cursor: {} }));
+          }
+          return Promise.resolve(Response.json({ data: [
+            { type: 'idle', outcome: 'interrupted', time: { created: succeededAt + 1 } },
+          ], cursor: { next: 'older' } }));
+        }
+        return originalFetch(url, init);
+      });
+      emit({ type: 'session.idle', properties: { sessionID: SESSION, aborted: true } });
+      await settle(60);
+      expect(runtime.buildSnapshot().active[0].needsReview).not.toBe(true);
+      expect(openCode.fetchImpl.mock.calls.some(([url]) => new URL(url).searchParams.get('cursor') === 'older')).toBe(true);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('keeps an interrupted build paused when history cannot be read', async () => {
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    runtime.start();
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await settle(60);
+      openCode.state.failMessages = true;
+      emit({ type: 'session.idle', properties: { sessionID: SESSION, aborted: true } });
+      await settle(60);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'aborted' });
+      await expect(runtime.resolveBuild(DIRECTORY, 'skip')).rejects.toMatchObject({ status: 409 });
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
 });

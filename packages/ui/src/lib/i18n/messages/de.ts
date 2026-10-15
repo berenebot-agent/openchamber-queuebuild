@@ -19,6 +19,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict = {
+  'buildQueue.recovery.continue': 'Warteschlange fortsetzen',
+  'buildQueue.recovery.title': 'Warteschlange fortsetzen?',
+  'buildQueue.recovery.description': 'Bestätige das gemeldete Problem und gib diesen Build frei. Seine Änderungen bleiben auf der Festplatte. Er wird nicht erneut ausgeführt. Der nächste Build startet, sobald die Warteschlange bereit ist.',
+  'buildQueue.recovery.confirm': 'Bestätigen und fortsetzen',
+  'buildQueue.recovery.fallback': 'Der vorherige Build muss überprüft werden.',
   "opencodeCompatibility.bundled": "OpenCode ist in OpenChamber enthalten. Aktualisieren Sie OpenChamber, um OpenCode v2 zu erhalten.",
   "opencodeCompatibility.title": "OpenCode v2 erforderlich",
   "opencodeCompatibility.outdatedTitle": "OpenCode aktualisieren",

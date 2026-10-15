@@ -19,6 +19,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict = {
+  'buildQueue.recovery.continue': 'Reprendre la file',
+  'buildQueue.recovery.title': 'Reprendre la file ?',
+  'buildQueue.recovery.description': 'Confirmez le problème signalé et libérez cette compilation. Ses modifications restent sur le disque. Elle ne sera pas relancée. La compilation suivante démarre quand la file est prête.',
+  'buildQueue.recovery.confirm': 'Confirmer et reprendre',
+  'buildQueue.recovery.fallback': 'La compilation précédente doit être vérifiée.',
   "opencodeCompatibility.bundled": "OpenCode est inclus dans OpenChamber. Mettez OpenChamber à jour pour obtenir OpenCode v2.",
   "opencodeCompatibility.title": "OpenCode v2 requis",
   "opencodeCompatibility.outdatedTitle": "Mettre à jour OpenCode",

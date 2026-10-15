@@ -67,6 +67,15 @@ surfaces, prepares, or holds the queue. Titles in the pane come from a
 subscribed session list, so a poll that arrives before its session materializes
 does not leave rows labelled "Session ses_...".
 
+A build awaiting review has a red card. Recovery controls stay in the paused
+banner, with no additional controls on the session card. Open session opens its
+chat. Continue queue opens a shared dialog showing the reported problem and
+explaining that acknowledgement releases the build without rerunning it or
+discarding its changes. A failed request leaves the dialog open with a visible
+error. Confirmation captures the directory and lease item ID; the server rejects
+a confirmation for a replaced lease. The banner does not offer automatic retry
+of an uncertain dispatch. Git preparation failures retain Retry preparation.
+
 ## Large text files
 
 The 200,000-character threshold selects an initial code preview, not read-only

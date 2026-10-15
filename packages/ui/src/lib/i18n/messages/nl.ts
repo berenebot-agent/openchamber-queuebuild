@@ -19,6 +19,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict = {
+  'buildQueue.recovery.continue': 'Wachtrij hervatten',
+  'buildQueue.recovery.title': 'Wachtrij hervatten?',
+  'buildQueue.recovery.description': 'Bevestig het gemelde probleem en geef deze build vrij. De wijzigingen blijven op schijf. De build wordt niet opnieuw uitgevoerd. De volgende build start zodra de wachtrij gereed is.',
+  'buildQueue.recovery.confirm': 'Bevestigen en hervatten',
+  'buildQueue.recovery.fallback': 'De vorige build moet worden gecontroleerd.',
   "opencodeCompatibility.bundled": "OpenCode is inbegrepen bij OpenChamber. Werk OpenChamber bij om OpenCode v2 te krijgen.",
   "opencodeCompatibility.title": "OpenCode v2 vereist",
   "opencodeCompatibility.outdatedTitle": "OpenCode bijwerken",

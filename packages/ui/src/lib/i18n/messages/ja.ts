@@ -20,6 +20,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict: Record<I18nKey, string> = {
+  'buildQueue.recovery.continue': 'キューを続行',
+  'buildQueue.recovery.title': 'キューを続行しますか？',
+  'buildQueue.recovery.description': '報告された問題を確認し、このビルドを解放します。変更はディスクに残り、再実行はされません。キューの準備が整うと次のビルドが開始されます。',
+  'buildQueue.recovery.confirm': '確認して続行',
+  'buildQueue.recovery.fallback': '前のビルドを確認する必要があります。',
   "opencodeCompatibility.bundled": "OpenCode は OpenChamber に同梱されています。OpenCode v2 を利用するには OpenChamber を更新してください。",
   "opencodeCompatibility.title": "OpenCode v2 が必要です",
   "opencodeCompatibility.outdatedTitle": "OpenCode を更新してください",

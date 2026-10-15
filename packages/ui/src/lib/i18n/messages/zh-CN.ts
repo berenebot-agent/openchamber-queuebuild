@@ -20,6 +20,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict: Record<I18nKey, string> = {
+  'buildQueue.recovery.continue': '继续队列',
+  'buildQueue.recovery.title': '继续队列？',
+  'buildQueue.recovery.description': '确认报告的问题并释放此构建。其更改保留在磁盘上，不会再次运行。队列准备就绪后将开始下一个构建。',
+  'buildQueue.recovery.confirm': '确认并继续',
+  'buildQueue.recovery.fallback': '需要检查上一个构建。',
   "opencodeCompatibility.bundled": "OpenCode 随 OpenChamber 一起提供。请更新 OpenChamber 以获取 OpenCode v2。",
   "opencodeCompatibility.title": "需要 OpenCode v2",
   "opencodeCompatibility.outdatedTitle": "请更新 OpenCode",

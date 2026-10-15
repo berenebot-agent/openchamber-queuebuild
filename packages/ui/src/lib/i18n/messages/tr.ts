@@ -19,6 +19,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict = {
+  'buildQueue.recovery.continue': 'Kuyruğa devam et',
+  'buildQueue.recovery.title': 'Kuyruğa devam edilsin mi?',
+  'buildQueue.recovery.description': 'Bildirilen sorunu onaylayıp bu derlemeyi serbest bırakın. Değişiklikleri diskte kalır. Tekrar çalıştırılmaz. Kuyruk hazır olduğunda sonraki derleme başlar.',
+  'buildQueue.recovery.confirm': 'Onayla ve devam et',
+  'buildQueue.recovery.fallback': 'Önceki derleme incelenmeli.',
   "opencodeCompatibility.bundled": "OpenCode, OpenChamber ile birlikte gelir. OpenCode v2 için OpenChamber’ı güncelleyin.",
   "opencodeCompatibility.title": "OpenCode v2 gerekli",
   "opencodeCompatibility.outdatedTitle": "OpenCode’u güncelleyin",

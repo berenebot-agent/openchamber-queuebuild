@@ -13,6 +13,7 @@ import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { SettingsSection, SettingsStackedField, SETTINGS_SELECT_TRIGGER_CLASS } from '@/components/sections/shared/SettingsSection';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 
 const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
 const snippet = (value: string) => value.trim().split('\n').find(line => line.trim())?.trim() || 'Queued build';
@@ -24,6 +25,8 @@ export const BuildQueueView: React.FC = () => {
   const setEnabled = useBuildQueuePreferences(state => state.setEnabled);
   const { snapshot, error, refresh } = useBuildQueueSnapshot();
   const [busy, setBusy] = React.useState(false);
+  const [confirmation, setConfirmation] = React.useState<{ directory: string; itemId: string; issue: string } | null>(null);
+  const [resolveError, setResolveError] = React.useState<string | null>(null);
   const { t } = useI18n();
   const policy = useUIStore(state => state.buildQueueGitPolicy ?? (state.buildQueueRequireCleanGit ? 'pause' : 'continue'));
   const setPolicy = useUIStore(state => state.setBuildQueueGitPolicy);
@@ -78,12 +81,24 @@ export const BuildQueueView: React.FC = () => {
     void mutate('/api/build-queue/order', 'PUT', { directory, ids: order });
   };
 
-  const resolve = (action: 'skip' | 'retry') => {
-    const prompt = action === 'retry'
-      ? 'Retry this build? Check the session first: it may already have made changes.'
-      : 'Continue the queue? Only do this after reviewing the previous build session and its changes.';
-    if (!window.confirm(prompt)) return;
-    void mutate('/api/build-queue/resolve', 'POST', { directory, action });
+  const continueQueue = async () => {
+    if (!confirmation) return;
+    setBusy(true);
+    setResolveError(null);
+    try {
+      const response = await runtimeFetch('/api/build-queue/resolve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory: confirmation.directory, itemId: confirmation.itemId, action: 'skip' }),
+      });
+      if (!response.ok) {
+        const detail: { error?: string } = await response.json();
+        throw new Error(detail.error || `HTTP ${response.status}`);
+      }
+      setConfirmation(null);
+      await refresh();
+    } catch (cause) {
+      setResolveError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setBusy(false); }
   };
 
   return (
@@ -151,11 +166,12 @@ export const BuildQueueView: React.FC = () => {
             <Button size="sm" variant="outline" onClick={() => openSession(active.sessionId)}>
               Open session
             </Button>
-            {active.retryAvailable && <Button size="sm" variant="outline" disabled={busy} onClick={() => resolve('retry')}>
-              Retry
-            </Button>}
-            <Button size="sm" variant="default" disabled={busy} onClick={() => resolve('skip')}>
-              Continue queue
+            <Button size="sm" variant="default" disabled={busy} onClick={() => {
+              setResolveError(null);
+              setConfirmation({ directory: active.directory, itemId: active.itemId,
+                issue: issue || t('buildQueue.recovery.fallback') });
+            }}>
+              {t('buildQueue.recovery.continue')}
             </Button>
           </div>}
         </section>}
@@ -168,7 +184,8 @@ export const BuildQueueView: React.FC = () => {
             </span>}
           </div>
           {active ? <button type="button" onClick={() => openSession(active.sessionId)}
-            className="group w-full rounded-lg border border-border bg-surface-elevated px-4 py-3.5 text-start transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            className={'group w-full rounded-lg border px-4 py-3.5 text-start transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ' +
+              (active.needsReview ? 'border-[var(--status-error)]/50 bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)]' : 'border-border bg-surface-elevated')}>
             <div className="flex items-center gap-2">
               <span className="flex size-8 items-center justify-center rounded-md bg-[var(--interactive-selection)]">
                 <Icon name="terminal-box" className="size-4" />
@@ -234,6 +251,20 @@ export const BuildQueueView: React.FC = () => {
         </section>
 
       </div>
+      <Dialog open={confirmation !== null} onOpenChange={open => { if (!open && !busy) setConfirmation(null); }}>
+        <DialogContent showCloseButton={!busy}>
+          <DialogHeader>
+            <DialogTitle>{t('buildQueue.recovery.title')}</DialogTitle>
+            <DialogDescription>{t('buildQueue.recovery.description')}</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{confirmation?.issue}</p>
+          {resolveError && <p role="alert" className="text-sm text-[var(--error-text)]">{resolveError}</p>}
+          <DialogFooter>
+            <Button variant="outline" disabled={busy} onClick={() => setConfirmation(null)}>{t('dialog.common.actions.cancel')}</Button>
+            <Button disabled={busy} onClick={() => void continueQueue()}>{t('buildQueue.recovery.confirm')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

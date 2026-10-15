@@ -740,18 +740,11 @@ export function createMessageQueueRuntime({
     let completed = false;
     let inspected = false;
     if (idle === true && children === false) {
-      const page = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
-        directory, query: { limit: '5' },
-      }).catch(() => null);
-      const messages = asList(asRecord(page)?.data);
-      inspected = messages !== null;
-      completed = (messages ?? []).some(value => {
-        const message = asRecord(value);
-        return (message?.type === 'assistant' || message?.role === 'assistant')
-          && (asCount(asRecord(message.time)?.completed) ?? 0) >= lease.startedAt;
-      });
+      const evidence = await leaseTurnCompleted(lease, directory);
+      completed = evidence === true;
+      inspected = evidence !== null;
     }
-    if (activeBuilds.get(directory) !== lease) return;
+    if (activeBuilds.get(directory) !== lease || lease.needsReview) return;
     if (idle !== true || children !== false || !inspected) delete lease.unconfirmedIdleAt;
     else if (!completed) lease.unconfirmedIdleAt ??= now();
     if (inspected && idle === true && children === false && !completed
@@ -768,9 +761,79 @@ export function createMessageQueueRuntime({
     commit(lease.sessionId);
     wakeProject(directory);
   }
-  const resolveBuild = async (directory, action) => {
+
+  /**
+   * Whether this lease's own turn already produced a completed assistant reply.
+   * `null` means it could not be established (OpenCode unreachable): an
+   * interrupted build must not be released on unknown evidence.
+   */
+  const leaseTurnCompleted = async (lease, directory) => {
+    const page = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
+      directory, query: { limit: '5' },
+    }).catch(() => null);
+    const messages = asList(asRecord(page)?.data);
+    if (messages === null) return null;
+    return messages.some(value => {
+      const message = asRecord(value);
+      return (message?.type === 'assistant' || message?.role === 'assistant')
+        && (asCount(asRecord(message.time)?.completed) ?? 0) >= lease.startedAt;
+    });
+  };
+
+  /**
+   * A user abort is reported per session, but a build lease owns one turn of
+   * that session. A Stop on any later turn — a follow-up question in the same
+   * chat — must not strand the project's build lane, so the abort only parks a
+   * lease whose own turn has no successful idle record. An unreadable history keeps
+   * the conservative behavior and parks the lease for review.
+   */
+  const flagAbortedBuildLeases = async (sessionId) => {
+    for (const [directory, lease] of Array.from(activeBuilds)) {
+      if (activeBuilds.get(directory) !== lease || lease.sessionId !== sessionId || lease.needsReview) continue;
+      lease.needsReview = true;
+      lease.reviewReason = 'aborted';
+      clearTimeout(buildMonitors.get(directory));
+      buildMonitors.delete(directory);
+      commit(sessionId);
+      // Park synchronously while checking history so the monitor cannot release
+      // a genuinely interrupted turn based on an intermediate tool-step reply.
+      const succeeded = await leaseHasSuccessfulTurn(lease, directory);
+      if (stopped || activeBuilds.get(directory) !== lease || !succeeded) continue;
+      delete lease.needsReview;
+      delete lease.reviewReason;
+      commit(sessionId);
+      scheduleBuildMonitor(directory);
+    }
+  };
+
+  const leaseHasSuccessfulTurn = async (lease, directory) => {
+    let cursor;
+    const seen = new Set();
+    for (let pageNumber = 0; pageNumber < 8; pageNumber += 1) {
+      const query = { limit: '50' };
+      if (cursor) query.cursor = cursor;
+      const page = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
+        directory, query,
+      }).catch(() => null);
+      const messages = asList(asRecord(page)?.data);
+      if (!messages) return false;
+      for (const value of messages) {
+        const message = asRecord(value);
+        const created = asCount(asRecord(message?.time)?.created);
+        if (created !== null && created < lease.startedAt) return false;
+        if (message?.type === 'idle' && message.outcome === 'succeeded'
+          && created !== null && created >= lease.startedAt) return true;
+      }
+      cursor = asNonEmptyString(asRecord(asRecord(page)?.cursor)?.next);
+      if (!cursor || seen.has(cursor) || messages.length === 0) return false;
+      seen.add(cursor);
+    }
+    return false;
+  };
+  const resolveBuild = async (directory, action, itemId) => {
     await load();
     const lease = activeBuilds.get(directory);
+    if (itemId && lease?.itemId !== itemId) throw httpError('The build queue changed. Refresh it before continuing.', 409);
     if (!lease && action === 'retry' && buildProblems.has(directory)) {
       preparationFailures.delete(directory);
       setBuildProblem(directory, null);
@@ -781,6 +844,7 @@ export function createMessageQueueRuntime({
     const idle = await isSessionIdle(lease.sessionId, directory);
     const children = idle === true ? await hasWorkingSubagents(lease.sessionId) : null;
     if (idle !== true || children !== false) throw httpError('Build session may still be running; cannot resolve yet', 409);
+    if (activeBuilds.get(directory) !== lease) throw httpError('The build queue changed. Refresh it before continuing.', 409);
     const queue = queues.get(lease.sessionId);
     const queuedItem = queue?.items.find(item => item.id === lease.itemId);
     if (action === 'retry' && !queuedItem) throw httpError('Build was already dispatched. Resubmit from its chat if needed; choose Continue to release queue', 409);
@@ -1253,17 +1317,7 @@ export function createMessageQueueRuntime({
     const abortedSessionId = extractAbortedSessionId(payload);
     if (abortedSessionId) {
       if (queues.has(abortedSessionId)) abortedAt.set(abortedSessionId, now());
-      for (const lease of activeBuilds.values()) {
-        if (lease.sessionId !== abortedSessionId) continue;
-        lease.needsReview = true;
-        lease.reviewReason = 'aborted';
-        for (const [directory, monitored] of activeBuilds) {
-          if (monitored !== lease) continue;
-          clearTimeout(buildMonitors.get(directory));
-          buildMonitors.delete(directory);
-        }
-        commit(abortedSessionId);
-      }
+      void flagAbortedBuildLeases(abortedSessionId);
       return;
     }
 
@@ -1388,7 +1442,7 @@ export function registerMessageQueueRoutes(app, runtime) {
     catch (error) { respondError(res, error, 'Failed to load build queue'); }
   });
   app.post('/api/build-queue/resolve', async (req, res) => {
-    try { res.json(await runtime.resolveBuild(req.body?.directory, req.body?.action)); }
+    try { res.json(await runtime.resolveBuild(req.body?.directory, req.body?.action, req.body?.itemId)); }
     catch (error) { respondError(res, error, 'Failed to resolve build queue'); }
   });
   app.put('/api/build-queue/order', async (req, res) => {

@@ -19,6 +19,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict = {
+  'buildQueue.recovery.continue': 'Continue queue',
+  'buildQueue.recovery.title': 'Continue the queue?',
+  'buildQueue.recovery.description': 'Acknowledge the reported problem and release this build. Its changes remain on disk. It will not run again. The next build starts when the queue is ready.',
+  'buildQueue.recovery.confirm': 'Acknowledge and continue',
+  'buildQueue.recovery.fallback': 'The previous build needs review.',
   "opencodeCompatibility.bundled": "OpenCode is bundled with OpenChamber. Update OpenChamber to get OpenCode v2.",
   "opencodeCompatibility.title": "OpenCode v2 required",
   "opencodeCompatibility.outdatedTitle": "Update OpenCode",

@@ -20,6 +20,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict: Record<I18nKey, string> = {
+  'buildQueue.recovery.continue': '대기열 계속',
+  'buildQueue.recovery.title': '대기열을 계속할까요?',
+  'buildQueue.recovery.description': '보고된 문제를 확인하고 이 빌드를 해제합니다. 변경 사항은 디스크에 유지되며 다시 실행되지 않습니다. 대기열이 준비되면 다음 빌드가 시작됩니다.',
+  'buildQueue.recovery.confirm': '확인하고 계속',
+  'buildQueue.recovery.fallback': '이전 빌드를 검토해야 합니다.',
   "opencodeCompatibility.bundled": "OpenCode는 OpenChamber에 포함되어 있습니다. OpenCode v2를 사용하려면 OpenChamber를 업데이트하세요.",
   "opencodeCompatibility.title": "OpenCode v2가 필요합니다",
   "opencodeCompatibility.outdatedTitle": "OpenCode를 업데이트하세요",

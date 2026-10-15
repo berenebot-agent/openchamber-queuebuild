@@ -239,6 +239,23 @@ Build. Continue releases an uncertain dispatched lease only after an idle check.
 The Git service's scope, ignore rules and failure contract are documented in
 `../git/DOCUMENTATION.md`, under "Automatic build preparation".
 
+An interruption parks the lease synchronously before checking history. The
+check reads up to 8 newest-first pages of 50 messages, stopping at the lease's
+start. A successful `idle` record after dispatch proves that a later turn was
+interrupted; the review flag is cleared and monitoring resumes. A completed
+assistant tool step alone does not prove success. Missing, unreadable or
+incomplete history keeps the lease paused for human acknowledgement. An
+in-flight monitor cannot release a lease parked during its activity reads.
+
+Continue acknowledges the reported problem and releases the lease without
+rerunning it or changing its files. The server still verifies that the session
+and its descendants are idle. The UI includes the lease's `itemId` in the
+resolve request, so an old confirmation cannot release a different build.
+Legacy callers can omit this optional field. The server retains retry support
+for pending dispatches; the review banner offers only Open session and Continue.
+The common request middleware parses JSON for `/api/build-queue`, including
+resolve, reorder and pause requests.
+
 The saved setting applies without a restart. `createMessageQueueRuntime` takes
 `settingsFilePath` to point at another instance's file (tests, embedders).
 

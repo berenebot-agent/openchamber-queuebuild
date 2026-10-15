@@ -20,6 +20,11 @@ import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 
 export const dict: Record<I18nKey, string> = {
+  'buildQueue.recovery.continue': 'Продовжити чергу',
+  'buildQueue.recovery.title': 'Продовжити чергу?',
+  'buildQueue.recovery.description': 'Підтвердьте повідомлену проблему та звільніть це збирання. Його зміни залишаться на диску. Воно не запускатиметься повторно. Наступне збирання почнеться, коли черга буде готова.',
+  'buildQueue.recovery.confirm': 'Підтвердити та продовжити',
+  'buildQueue.recovery.fallback': 'Попереднє збирання потребує перевірки.',
   "opencodeCompatibility.bundled": "OpenCode входить до складу OpenChamber. Оновіть OpenChamber, щоб отримати OpenCode v2.",
   "opencodeCompatibility.title": "Потрібен OpenCode v2",
   "opencodeCompatibility.outdatedTitle": "Оновіть OpenCode",
