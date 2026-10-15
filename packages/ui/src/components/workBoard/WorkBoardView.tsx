@@ -327,10 +327,14 @@ export function WorkBoardView() {
   };
 
   const laneFor = (card: WorkBoardCard) => {
-    const active = !queueError && queue?.active.some(item => item.sessionId === card.sessionId);
+    const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
     const queued = !queueError && queue?.queued.some(item => item.sessionId === card.sessionId);
-    return workBoardLane(card, unavailable.has(card.id) ? undefined : activities.get(card.id), active ? 'building' : queued ? 'queued' : undefined);
+    return workBoardLane(card, unavailable.has(card.id) ? undefined : activities.get(card.id),
+      active ? 'building' : queued ? 'queued' : undefined, Boolean(active?.needsReview));
   };
+  // A lease awaiting review is unfinished work the server will not release on
+  // its own; completing its card would hide that resolution. Manual Done stays
+  // out of reach for it.
   const canComplete = (card: WorkBoardCard) => {
     const lane = laneFor(card);
     if (lane !== 'todo' && lane !== 'plan') return false;

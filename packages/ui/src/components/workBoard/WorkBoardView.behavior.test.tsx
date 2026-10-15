@@ -225,3 +225,102 @@ test('a completed card shows the green completion mark until it is opened, then 
     }
   }
 });
+
+test('an idle Build session is Done, but a build the queue holds for review stays in Building', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = {
+    window: dom, document: dom.document, navigator: dom.navigator,
+    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
+    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
+    KeyboardEvent: dom.KeyboardEvent,
+    getComputedStyle: dom.getComputedStyle.bind(dom),
+    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projects = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  const sessionDisplay = useSessionDisplayStore.getState();
+  // Two sessions whose last turn is Build and which are not running. The first
+  // is plain history; the second still holds a queue lease parked for review.
+  const linked = (id: string, text: string): WorkBoardCard => ({
+    id, directory: '/repo', text, attachments: [], stage: 'plan', sessionId: id, createdAt: 1, updatedAt: 1,
+  });
+  const cards: WorkBoardCard[] = [linked('finished', 'Finished build'), linked('review', 'Build needing review')];
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue')) return Response.json({
+      revision: 1, issues: [],
+      active: [{ directory: '/repo', sessionId: 'review', itemId: 'item1', startedAt: 1, needsReview: true, reviewReason: 'restart-unconfirmed' }],
+      queued: [],
+    });
+    if (url.includes('/api/work-board')) return Response.json({ cards });
+    return Response.json({});
+  });
+  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
+  const buildTurn = { items: [
+    { info: { id: 'idle', sessionID: 'finished', role: 'idle' as const, outcome: 'failed' as const, time: { created: 9 } }, parts: [] },
+    { info: { id: 'assistant', sessionID: 'finished', role: 'assistant' as const, agent: 'build', providerID: 'provider', modelID: 'model', time: { created: 8, completed: 8 } }, parts: [] },
+    { info: { id: 'user', sessionID: 'finished', role: 'user' as const, time: { created: 7 } }, parts: [] },
+  ], cursor: {} };
+  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue(buildTurn);
+  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
+  useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  useSessionDisplayStore.setState({ animatedActivityIndicators: false });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const laneOf = (title: string) => container.querySelector(`button[title="${title}"]`)!.closest('article')!.closest('section')!.getAttribute('aria-label');
+  // History arrives on the board's own poll, whose timing is not ours to
+  // guarantee. Settle on the observable lane instead of a fixed delay.
+  const settle = async (title: string, lane: string) => {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (container.querySelector(`button[title="${title}"]`) && laneOf(title) === lane) return;
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); });
+    }
+    throw new Error(`Card "${title}" never reached lane ${lane}; saw ${laneOf(title)}`);
+  };
+  try {
+    await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
+    // A failed Build turn with nothing running is history, not pending work.
+    await settle('Finished build', 'Done');
+    expect(laneOf('Finished build')).toBe('Done');
+    // The lease the server is holding for review pins its card, and says so.
+    await settle('Build needing review', 'Building');
+    expect(laneOf('Build needing review')).toBe('Building');
+    const reviewCard = container.querySelector('button[title="Build needing review"]')!.closest('article')!;
+    expect(reviewCard.textContent).toContain('Needs attention');
+    // Completion would hide the resolution the server is waiting for, so the
+    // card offers no lane-changing action at all. Both cards read the same idle
+    // Build history: only the queue lease separates them.
+    expect(reviewCard.querySelector('[aria-label="Actions for Build needing review"]')).toBeNull();
+    // The plain history card is already Done, so it offers no completion. The
+    // action menu itself is covered by the other behavior test; here the
+    // contract is which cards expose one at all.
+    expect(container.querySelector('[aria-label="Actions for Finished build"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    useSessionDisplayStore.setState(sessionDisplay);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});

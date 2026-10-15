@@ -73,12 +73,21 @@ another submission. A lost response can mean the original prompt was accepted.
 
 Build submissions use the existing project Build queue. Queued and active work
 is shown using the queue's server state. Open the session and choose the Build
-agent to submit implementation work through the normal composer. A successful,
-settled Build turn moves to Done. Done does not certify tests or a release.
-Linked cards show the same live activity icons as the session list, including
-background subagents and commands. The appearance setting for animated activity
-indicators applies to cards too. Finished unread turns show the session list's
-unread icon.
+agent to submit implementation work through the normal composer. A linked card
+follows the agent of its last assistant turn: a Build turn that is not running
+puts the card in Done, whether that turn succeeded, failed, or was stopped,
+because no work is running and the session is history. Done does not certify
+tests or a release. A card whose last turn was Plan stays in Plan, however it
+ended. Linked cards show the same live activity icons as the session list,
+including background subagents and commands. The appearance setting for
+animated activity indicators applies to cards too. Finished unread turns show
+the session list's unread icon.
+
+A build the queue still holds for review is the one exception. It stays in
+Building until the user resolves the lease, because the server will not release
+that lease on its own and the card must not leave the lane behind it. The card
+offers no Move to Done, Back to To-do, or remove action while that lease is
+unresolved.
 
 Lanes follow a card's saved stage and live state, so the board reads each linked
 session's history to place it. It reads every linked card's history at once, and
@@ -102,14 +111,15 @@ lane. Changing the composer agent without submitting does not move it.
 
 ## Complete cards
 
-Done is sorted by the successful Build turn's finish time, newest first.
+Done is sorted by the last Build turn's finish time, newest first.
 Session creation dates and unrelated session updates do not affect this order.
 
 An idle To-do or Plan card offers **Move to Done** in its card menu. This also
 works for inherited sessions that have never been saved as board cards. Manual
 completion is saved on the server and uses its completion time for Done ordering.
 Submitting a later Plan or Build prompt reopens the card. Completion preserves
-the conversation and never starts, stops, or cancels work.
+the conversation and never starts, stops, or cancels work. A card whose build the
+queue is still holding for review offers no completion action at all.
 
 A finished card shows the session list's green checkbox until the user opens the
 card, which acknowledges that completion on the server and clears the mark for

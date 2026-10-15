@@ -17,7 +17,15 @@ export function workBoardFeedback(activity: WorkBoardActivity | undefined, unava
   return undefined;
 }
 
-export function workBoardLane(card: WorkBoardCard, activity: WorkBoardActivity | undefined, queue: 'queued' | 'building' | undefined): WorkBoardLane {
+export function workBoardLane(
+  card: WorkBoardCard,
+  activity: WorkBoardActivity | undefined,
+  queue: 'queued' | 'building' | undefined,
+  // The session holds a build lease the server parked for review. Such a lease
+  // still owns the project's build lane, so the card stays where the queue put
+  // it until the user resolves the lease, never in Done.
+  needsReview = false,
+): WorkBoardLane {
   if (queue) return queue;
   // A new user turn after parking reopens the card without a UI-only marker.
   const messages = [...(activity?.messages ?? [])].reverse();
@@ -28,12 +36,14 @@ export function workBoardLane(card: WorkBoardCard, activity: WorkBoardActivity |
   if ((card.stage === 'todo' || card.stage === 'done') && latestTurn <= parkedAt && !activity?.busy) return card.stage;
   if (lastUser && (!assistant || lastUser.time.created > assistant.time.created)) return 'plan';
   if (assistant?.role === 'assistant' && assistant.agent.toLowerCase() === 'build') {
-    const idle = messages.find(message => message.role === 'idle');
-    if (!activity?.busy && idle?.role === 'idle' && idle.outcome === 'succeeded'
-      && idle.time.created >= assistant.time.created && (!lastUser || idle.time.created >= lastUser.time.created)) return 'done';
-    // A historical Build response is not proof that Build is still running.
-    // An errored or incomplete turn must not bounce idle Plan cards into Building.
-    return activity?.busy ? 'building' : 'plan';
+    if (activity?.busy) return 'building';
+    // A queue lease awaiting review is unfinished work, not history.
+    if (needsReview) return 'building';
+    // The last agent was Build and the session is idle. Whether that turn
+    // succeeded, failed or was stopped, no work is running, so the card is
+    // history: it belongs in Done. A queue lease is the one exception above --
+    // those keep their own recovery contract.
+    return 'done';
   }
   return 'plan';
 }

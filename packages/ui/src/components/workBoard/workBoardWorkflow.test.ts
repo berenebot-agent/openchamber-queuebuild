@@ -34,25 +34,51 @@ describe('work board lanes', () => {
     expect(workBoardLane(card, undefined, 'queued')).toBe('queued');
     expect(workBoardLane(card, undefined, 'building')).toBe('building');
   });
-  test('only a settled successful Build turn is Done', () => {
+  test('an idle Build card is Done whether or not that turn settled successfully', () => {
     const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
     const messages = [user(2), assistant('build', 3), idle];
     expect(workBoardLane(linked, { messages, busy: false }, undefined)).toBe('done');
     expect(workBoardLane(linked, { messages, busy: true }, undefined)).toBe('building');
-    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: false }, undefined)).toBe('plan');
+    // A running turn is Building even before its idle record lands.
+    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: true }, undefined)).toBe('building');
+    // An idle Build turn is Done with or without its idle record: live status,
+    // not history detail, decides whether the turn is still open.
+    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: false }, undefined)).toBe('done');
+    // A Plan turn stays in Plan regardless of how it ended.
     expect(workBoardLane(linked, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined)).toBe('plan');
   });
-  test('failed or uncertain old Build turns cannot make idle Plan cards flash Building', () => {
+  test('a failed or stopped Build turn is history: Done, not Plan, and never a Plan flash', () => {
     const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
     const failedIdle: Message = { ...idle, outcome: 'failed', error: undefined };
-    const history = [user(2), assistant('build', 3), failedIdle];
-    expect(workBoardLane(linked, { messages: history, busy: false }, undefined)).toBe('plan');
-    expect(workBoardLane(linked, { messages: history, busy: true }, undefined)).toBe('building');
-    expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: false }, undefined)).toBe('plan');
-    expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: true }, undefined)).toBe('building');
-    expect(workBoardLane(linked, { messages: history, busy: false }, 'building')).toBe('building');
-    // A successful settled Build still goes to Done, not back to Plan.
-    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), idle], busy: false }, undefined)).toBe('done');
+    const interrupted: Message = { ...idle, outcome: 'interrupted' };
+    for (const outcome of [failedIdle, interrupted]) {
+      const history = [user(2), assistant('build', 3), outcome];
+      // Idle with nothing running: the card is done history, not pending work.
+      expect(workBoardLane(linked, { messages: history, busy: false }, undefined)).toBe('done');
+      expect(workBoardLane(linked, { messages: history, busy: true }, undefined)).toBe('building');
+      // Nothing running and no idle record on a Build turn is still settled.
+      expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: false }, undefined)).toBe('done');
+      expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: true }, undefined)).toBe('building');
+      expect(workBoardLane(linked, { messages: history, busy: false }, 'building')).toBe('building');
+    }
+    // A Plan turn that failed is not Build history: it stays in Plan.
+    expect(workBoardLane(linked, { messages: [user(2), assistant('plan', 3), failedIdle], busy: false }, undefined)).toBe('plan');
+  });
+  test('a parked build lease keeps its card in Building until the lease is resolved', () => {
+    const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
+    const built = [user(2), assistant('build', 3), idle];
+    const failedIdle: Message = { ...idle, outcome: 'failed', error: undefined };
+    const interruptedIdle: Message = { ...idle, outcome: 'interrupted' };
+    // The server will not release this lease on its own, so the card must not
+    // leave the build lane behind its back -- not even when the turn looks
+    // settled. Only resolving the lease moves it.
+    expect(workBoardLane(linked, { messages: built, busy: false }, 'building', true)).toBe('building');
+    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), failedIdle], busy: false }, 'building', true)).toBe('building');
+    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), interruptedIdle], busy: false }, 'building', true)).toBe('building');
+    // The lease pin outranks an idle history read that would otherwise be Done.
+    expect(workBoardLane(linked, { messages: built, busy: false }, undefined, true)).toBe('building');
+    // An idle Plan card beside a review lease is untouched by it.
+    expect(workBoardLane(linked, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined, true)).toBe('plan');
   });
   test('parking preserves old history; a new send reopens the card', () => {
     const parked = { ...card, sessionId: 'session1', updatedAt: 6 };
