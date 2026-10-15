@@ -20,7 +20,9 @@ export function workBoardLane(card: WorkBoardCard, activity: WorkBoardActivity |
     const idle = messages.find(message => message.role === 'idle');
     if (!activity?.busy && idle?.role === 'idle' && idle.outcome === 'succeeded'
       && idle.time.created >= assistant.time.created && (!lastUser || idle.time.created >= lastUser.time.created)) return 'done';
-    return 'building';
+    // A historical Build response is not proof that Build is still running.
+    // An errored or incomplete turn must not bounce idle Plan cards into Building.
+    return activity?.busy ? 'building' : 'plan';
   }
   return 'plan';
 }

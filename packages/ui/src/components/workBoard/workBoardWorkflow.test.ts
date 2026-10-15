@@ -20,8 +20,20 @@ describe('work board lanes', () => {
     const messages = [user(2), assistant('build', 3), idle];
     expect(workBoardLane(linked, { messages, busy: false }, undefined)).toBe('done');
     expect(workBoardLane(linked, { messages, busy: true }, undefined)).toBe('building');
-    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: false }, undefined)).toBe('building');
+    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: false }, undefined)).toBe('plan');
     expect(workBoardLane(linked, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined)).toBe('plan');
+  });
+  test('failed or uncertain old Build turns cannot make idle Plan cards flash Building', () => {
+    const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
+    const failedIdle: Message = { ...idle, outcome: 'failed', error: undefined };
+    const history = [user(2), assistant('build', 3), failedIdle];
+    expect(workBoardLane(linked, { messages: history, busy: false }, undefined)).toBe('plan');
+    expect(workBoardLane(linked, { messages: history, busy: true }, undefined)).toBe('building');
+    expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: false }, undefined)).toBe('plan');
+    expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: true }, undefined)).toBe('building');
+    expect(workBoardLane(linked, { messages: history, busy: false }, 'building')).toBe('building');
+    // A successful settled Build still goes to Done, not back to Plan.
+    expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), idle], busy: false }, undefined)).toBe('done');
   });
   test('parking preserves old history; a new send reopens the card', () => {
     const parked = { ...card, sessionId: 'session1', updatedAt: 6 };

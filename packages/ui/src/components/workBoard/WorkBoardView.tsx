@@ -237,9 +237,11 @@ export function WorkBoardView() {
     {!directory ? <p className="p-4">{t('workBoard.noProject')}</p> : <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
       {lanes.map(lane => {
         const inLane = visibleCards.filter(card => {
-          const active = queue?.active.find(item => item.sessionId === card.sessionId);
-          const queued = queue?.queued.some(item => item.sessionId === card.sessionId);
-          const activity = unavailable.has(card.id) || queueError || !queue ? undefined : activities.get(card.id);
+          // A queue polling error is not an agent-status error. Do not discard
+          // healthy session history or reuse stale queue leases to assign lanes.
+          const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
+          const queued = !queueError && queue?.queued.some(item => item.sessionId === card.sessionId);
+          const activity = unavailable.has(card.id) ? undefined : activities.get(card.id);
           return workBoardLane(card, activity, active ? 'building' : queued ? 'queued' : undefined) === lane;
         });
         return <section key={lane} className="flex min-w-[240px] flex-1 flex-col rounded-lg bg-surface-muted" aria-label={t(`workBoard.${lane}`)}>
@@ -248,8 +250,8 @@ export function WorkBoardView() {
             {!inLane.length && <p className="px-2 py-4 text-xs text-muted-foreground">{loading ? t('common.loading') : error ? t('workBoard.unknown') : t('workBoard.empty')}</p>}
             {inLane.map(card => {
               const activity = activities.get(card.id);
-              const statusUnknown = Boolean(card.sessionId) && (!activity || unavailable.has(card.id) || Boolean(queueError));
-              const active = queue?.active.find(item => item.sessionId === card.sessionId);
+              const statusUnknown = Boolean(card.sessionId) && (!activity || unavailable.has(card.id));
+              const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
               const lastIdle = [...(activity?.messages ?? [])].reverse().find(message => message.role === 'idle');
               const lastPrompt = [...(activity?.messages ?? [])].reverse().find(message => message.role === 'user');
               const blocked = active?.needsReview || (!activity?.busy && lastIdle?.role === 'idle' && lastIdle.outcome !== 'succeeded'
