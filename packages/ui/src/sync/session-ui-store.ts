@@ -416,7 +416,16 @@ export type NewSessionDraftState = {
   projectContextPins?: { notes: string[]; plans: string[] }
   target: NewSessionDraftTarget
   preparedChatDirectory?: string | null
+  /**
+   * Where this draft was opened from. `"workBoard"` marks the New to-do flow:
+   * the composer starts in To-do mode. The Plan and Build origins select that
+   * agent through draft defaults. It is draft-local navigation intent, so it lives on
+   * the draft and is cleared with it.
+   */
+  origin?: NewSessionDraftOrigin
 }
+
+export type NewSessionDraftOrigin = "workBoard" | "workBoardPlan" | "workBoardBuild"
 
 export type SessionUIState = {
   currentSessionId: string | null
@@ -752,7 +761,7 @@ const applyDraftTargetSelectionDefaults = (
       ? useProjectsStore.getState().projects.find((project) => normalizePath(project.path) === normalizePath(selectedProject.path))
       : undefined
     useConfigStore.getState().applyDefaultModelAgentSelection({
-      projectDefaultAgent: currentProject?.defaultAgent,
+      projectDefaultAgent: draft.origin === 'workBoardPlan' ? 'plan' : draft.origin === 'workBoardBuild' ? 'build' : currentProject?.defaultAgent,
       projectDefaultModel: currentProject?.defaultModel,
       projectDefaultVariant: currentProject?.defaultVariant,
     })
@@ -1491,6 +1500,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       syntheticParts: options?.syntheticParts,
       targetFolderId: options?.targetFolderId,
       projectContextPins: options?.projectContextPins,
+      origin: options?.origin,
     }
 
     set({
@@ -1571,6 +1581,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       && currentDraft.syntheticParts === undefined
       && currentDraft.targetFolderId === undefined
       && currentDraft.permissionMode === undefined
+      && currentDraft.origin === undefined
     ) {
       return
     }

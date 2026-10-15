@@ -3068,18 +3068,20 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                                     className={cn(
                                                         controlIconSize,
                                                         'flex-shrink-0',
-                                                        uiAgentName && !todoMode ? '' : 'text-muted-foreground'
+                                                        todoMode ? 'text-[var(--status-warning)]'
+                                                            : uiAgentName ? '' : 'text-muted-foreground'
                                                     )}
-                                                    style={uiAgentName && !todoMode ? { color: getAgentColor(uiAgentName).color } : undefined}
+                                                    style={!todoMode && uiAgentName ? { color: getAgentColor(uiAgentName).color } : undefined}
                                                 />
                                                 <span
                                                     className={cn(
                                                         'model-controls__agent-label',
                                                         controlTextSize,
                                                         'font-medium min-w-0 truncate',
+                                                        todoMode && 'text-[var(--status-warning)]',
                                                         isDesktop ? 'max-w-[220px]' : undefined
                                                     )}
-                                                    style={uiAgentName && !todoMode ? { color: getAgentColor(uiAgentName).color } : undefined}
+                                                    style={!todoMode && uiAgentName ? { color: getAgentColor(uiAgentName).color } : undefined}
                                                 >
                                                     {getAgentDisplayName()}
                                                 </span>
@@ -3195,18 +3197,20 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                             className={cn(
                                 controlIconSize,
                                 'flex-shrink-0',
-                                uiAgentName && !todoMode ? '' : 'text-muted-foreground'
+                                todoMode ? 'text-[var(--status-warning)]'
+                                    : uiAgentName ? '' : 'text-muted-foreground'
                             )}
-                            style={uiAgentName && !todoMode ? { color: getAgentColor(uiAgentName).color } : undefined}
+                            style={!todoMode && uiAgentName ? { color: getAgentColor(uiAgentName).color } : undefined}
                         />
                         <span
                             className={cn(
                                 'model-controls__agent-label',
                                 controlTextSize,
                                 'font-medium truncate min-w-0',
+                                todoMode && 'text-[var(--status-warning)]',
                                 isMobile && 'max-w-[60px]'
                             )}
-                            style={uiAgentName && !todoMode ? { color: getAgentColor(uiAgentName).color } : undefined}
+                            style={!todoMode && uiAgentName ? { color: getAgentColor(uiAgentName).color } : undefined}
                         >
                             {getAgentDisplayName()}
                         </span>

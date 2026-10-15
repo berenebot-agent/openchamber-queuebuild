@@ -10,6 +10,12 @@ selecting a chat closes it. The open flag is not persisted. Card contents live
 in the server work-board module; `lib/workBoardApi.ts` parses their HTTP contract.
 Project tabs and their selected project are persisted per runtime. Closing a tab
 only removes it from that runtime's tab list.
+`workBoardProjectId` remembers the last visited board for the chat's return
+button. It is navigation intent and does not own card contents or completion.
+The board's Plan promotion reads `useConfigStore.resolveAgentModel('plan')`
+without mutating the current composer selection. This uses the active config
+directory's remembered agent model, pinned agent model, project/settings default,
+then OpenCode's configured model. The board has no separate model picker.
 
 Not all state in the UI belongs here.
 

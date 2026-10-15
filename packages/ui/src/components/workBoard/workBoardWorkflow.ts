@@ -24,7 +24,8 @@ export function workBoardLane(card: WorkBoardCard, activity: WorkBoardActivity |
   const lastUser = messages.find(message => message.role === 'user');
   const assistant = messages.find(message => message.role === 'assistant');
   const latestTurn = Math.max(lastUser?.time.created ?? 0, assistant?.time.created ?? 0);
-  if (card.stage === 'todo' && latestTurn <= card.updatedAt && !activity?.busy) return 'todo';
+  const parkedAt = card.stage === 'done' ? card.completedAt ?? card.updatedAt : card.updatedAt;
+  if ((card.stage === 'todo' || card.stage === 'done') && latestTurn <= parkedAt && !activity?.busy) return card.stage;
   if (lastUser && (!assistant || lastUser.time.created > assistant.time.created)) return 'plan';
   if (assistant?.role === 'assistant' && assistant.agent.toLowerCase() === 'build') {
     const idle = messages.find(message => message.role === 'idle');
@@ -35,6 +36,14 @@ export function workBoardLane(card: WorkBoardCard, activity: WorkBoardActivity |
     return activity?.busy ? 'building' : 'plan';
   }
   return 'plan';
+}
+
+export function workBoardCompletionTime(card: WorkBoardCard, activity: WorkBoardActivity | undefined): number {
+  const completedAt = card.completedAt ?? card.updatedAt;
+  if (card.stage === 'done' && !activity?.busy && !activity?.messages.some(message =>
+    (message.role === 'user' || message.role === 'assistant') && message.time.created > completedAt)) return completedAt;
+  if (workBoardLane(card, activity, undefined) !== 'done') return 0;
+  return [...(activity?.messages ?? [])].reverse().find(message => message.role === 'idle')?.time.created ?? 0;
 }
 
 type Selection = { providerID: string; modelID: string; variant?: string };

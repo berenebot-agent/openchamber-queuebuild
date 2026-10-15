@@ -1358,7 +1358,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const [todoMode, setTodoMode] = React.useState(false);
     const todoSupported = !isMobile && !isCapacitorApp() && !isVSCodeRuntime() && !isBtwActive && !parallelActive
         && !isAutoModel(currentProviderId, currentModelId);
-    React.useEffect(() => { setTodoMode(false); }, [currentSessionId, newSessionDraftOpen, activeRuntimeKey, todoSupported]);
+    // A New to-do opened from the Work Board lands ready to save, not ready to
+    // send: the button promised a to-do, and defaulting back to Build would run
+    // a model the user never asked for. Every other draft still starts in send
+    // mode, and a mode the composer cannot support (mobile, VS Code, Auto) falls
+    // back to the ordinary reset below.
+    const draftStartsInTodo = newSessionDraftOpen && newSessionDraft?.origin === 'workBoard';
+    React.useEffect(() => {
+        setTodoMode(draftStartsInTodo && todoSupported);
+    }, [currentSessionId, newSessionDraftOpen, activeRuntimeKey, todoSupported, draftStartsInTodo]);
     const [savingTodo, setSavingTodo] = React.useState(false);
     const { snapshot: todoBuildQueue, error: todoQueueError } = useBuildQueueSnapshot(todoSupported && Boolean(currentSessionId));
     const todoQueueBlocked = Boolean(currentSessionId && (

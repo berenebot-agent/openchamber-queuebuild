@@ -1559,6 +1559,17 @@ interface ConfigStore {
     getResolvedGitGenerationModel: () => { providerId: string; modelId: string } | null;
     saveAgentModelSelection: (agentName: string, providerId: string, modelId: string) => void;
     getAgentModelSelection: (agentName: string) => { providerId: string; modelId: string } | null;
+    /**
+     * The model a new session on `agentName` would start on, resolved through the
+     * same cascade a fresh draft uses, without touching the live selection.
+     *
+     * `setAgent` answers the same question by mutating `currentProviderId` and
+     * friends, which is wrong for callers that only need the answer (the Work
+     * Board promoting a card must not repoint the user's open composer). Reads
+     * the Plan agent's pinned model first — the way OpenCode would — then the
+     * settings/project default, then OpenCode's configured model.
+     */
+    resolveAgentModel: (agentName: string) => { providerId: string; modelId: string; variant?: string } | null;
     probeConnection: (options?: { timeoutMs?: number }) => Promise<boolean>;
     checkConnection: () => Promise<boolean>;
     initializeApp: () => Promise<void>;
@@ -2701,6 +2712,79 @@ export const useConfigStore = create<ConfigStore>()(
                 getAgentModelSelection: (agentName: string) => {
                     const { agentModelSelections } = get();
                     return agentModelSelections[agentName] || null;
+                },
+
+                resolveAgentModel: (agentName: string) => {
+                    const {
+                        agents,
+                        providers,
+                        settingsDefaultModel,
+                        settingsDefaultVariant,
+                        opencodeDefaultModel,
+                        activeDirectoryKey,
+                    } = get();
+                    const agent = agents.find((candidate) => candidate.name === agentName);
+                    const projectDefaults = getProjectDefaultsForConfigDirectory(fromDirectoryKey(activeDirectoryKey));
+
+                    // A model the user (or provider config) explicitly picked for
+                    // this agent wins, exactly as `setAgent` would resolve it.
+                    const remembered = get().agentModelSelections[agentName];
+                    const rememberVariant = (providerId: string, modelId: string): string | undefined => {
+                        const model = findProviderModel(providers, providerId, modelId);
+                        const inherited = agent?.model?.providerID === providerId && agent?.model?.id === modelId
+                            ? agent.model.variant
+                            : undefined;
+                        return modelHasVariant(model, inherited) ? inherited : undefined;
+                    };
+                    if (remembered?.providerId && remembered.modelId) {
+                        return {
+                            providerId: remembered.providerId,
+                            modelId: remembered.modelId,
+                            variant: rememberVariant(remembered.providerId, remembered.modelId),
+                        };
+                    }
+
+                    // The agent's pinned model — OpenCode runs an agent on its own
+                    // model unless something overrides it.
+                    if (agent?.model?.providerID && agent.model.id
+                        && findCatalogModel(providers.find((provider) => provider.id === agent.model?.providerID)?.models, agent.model.id)) {
+                        const providerId = agent.model.providerID;
+                        const modelId = agent.model.id;
+                        const model = findProviderModel(providers, providerId, modelId);
+                        return {
+                            providerId,
+                            modelId,
+                            variant: modelHasVariant(model, agent.model.variant) ? agent.model.variant : undefined,
+                        };
+                    }
+
+                    // Project/settings default, then OpenCode's configured model.
+                    const configured = projectDefaults.projectDefaultModel || settingsDefaultModel;
+                    const parsed = configured ? parseModelString(configured) : null;
+                    if (parsed) {
+                        const model = findProviderModel(providers, parsed.providerId, parsed.modelId);
+                        if (model || !configured) {
+                            const configuredVariant = projectDefaults.projectDefaultModel
+                                ? projectDefaults.projectDefaultVariant
+                                : settingsDefaultVariant;
+                            return {
+                                providerId: parsed.providerId,
+                                modelId: parsed.modelId,
+                                variant: modelHasVariant(model, configuredVariant) ? configuredVariant : undefined,
+                            };
+                        }
+                    }
+
+                    const opencodeParsed = opencodeDefaultModel ? parseModelSelection(opencodeDefaultModel) : null;
+                    if (opencodeParsed) {
+                        return {
+                            providerId: opencodeParsed.providerID,
+                            modelId: opencodeParsed.modelID,
+                            variant: opencodeParsed.variant,
+                        };
+                    }
+
+                    return null;
                 },
 
                 loadSessionDefaults: async () => {

@@ -1,9 +1,9 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { workBoardCardTitle } from './workBoardCardTitle';
 import { Icon } from '@/components/icon/Icon';
-import { ModelSelector } from '@/components/sections/agents/ModelSelector';
 import { useI18n } from '@/lib/i18n';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -18,8 +18,8 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
-import { workBoardLane, workBoardFeedback, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
+import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
+import { workBoardLane, workBoardCompletionTime, workBoardFeedback, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab } from './workBoardProjectState';
 
@@ -69,6 +69,13 @@ export function WorkBoardView() {
     setWorkBoardProjectTabs(runtimeKey, next);
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
+  // Remember which board the user is on so any chat can return to it, and so a
+  // New to-do draft is rooted in this project rather than the sidebar's.
+  React.useEffect(() => {
+    if (!projectId) return;
+    if (useUIStore.getState().workBoardProjectId === projectId) return;
+    useUIStore.getState().setWorkBoardProjectId(projectId);
+  }, [projectId]);
   const [cards, setCards] = React.useState<WorkBoardCard[]>([]);
   const [activities, setActivities] = React.useState<Map<string, WorkBoardActivity>>(new Map());
   const [unavailable, setUnavailable] = React.useState<Set<string>>(new Set());
@@ -76,15 +83,13 @@ export function WorkBoardView() {
   const [actionError, setActionError] = React.useState('');
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
+  const [completion, setCompletion] = React.useState<{ cards: WorkBoardCard[]; skipped: number } | null>(null);
   const [editing, setEditing] = React.useState<string | null>(null);
   const [text, setText] = React.useState('');
   const [files, setFiles] = React.useState<WorkBoardAttachment[]>([]);
-  const configProvider = useConfigStore(state => state.currentProviderId);
-  const configModel = useConfigStore(state => state.currentModelId);
   const agents = useConfigStore(state => state.agents);
   const sessions = useGlobalSessionsStore(state => state.activeSessions);
   const sessionsError = useGlobalSessionsStore(state => state.status === 'error');
-  const [selection, setSelection] = React.useState({ providerID: configProvider, modelID: configModel });
   const { snapshot: queue, error: queueError } = useBuildQueueSnapshot();
   const generation = React.useRef(0);
   const refreshSequence = React.useRef(0);
@@ -138,6 +143,7 @@ export function WorkBoardView() {
     sessionVersions.current.clear();
     messageCache.current.clear();
     setEditing(null);
+    setCompletion(null);
     void refresh();
     const onFocus = () => { if (document.visibilityState === 'visible') void refresh(); };
     window.addEventListener('focus', onFocus);
@@ -214,16 +220,18 @@ export function WorkBoardView() {
     const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
     useSessionUIStore.getState().setCurrentSession(card.sessionId, actualDirectory);
     useUIStore.getState().closeMainSurfaces();
-    // Set after selecting the session: selection closes surfaces and clears
-    // any previous return target. This click establishes the new one.
-    useUIStore.getState().setWorkBoardReturnSessionId(card.sessionId);
   };
   const promote = (card: WorkBoardCard) => void mutate(async () => {
     if (card.sessionId) { open(card); return; }
-    if (!selection.providerID || !selection.modelID || isAutoModel(selection.providerID, selection.modelID)
+    // The board no longer carries a model picker: a promoted card starts on the
+    // model the Plan agent would use in a fresh chat. Auto is still refused here
+    // because the server resolves it later and could land on another agent.
+    const planModel = useConfigStore.getState().resolveAgentModel('plan');
+    if (!planModel || isAutoModel(planModel.providerId, planModel.modelId)
       || !agents.some(agent => agent.name === 'plan')) {
       throw new Error(t('workBoard.needsModel'));
     }
+    const selection = { providerID: planModel.providerId, modelID: planModel.modelId, variant: planModel.variant };
     const runtime = getRuntimeKey();
     const checkRuntime = () => { if (runtime !== getRuntimeKey()) throw new Error('Runtime changed during promotion'); };
     await startWorkBoardPlan(card, selection, {
@@ -262,6 +270,37 @@ export function WorkBoardView() {
     finally { setBusy(false); }
   };
 
+  const laneFor = (card: WorkBoardCard) => {
+    const active = !queueError && queue?.active.some(item => item.sessionId === card.sessionId);
+    const queued = !queueError && queue?.queued.some(item => item.sessionId === card.sessionId);
+    return workBoardLane(card, unavailable.has(card.id) ? undefined : activities.get(card.id), active ? 'building' : queued ? 'queued' : undefined);
+  };
+  const canComplete = (card: WorkBoardCard) => {
+    const lane = laneFor(card);
+    if (lane !== 'todo' && lane !== 'plan') return false;
+    if (!card.sessionId) return true;
+    return Boolean(activities.get(card.id)) && !activities.get(card.id)?.busy && !unavailable.has(card.id)
+      && !queueError && queue !== null;
+  };
+  const complete = (targets: WorkBoardCard[]) => void mutate(async () => {
+    const token = generation.current;
+    const result = await completeWorkBoardCards(directory, targets.map(card => ({
+      id: card.id, updatedAt: card.updatedAt, text: card.text, sessionId: card.sessionId,
+      sessionDirectory: sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory,
+    })));
+    if (token !== generation.current) return;
+    setCompletion(null);
+    if (result.failed.length) throw new Error(t('workBoard.completeFailed', { count: result.failed.length }) + '\n'
+      + result.failed.map(failure => `${workBoardCardTitle(targets.find(card => card.id === failure.id)?.text ?? failure.id, [])}: ${failure.error}`).join('\n'));
+  });
+  const newCard = (lane: 'todo' | 'plan' | 'building') => {
+    useSessionUIStore.getState().openNewSessionDraft({
+      selectedProjectId: projectId, target: 'project', directoryOverride: directory,
+      origin: lane === 'todo' ? 'workBoard' : lane === 'plan' ? 'workBoardPlan' : 'workBoardBuild',
+    });
+    useUIStore.getState().closeMainSurfaces();
+  };
+
   return <div className="absolute inset-0 z-10 flex flex-col bg-background" aria-label={t('workBoard.title')}>
     <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
       <h1 className="text-lg font-semibold">{t('workBoard.title')}</h1>
@@ -277,27 +316,26 @@ export function WorkBoardView() {
         onAdd={addProjectTab}
         onClose={closeProjectTab}
       />
-      <ModelSelector providerId={selection.providerID} modelId={selection.modelID} onChange={(providerID, modelID) => setSelection({ providerID, modelID })} />
-      <Button size="sm" variant="outline" disabled={!directory || busy} onClick={() => {
-        useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: projectId, target: 'project', directoryOverride: directory });
-        useUIStore.getState().closeMainSurfaces();
-      }}>{t('workBoard.newTodo')}</Button>
       <Button size="sm" variant="ghost" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
     </header>
     <p className="px-4 py-2 text-xs text-muted-foreground">{t('workBoard.newBrief')}</p>
     {(actionError || error || queueError || sessionsError) && <div role="alert" className="px-4 py-2 text-sm text-[var(--status-error-text)]">{actionError || error || queueError || t('workBoard.unknown')}</div>}
     {!directory ? <p className="p-4">{t('workBoard.noProject')}</p> : <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
       {lanes.map(lane => {
-        const inLane = visibleCards.filter(card => {
-          // A queue polling error is not an agent-status error. Do not discard
-          // healthy session history or reuse stale queue leases to assign lanes.
-          const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
-          const queued = !queueError && queue?.queued.some(item => item.sessionId === card.sessionId);
-          const activity = unavailable.has(card.id) ? undefined : activities.get(card.id);
-          return workBoardLane(card, activity, active ? 'building' : queued ? 'queued' : undefined) === lane;
-        });
+        const inLane = visibleCards.filter(card => laneFor(card) === lane);
+        if (lane === 'done') inLane.sort((a, b) => workBoardCompletionTime(b, activities.get(b.id)) - workBoardCompletionTime(a, activities.get(a.id)) || a.id.localeCompare(b.id));
         return <section key={lane} className="flex min-w-[240px] flex-1 flex-col rounded-lg bg-surface-muted" aria-label={t(`workBoard.${lane}`)}>
-          <h2 className="flex justify-between px-3 py-3 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{inLane.length}</span></h2>
+          <div className="flex items-center gap-2 px-3 py-3">
+            <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{inLane.length}</span></h2>
+            {(lane === 'todo' || lane === 'plan' || lane === 'building') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane !== 'todo' && !agents.some(agent => agent.name === (lane === 'plan' ? 'plan' : 'build')))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : lane === 'plan' ? 'workBoard.newPlan' : 'workBoard.newBuild')} title={t(lane === 'todo' ? 'workBoard.newTodo' : lane === 'plan' ? 'workBoard.newPlan' : 'workBoard.newBuild')}><Icon name="add" className="size-4" /></Button>}
+            {lane === 'plan' && <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button size="sm" variant="ghost" disabled={busy || !inLane.length} aria-label={t('workBoard.laneActions')}><Icon name="more" className="size-4" /></Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end"><DropdownMenuItem onClick={() => {
+                const eligible = inLane.filter(canComplete);
+                setCompletion({ cards: eligible, skipped: inLane.length - eligible.length });
+              }}>{t('workBoard.completeAll')}</DropdownMenuItem></DropdownMenuContent>
+            </DropdownMenu>}
+          </div>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">
             {!inLane.length && <p className="px-2 py-4 text-xs text-muted-foreground">{loading ? t('common.loading') : error ? t('workBoard.unknown') : t('workBoard.empty')}</p>}
             {inLane.map(card => {
@@ -322,13 +360,14 @@ export function WorkBoardView() {
                     if (card.sessionId) { open(card); return; }
                     setEditing(card.id); setText(card.text); setFiles(card.attachments);
                   }}>{title}</button>
-                  {(!card.sessionId || canReturnToTodo || canRemove) && <DropdownMenu>
+                  {(!card.sessionId || canReturnToTodo || canRemove || canComplete(card)) && <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button type="button" disabled={busy} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" title="Card actions" aria-label={`Actions for ${title}`}>
                         <Icon name="more" className="size-3.5" />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {canComplete(card) && <DropdownMenuItem onClick={() => complete([card])}>{t('workBoard.complete')}</DropdownMenuItem>}
                       {!card.sessionId && <DropdownMenuItem onClick={() => promote(card)}>{t('workBoard.startPlan')}</DropdownMenuItem>}
                       {canReturnToTodo && <DropdownMenuItem onClick={() => void mutate(async () => {
                         const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
@@ -347,5 +386,14 @@ export function WorkBoardView() {
         </section>;
       })}
     </div>}
+    <Dialog open={completion !== null} onOpenChange={open => { if (!open && !busy) setCompletion(null); }}>
+      <DialogContent showCloseButton={!busy}>
+        <DialogTitle>{t('workBoard.completeAll')}</DialogTitle>
+        <DialogDescription>{t('workBoard.completeConfirm', { count: completion?.cards.length ?? 0 })}</DialogDescription>
+        {Boolean(completion?.skipped) && <p className="text-sm text-muted-foreground">{t('workBoard.completeSkipped', { count: completion?.skipped ?? 0 })}</p>}
+        <ul className="max-h-64 overflow-y-auto space-y-1 text-sm">{completion?.cards.map(card => <li key={card.id} dir="auto">{workBoardCardTitle(card.text, card.attachments)}</li>)}</ul>
+        <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setCompletion(null)}>{t('workBoard.cancel')}</Button><Button disabled={busy || !completion?.cards.length} onClick={() => { if (completion) complete(completion.cards); }}>{t('workBoard.complete')}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>;
 }

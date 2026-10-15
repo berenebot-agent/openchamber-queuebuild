@@ -14,6 +14,39 @@ const remove = (dataDir) => fs.rm(dataDir, { recursive: true, force: true });
 const input = (directory = '/project') => ({ directory, text: 'Plan this' });
 
 describe('work board persistence', () => {
+  it('round-trips completion for legacy To-do cards and inherited sessions without losing content', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      const original = await store.create(input());
+      const completed = await store.complete(original);
+      expect(completed).toMatchObject({ id: original.id, stage: 'done', text: original.text, completedAt: expect.any(Number) });
+      const inherited = await store.complete({ id: 'session:session1', sessionId: 'session1', directory: '/project', text: 'Inherited plan', updatedAt: 123 });
+      expect(inherited).toMatchObject({ stage: 'done', sessionId: 'session1', text: 'Inherited plan' });
+      expect(await createWorkBoardStore({ dataDir }).list('/project')).toEqual([completed, inherited]);
+      const completedAgain = await store.complete(completed);
+      expect(completedAgain.completedAt).toBeGreaterThan(completed.completedAt);
+      await expect(store.complete({ id: 'session:session1', sessionId: 'session1', directory: '/project', text: 'Duplicate', updatedAt: 123 })).rejects.toMatchObject({ status: 409 });
+      const parked = await store.parkSession({ directory: '/project', sessionId: 'session1', text: '', attachments: [] });
+      expect(parked).toMatchObject({ id: inherited.id, stage: 'todo', text: 'Inherited plan' });
+      expect(parked.completedAt).toBeUndefined();
+    } finally { await remove(dataDir); }
+  });
+
+  it('rejects stale, cross-project, deleted and relinked targets and rolls back failed completion writes', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      const card = await store.create(input());
+      await expect(store.complete({ ...card, directory: '/other' })).rejects.toMatchObject({ status: 409 });
+      await expect(store.complete({ ...card, updatedAt: -1 })).rejects.toMatchObject({ status: 409 });
+      await expect(store.complete({ ...card, sessionId: 'session1' })).rejects.toMatchObject({ status: 409 });
+      const failing = createWorkBoardStore({ dataDir, fs: { ...fs, rename: async () => { throw new Error('disk failure'); } } });
+      await expect(failing.complete(card)).rejects.toThrow('disk failure');
+      expect(await store.list()).toEqual([card]);
+      await store.delete(card.id);
+      await expect(store.complete(card)).rejects.toMatchObject({ status: 409 });
+      expect(await store.list()).toEqual([]);
+    } finally { await remove(dataDir); }
+  });
   it('persists cards across store instances and lists without deleting other directories', async () => {
     const { dataDir, store } = await setup();
     try {

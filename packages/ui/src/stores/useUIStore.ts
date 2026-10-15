@@ -970,8 +970,13 @@ interface UIStore {
   /** The issues and pull requests board. */
   isSourceBoardOpen: boolean;
   isWorkBoardOpen: boolean;
-  /** Ephemeral return navigation after entering a session from the Work Board. */
-  workBoardReturnSessionId: string | null;
+  /**
+   * The project the Work Board was last looking at. It lets the board's
+   * "Back to Work Board" button reopen the same board from any chat, and lets
+   * a New to-do draft be rooted in that project rather than whatever project
+   * the sidebar happens to be on. Null until the board is opened once.
+   */
+  workBoardProjectId: string | null;
   /** Open Work Board project tabs and their active project, persisted per runtime. */
   workBoardProjectTabsByRuntime: Record<string, WorkBoardProjectTabState>;
   openGuestPageId: string | null;
@@ -1275,7 +1280,7 @@ interface UIStore {
   setUsageStatsPageOpen: (open: boolean) => void;
   setSourceBoardOpen: (open: boolean) => void;
   setWorkBoardOpen: (open: boolean) => void;
-  setWorkBoardReturnSessionId: (sessionId: string | null) => void;
+  setWorkBoardProjectId: (projectId: string | null) => void;
   setWorkBoardProjectTabs: (runtimeKey: string, state: WorkBoardProjectTabState) => void;
   setOpenGuestPage: (id: string | null) => void;
   setWorktreesPageProjectId: (projectId: string | null) => void;
@@ -1502,7 +1507,7 @@ export const useUIStore = create<UIStore>()(
         isUsageStatsPageOpen: false,
         isSourceBoardOpen: false,
         isWorkBoardOpen: false,
-        workBoardReturnSessionId: null,
+        workBoardProjectId: null,
         workBoardProjectTabsByRuntime: {},
         openGuestPageId: null,
         worktreesPageProjectId: null,
@@ -2429,10 +2434,10 @@ export const useUIStore = create<UIStore>()(
 
         setWorkBoardOpen: (open) => {
           get().closeMainSurfaces();
-          set({ isWorkBoardOpen: open, ...(open ? { workBoardReturnSessionId: null } : {}) });
+          set({ isWorkBoardOpen: open });
         },
-        setWorkBoardReturnSessionId: (sessionId) => {
-          set({ workBoardReturnSessionId: sessionId });
+        setWorkBoardProjectId: (projectId) => {
+          set({ workBoardProjectId: projectId });
         },
         setWorkBoardProjectTabs: (runtimeKey, state) => {
           if (!runtimeKey.trim()) return;

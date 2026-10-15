@@ -46,6 +46,32 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
     } catch (error) { return failure(res, error); }
   });
 
+  app.post('/api/work-board/complete', json, async (req, res) => {
+    try {
+      const body = z.object({ directory: z.string().trim().min(1), targets: z.array(z.object({
+        id: z.string().min(1), updatedAt: z.number().finite(), text: z.string(),
+        sessionId: z.string().trim().min(1).optional(), sessionDirectory: z.string().trim().min(1).optional(),
+      })).min(1).max(1000) }).parse(req.body);
+      const directory = await resolveDirectory(req, body.directory);
+      const completed = [];
+      const failed = [];
+      for (const target of body.targets) {
+        try {
+          const save = () => store.complete({ ...target, directory });
+          if (target.sessionId) {
+            if (!messageQueueRuntime?.parkSession) throw Object.assign(new Error('Session idle checks are unavailable'), { status: 503 });
+            const sessionDirectory = target.sessionDirectory ? await resolveDirectory(req, target.sessionDirectory) : directory;
+            await messageQueueRuntime.parkSession(target.sessionId, sessionDirectory, save);
+          } else {
+            await save();
+          }
+          completed.push(target.id);
+        } catch (error) { failed.push({ id: target.id, error: error.message }); }
+      }
+      return res.json({ completed, failed });
+    } catch (error) { return failure(res, error); }
+  });
+
   app.patch('/api/work-board/:id', json, async (req, res) => {
     try { return res.json({ card: await store.update(req.params.id, req.body) }); }
     catch (error) { return failure(res, error); }

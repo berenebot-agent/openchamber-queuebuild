@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -10,6 +10,25 @@ const assistant = (agent: string, at: number): Message => ({ id: `assistant${at}
 const idle: Message = { id: 'idle', sessionID: 'session1', role: 'idle', outcome: 'succeeded', time: { created: 5 } };
 
 describe('work board lanes', () => {
+  test('manual completion persists without Build history and reopens on a later prompt', () => {
+    const completed: WorkBoardCard = { ...card, stage: 'done', completedAt: 6, updatedAt: 6 };
+    expect(workBoardLane(completed, undefined, undefined)).toBe('done');
+    expect(workBoardLane(completed, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined)).toBe('done');
+    expect(workBoardLane(completed, { messages: [user(7)], busy: false }, undefined)).toBe('plan');
+    expect(workBoardLane(completed, { messages: [], busy: true }, undefined)).toBe('plan');
+    expect(workBoardLane(completed, undefined, 'queued')).toBe('queued');
+    expect(workBoardLane(completed, undefined, 'building')).toBe('building');
+  });
+  test('Done ordering uses settled Build finish or manual completion, never session update time', () => {
+    const built: WorkBoardCard = { ...card, stage: 'plan', updatedAt: 1000 };
+    const activity = { messages: [user(2), assistant('build', 3), idle], busy: false };
+    expect(workBoardCompletionTime(built, activity)).toBe(5);
+    const completed: WorkBoardCard = { ...card, stage: 'done', completedAt: 6, updatedAt: 1000 };
+    expect(workBoardCompletionTime(completed, activity)).toBe(6);
+    const rebuilt = { messages: [user(7), assistant('build', 8), { ...idle, time: { created: 10 } }], busy: false };
+    expect(workBoardCompletionTime(completed, rebuilt)).toBe(10);
+    expect(workBoardCompletionTime(built, { ...activity, busy: true })).toBe(0);
+  });
   test('new cards stay To-do and queue leases take precedence', () => {
     expect(workBoardLane(card, undefined, undefined)).toBe('todo');
     expect(workBoardLane(card, undefined, 'queued')).toBe('queued');

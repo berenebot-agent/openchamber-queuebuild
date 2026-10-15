@@ -31,7 +31,8 @@ const updateSchema = z.object({
 const cardSchema = z.object({
   id: nonempty, directory: nonempty, text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number().finite(), updatedAt: z.number().finite(),
-  sessionId: nonempty.optional(), stage: z.enum(['todo', 'plan']),
+  completedAt: z.number().finite().optional(),
+  sessionId: nonempty.optional(), stage: z.enum(['todo', 'plan', 'done']),
 }).refine(value => value.stage !== 'plan' || value.sessionId, 'Plan card requires a session')
   .refine(value => value.text.trim() || value.attachments.length, 'Card has no content');
 const storedSchema = z.object({ version: z.literal(1), cards: z.array(cardSchema) })
@@ -68,6 +69,20 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
   };
   return {
     list: directory => serialized(async () => (await read()).filter(card => directory === undefined || card.directory === directory)),
+    complete: input => serialized(async () => {
+      const target = z.object({ directory: nonempty, id: nonempty, updatedAt: z.number().finite(), sessionId: nonempty.optional(), text: z.string() }).parse(input);
+      const cards = await read();
+      const current = cards.find(card => card.id === target.id);
+      const conflict = () => Object.assign(new Error('Card changed. Refresh the board before moving it to Done.'), { status: 409 });
+      if (current && (current.directory !== target.directory || current.updatedAt !== target.updatedAt || current.sessionId !== target.sessionId)) throw conflict();
+      if (!current && (target.id !== `session:${target.sessionId}` || !target.sessionId
+        || cards.some(card => card.directory === target.directory && card.sessionId === target.sessionId))) throw conflict();
+      const at = Math.max(now(), (current?.updatedAt ?? 0) + 1);
+      const card = cardSchema.parse({ ...(current ?? { id: id(), directory: target.directory, text: target.text, attachments: [], sessionId: target.sessionId, createdAt: at }),
+        stage: 'done', completedAt: at, updatedAt: at });
+      await write(current ? cards.map(entry => entry.id === current.id ? card : entry) : [...cards, card]);
+      return card;
+    }),
     parkSession: input => serialized(async () => {
       const parsed = parkSchema.safeParse(input);
       if (!parsed.success) throw invalid(parsed.error);

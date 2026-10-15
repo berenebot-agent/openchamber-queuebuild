@@ -8,6 +8,46 @@ import { registerWorkBoardRoutes } from './routes.js';
 import { createWorkBoardStore } from './store.js';
 
 describe('work board HTTP routes', () => {
+  it('guards every linked completion and reports partial bulk results without touching another project', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-complete-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const todo = await store.create({ directory: '/repo', text: 'To-do' });
+      const other = await store.create({ directory: '/other', text: 'Other project' });
+      const checked = [];
+      const app = express();
+      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }), messageQueueRuntime: {
+        parkSession: async (id, directory, save) => {
+          checked.push([id, directory]);
+          if (id === 'busy' || id === 'unknown') throw Object.assign(new Error('Session is not known idle'), { status: 409 });
+          return save([]);
+        },
+      } });
+      const targets = ['idle', 'busy', 'unknown'].map(sessionId => ({ id: `session:${sessionId}`, sessionId, text: sessionId, updatedAt: 1, sessionDirectory: '/repo/worktree' }));
+      const response = await request(app).post('/api/work-board/complete').send({ directory: '/repo', targets: [todo, ...targets, other] }).expect(200);
+      expect(response.body.completed).toEqual([todo.id, 'session:idle']);
+      expect(response.body.failed.map(entry => entry.id)).toEqual(['session:busy', 'session:unknown', other.id]);
+      expect(checked).toEqual([['idle', '/repo/worktree'], ['busy', '/repo/worktree'], ['unknown', '/repo/worktree']]);
+      expect(await store.list('/other')).toEqual([other]);
+      expect((await store.list('/repo')).map(card => card.stage)).toEqual(['done', 'done']);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
+  it('refuses linked completion without idle checks and rejects invalid bulk requests', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-complete-unavailable-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const app = express();
+      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      const target = { id: 'session:session1', sessionId: 'session1', text: 'Plan', updatedAt: 1 };
+      const response = await request(app).post('/api/work-board/complete').send({ directory: '/repo', targets: [target] }).expect(200);
+      expect(response.body.completed).toEqual([]);
+      expect(response.body.failed).toHaveLength(1);
+      expect(await store.list()).toEqual([]);
+      await request(app).post('/api/work-board/complete').send({ directory: '/repo', targets: [] }).expect(400);
+      await request(app).patch('/api/work-board/arbitrary').send({ stage: 'done' }).expect(400);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
   it('parses writes without a global JSON parser and preserves linked card contents', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-http-'));
     try {

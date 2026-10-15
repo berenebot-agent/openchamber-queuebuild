@@ -902,6 +902,12 @@ VS Code intentionally has no managed Chats mode. It neither reads nor writes the
 
 ### Remembering the last draft target
 
+Work board drafts carry an `origin`. `workBoard` opens To-do mode;
+`workBoardPlan` and `workBoardBuild` select their named agent through the normal
+draft default resolver, including after asynchronous catalog activation.
+Their explicit project directory remains the draft target. Manual composer
+choices still take precedence once made. Closing a draft clears its origin.
+
 `session-ui-store.ts` persists the side of the composer's target selector the user last worked on under `oc.chatInput.lastDraftTarget`, so a plain new session reopens there instead of always landing on Chat. The record holds a project id, a directory, and `target`, which is `"chat"`, `"project"`, or `null`.
 
 `null` is what a record written before `target` existed reads as, and it leaves the Chat default in place rather than guessing a side from the directory. A recorded project that no longer exists falls back to Chat the same way. Only a picker choice writes `"chat"` or `"project"`.

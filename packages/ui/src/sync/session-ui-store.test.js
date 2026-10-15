@@ -696,6 +696,42 @@ describe('openNewSessionDraft project binding', () => {
     expect(draft.directoryOverride).toBe(projectB.path);
   });
 
+  test('board Plan and Build drafts override the project agent and retain their project through catalog activation', async () => {
+    const original = useConfigStore.getState();
+    useConfigStore.setState({
+      activateDirectory: async () => {},
+      agents: [{ name: 'plan', mode: 'primary' }, { name: 'build', mode: 'primary' }],
+    });
+    try {
+      for (const [origin, agent] of [['workBoardPlan', 'plan'], ['workBoardBuild', 'build']]) {
+        useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: projectA.id, target: 'project', directoryOverride: projectA.path, origin });
+        await Bun.sleep(0);
+        expect(useSessionUIStore.getState().newSessionDraft).toMatchObject({ origin, selectedProjectId: projectA.id, directoryOverride: projectA.path });
+        expect(useConfigStore.getState().currentAgentName).toBe(agent);
+      }
+    } finally { useConfigStore.setState(original); }
+  });
+
+  test('records the Work Board as the draft origin and drops it when the draft closes', () => {
+    useSessionUIStore.getState().openNewSessionDraft({
+      selectedProjectId: projectA.id,
+      target: 'project',
+      directoryOverride: projectA.path,
+      origin: 'workBoard',
+    });
+
+    expect(useSessionUIStore.getState().newSessionDraft.origin).toBe('workBoard');
+
+    useSessionUIStore.getState().closeNewSessionDraft();
+    expect(useSessionUIStore.getState().newSessionDraft.origin).toBeUndefined();
+    expect(useSessionUIStore.getState().newSessionDraft.open).toBe(false);
+  });
+
+  test('an ordinary draft carries no origin', () => {
+    useSessionUIStore.getState().openNewSessionDraft({ selectedProjectId: projectA.id });
+    expect(useSessionUIStore.getState().newSessionDraft.origin).toBeUndefined();
+  });
+
   test('keeps an unmatched live directory as Chat and leaves the recorded project target untouched', async () => {
     getDeferredSafeStorage().setItem(
       DRAFT_TARGET_KEY,

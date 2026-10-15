@@ -7,14 +7,19 @@ const attachmentSchema = z.object({
 });
 const cardSchema = z.object({
   id: z.string(), directory: z.string(), text: z.string(), attachments: z.array(attachmentSchema),
-  createdAt: z.number(), updatedAt: z.number(), sessionId: z.string().optional(), stage: z.enum(['todo', 'plan']),
+  createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().optional(), sessionId: z.string().optional(), stage: z.enum(['todo', 'plan', 'done']),
 });
 export type WorkBoardAttachment = z.infer<typeof attachmentSchema>;
 export type WorkBoardCard = z.infer<typeof cardSchema>;
 type CardChanges = { text?: string; attachments?: WorkBoardAttachment[]; sessionId?: string; stage?: 'todo' | 'plan' };
 type BoardWrite = CardChanges | { directory: string; text: string; attachments: WorkBoardAttachment[]; sessionDirectory?: string };
+const completionTargetSchema = z.object({
+  id: z.string(), updatedAt: z.number(), sessionId: z.string().optional(),
+  sessionDirectory: z.string().optional(), text: z.string(),
+});
+type CompletionTarget = z.infer<typeof completionTargetSchema>;
 
-async function request(path: string, method = 'GET', body?: BoardWrite) {
+async function request(path: string, method = 'GET', body?: BoardWrite | { directory: string; targets: CompletionTarget[] }) {
   const runtime = getRuntimeKey();
   const response = await runtimeFetch(path, {
     method,
@@ -29,6 +34,10 @@ async function request(path: string, method = 'GET', body?: BoardWrite) {
   const value = await response.json();
   if (runtime !== getRuntimeKey()) throw new Error('Runtime changed during work board request');
   return value;
+}
+export async function completeWorkBoardCards(directory: string, targets: CompletionTarget[]) {
+  return z.object({ completed: z.array(z.string()), failed: z.array(z.object({ id: z.string(), error: z.string() })) })
+    .parse(await request('/api/work-board/complete', 'POST', { directory, targets }));
 }
 export async function fetchWorkBoard(directory: string): Promise<WorkBoardCard[]> {
   return z.object({ cards: z.array(cardSchema) }).parse(await request(`/api/work-board?directory=${encodeURIComponent(directory)}`)).cards;

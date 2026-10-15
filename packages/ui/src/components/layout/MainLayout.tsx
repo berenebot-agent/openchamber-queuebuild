@@ -119,8 +119,7 @@ export const MainLayout: React.FC = () => {
     const isUsageStatsPageOpen = useUIStore((state) => state.isUsageStatsPageOpen);
     const isSourceBoardOpen = useUIStore((state) => state.isSourceBoardOpen);
     const isWorkBoardOpen = useUIStore((state) => state.isWorkBoardOpen);
-    const workBoardReturnSessionId = useUIStore((state) => state.workBoardReturnSessionId);
-    const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+    const workBoardProjectId = useUIStore((state) => state.workBoardProjectId);
     const worktreesPageProjectId = useUIStore((state) => state.worktreesPageProjectId);
     // The spaces page exists only while the feature's switch is on.
     const isSpacesPageOpen = useUIStore((state) => state.isolatedSpacesEnabled && state.spacesPageProjectId !== null);
@@ -139,7 +138,6 @@ export const MainLayout: React.FC = () => {
     }, [openGuestPageId, guestPage]);
     React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
         useUIStore.getState().setOpenGuestPage(null);
-        useUIStore.getState().setWorkBoardReturnSessionId(null);
     }), []);
     React.useEffect(() => followZonePlacementOfOtherWindows(), []);
     // Any full-page surface replacing the chat area. While open, the chat is
@@ -162,7 +160,6 @@ export const MainLayout: React.FC = () => {
             const draftOpened = Boolean(state.newSessionDraft?.open) && state.newSessionDraft !== prev.newSessionDraft;
             if (sessionSelected || draftOpened) {
                 closeSurfacePages();
-                useUIStore.getState().setWorkBoardReturnSessionId(null);
             }
         });
         return () => {
@@ -229,7 +226,11 @@ export const MainLayout: React.FC = () => {
                                             <div className={cn('absolute inset-0', isSurfacePageOpen && 'invisible')}>
                                                 <ErrorBoundary><ChatView active={!isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary>
                                             </div>
-                                            {!isSurfacePageOpen && !isSettingsDialogOpen && currentSessionId && workBoardReturnSessionId === currentSessionId && (
+                                            {/* A board the user has opened is a place they can always
+                                                return to, from any session — not only the one a card
+                                                launched. `workBoardProjectId` records that board, so
+                                                the button appears once a board has been visited. */}
+                                            {!isSurfacePageOpen && !isSettingsDialogOpen && workBoardProjectId !== null && (
                                                 <Button
                                                     type="button"
                                                     variant="outline"

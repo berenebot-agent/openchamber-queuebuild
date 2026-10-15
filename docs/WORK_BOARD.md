@@ -6,10 +6,18 @@ Open it from the **Work board** button in the session sidebar header. Project
 tabs across the board header switch between project boards. Choose **+** to add
 another project tab, or close a tab to hide it from the board. Closing a tab
 does not remove its project or cards. The open tabs and selected project are
-saved per runtime and restored when the app restarts. Choose a model in the
-board header. The board includes saved To-do cards and the selected project's
-top-level sessions in its root directory. Worktree directories retain their
-own Build queues.
+saved per runtime and restored when the app restarts. The board includes saved
+To-do cards and the selected project's top-level sessions in its root
+directory. Worktree directories retain their own Build queues.
+
+Choose **+** in the To-do column header to start a card. It opens a composer already set to
+**To-do**, so the brief saves instead of running a model, and the To-do chip is
+highlighted while that mode is active. A board the user has opened keeps a
+**Work Board** button beside the chat in every session, which returns to the
+board's last project.
+The **+** buttons in Plan and Building open a fresh composer for the board's
+project with the corresponding agent selected. Nothing runs until submission.
+Build submissions enter the existing queue and may appear in Queued first.
 
 ## Save a to-do
 
@@ -29,8 +37,11 @@ To-do cards live on the board. They do not add empty sessions to the sidebar.
 **Start Plan** creates a Plan session and submits the card's text and files as
 its first prompt. The card retains its saved contents and links to the session.
 Opening a linked card takes you to its chat.
-Choose an explicit model for this action. Auto routing is unavailable for
-promotion because it may select a different agent.
+The board starts the Plan turn on the model the Plan agent would use in a fresh
+chat, resolved through the usual defaults. The board has no model picker; to run
+a particular model, open the card's session and change it in the chat composer.
+Auto routing is unavailable for promotion because it may select a different
+agent.
 Edit an unstarted card on the board to change its text, add files, or remove files.
 
 If session creation or submission fails, the saved brief remains available.
@@ -52,6 +63,24 @@ Returning an idle card to To-do preserves the linked conversation and saved
 brief. It does not revert files or delete session history.
 Submitting another Plan or Build prompt returns the card to the corresponding
 lane. Changing the composer agent without submitting does not move it.
+
+## Complete cards
+
+Done is sorted by the successful Build turn's finish time, newest first.
+Session creation dates and unrelated session updates do not affect this order.
+
+An idle To-do or Plan card offers **Move to Done** in its card menu. This also
+works for inherited sessions that have never been saved as board cards. Manual
+completion is saved on the server and uses its completion time for Done ordering.
+Submitting a later Plan or Build prompt reopens the card. Completion preserves
+the conversation and never starts, stops, or cancels work.
+
+The three-dot menu beside Plan's **+** offers **Move all cards to Done**.
+The confirmation lists the cards and their count for the selected project.
+Busy cards and cards with unavailable status are excluded, with their count
+shown. The server rechecks idleness and saved-card revisions before each move.
+If some moves fail, successful moves remain saved and the board reports the
+failed cards. Refresh before retrying cards that changed during confirmation.
 
 ## Supported interfaces
 
