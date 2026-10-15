@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Window } from 'happy-dom';
 import type { RuntimeAPIs } from '@/lib/api/types';
+import type { EditorView as ComposerEditorView } from '@codemirror/view';
 
 /**
  * Counts which components render per keystroke without instrumenting them.
@@ -115,8 +116,12 @@ Object.assign(globalThis, {
 });
 
 // Nothing typed here reaches a server; every request answers empty.
-spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+const writes: string[] = [];
+spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
   const path = new URL(input instanceof Request ? input.url : input.toString(), 'http://localhost/').pathname;
+  const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+  if (method !== 'GET') writes.push(path);
+  if (path === '/api/build-queue') return Response.json({ revision: 0, active: [], queued: [], issues: [] });
   if (path.endsWith('/location')) {
     return Response.json({ directory: '/workspace', project: { id: 'project', directory: '/workspace', canonical: '/workspace' } });
   }
@@ -175,6 +180,8 @@ const sdk = OpenCode.make({
 const runtimeAPIs = { runtime: { platform: 'web', isDesktop: false, isVSCode: false }, sourceControl: {} } as RuntimeAPIs;
 
 const { useSessionUIStore } = await import('@/sync/session-ui-store');
+const { useConfigStore } = await import('@/stores/useConfigStore');
+const { getSyncChildStores } = await import('@/sync/sync-refs');
 
 const KEYSTROKES = 20;
 
@@ -187,10 +194,10 @@ type TypingCost = {
 };
 
 /** Mounts a fresh composer, types KEYSTROKES characters, and reports the per-keystroke cost. */
-const measureTyping = async (scenario: 'session' | 'draft'): Promise<TypingCost> => {
+const measureTyping = async (scenario: 'session' | 'draft', exercise?: (container: HTMLElement, view: ComposerEditorView) => Promise<void>): Promise<TypingCost> => {
   useDirectoryStore.setState({ currentDirectory: '/workspace' });
   useSessionUIStore.setState(scenario === 'session'
-    ? { currentSessionId: 'ses_typing', currentSessionDirectory: '/workspace' }
+    ? { currentSessionId: 'ses_typing', currentSessionDirectory: '/workspace', newSessionDraft: { ...useSessionUIStore.getState().newSessionDraft, open: false } }
     : {
         currentSessionId: null,
         currentSessionDirectory: null,
@@ -222,6 +229,10 @@ const measureTyping = async (scenario: 'session' | 'draft'): Promise<TypingCost>
     const content = container.querySelector<HTMLElement>('.cm-content');
     const view = content ? EditorView.findFromDOM(content) : null;
     if (!view) throw new Error('The composer editor did not mount');
+    if (exercise) {
+      await exercise(container, view);
+      await act(async () => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } }); });
+    }
 
     let languageContextUpdates = 0;
     const update = view.update.bind(view);
@@ -305,4 +316,37 @@ test('typing in an existing session re-renders only the composer shell and its e
 
 test('typing in a new-session draft re-renders only the composer shell and its editor', async () => {
   expectOnlyTheEditorFollowsTheText(await measureTyping('draft'));
+});
+
+test('To-do refuses queue and keyboard submission if the idle session becomes busy', async () => {
+  await measureTyping('session', async (container, view) => {
+    await act(async () => {
+      useConfigStore.setState({ currentProviderId: 'provider', currentModelId: 'model', currentAgentName: 'review', agents: [
+        { id: 'review', name: 'review', displayName: 'Review', mode: 'primary', hidden: false, request: { settings: {}, headers: {}, body: {} }, permissions: [] },
+      ] });
+    });
+    await act(async () => { view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true, cancelable: true })); });
+    expect(container.querySelector('[aria-label="Save to To-do"]')).not.toBeNull();
+    await act(async () => {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'Keep these notes private from execution' } });
+      getSyncChildStores().ensureChild('/workspace', { bootstrap: false }).getState().patch({ session_status: { ses_typing: { type: 'busy' } } });
+    });
+    writes.length = 0;
+    const queue = container.querySelector<HTMLButtonElement>('button[aria-label="Queue message"]');
+    expect(queue).not.toBeNull();
+    await act(async () => { queue?.click(); });
+    await act(async () => { view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })); });
+    expect(writes).toEqual([]);
+    expect(view.state.doc.toString()).toBe('Keep these notes private from execution');
+    await act(async () => { getSyncChildStores().ensureChild('/workspace', { bootstrap: false }).getState().patch({ session_status: { ses_typing: { type: 'idle' } } }); });
+  });
+});
+
+test('Auto model ignores the agent shortcut instead of entering an invisible To-do mode', async () => {
+  await measureTyping('session', async (container, view) => {
+    await act(async () => { useConfigStore.setState({ currentProviderId: 'openchamber', currentModelId: 'auto', currentAgentName: 'review' }); });
+    await act(async () => { view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true, cancelable: true })); });
+    expect(container.querySelector('[aria-label="Save to To-do"]')).toBeNull();
+    expect(useConfigStore.getState().currentAgentName).toBe('review');
+  });
 });

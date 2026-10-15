@@ -1601,7 +1601,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const isModelLabelTruncated = useIsTextTruncated(modelLabelRef, [currentModelDisplayName, isCompact]);
 
     const getAgentDisplayName = () => {
-        if (todoMode) return 'To-Do';
+        if (todoMode) return t('workBoard.todo');
         if (!uiAgentName) {
             const buildAgent = primaryAgents.find(agent => agent.name === 'build');
             const defaultAgent = buildAgent || primaryAgents[0];
@@ -2358,7 +2358,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             >
                 <div className="flex flex-col gap-2">
                     {onTodoModeChange && <button type="button" disabled={!todoAvailable} className={cn('flex w-full items-center gap-2 rounded-xl border py-2.5 px-3 text-start font-semibold', todoMode ? 'border-border bg-interactive-selection' : 'border-border/40', !todoAvailable && 'opacity-50')} onClick={() => { onTodoModeChange(true); closeMobilePanel(); }}>
-                        <Icon name="todo" className="size-4" />To-Do {todoMode && <Icon name="check" className="ms-auto size-4" />}
+                        <Icon name="todo" className="size-4" />{t('workBoard.todo')} {todoMode && <Icon name="check" className="ms-auto size-4" />}
                     </button>}
                     {selectableDesktopAgents.map((agent) => {
                         const isSelected = agent.name === uiAgentName;
@@ -3107,7 +3107,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 <ScrollableOverlay outerClassName="max-h-[min(400px,calc(var(--available-height)-4rem))] flex-1">
                                     <div className="p-1">
                                         {onTodoModeChange && !agentSearchQuery.trim() && <DropdownMenuItem disabled={!todoAvailable} className="typography-meta" onSelect={() => { onTodoModeChange(true); setIsAgentSelectorOpen(false); }}>
-                                            <Icon name="todo" className="size-3.5" /><span className="font-medium">To-Do</span>{todoMode && <Icon name="check" className="ms-auto size-4" />}
+                                            <Icon name="todo" className="size-3.5" /><span className="font-medium">{t('workBoard.todo')}</span>{todoMode && <Icon name="check" className="ms-auto size-4" />}
                                         </DropdownMenuItem>}
                                         {!agentSearchQuery.trim() && defaultAgentName && (
                                             <>

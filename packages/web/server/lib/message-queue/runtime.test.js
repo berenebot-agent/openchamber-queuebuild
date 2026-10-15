@@ -42,6 +42,7 @@ const createOpenCode = () => {
     sent: [],
     switched: [],
     failNext: null,
+    failMessages: false,
     failStatus: 500,
     htmlNext: null,
   };
@@ -70,7 +71,8 @@ const createOpenCode = () => {
       const parentID = Object.keys(state.children).find((parent) => state.children[parent].includes(id));
       return wrapped({ id, parentID });
     }
-    if (pathname.endsWith('/message')) return Response.json({ data: state.tail, cursor: {} });
+    if (pathname.endsWith('/message')) return state.failMessages
+      ? new Response('unavailable', { status: 503 }) : Response.json({ data: state.tail, cursor: {} });
     if (pathname === '/api/command') return wrapped(state.commands);
     if (method === 'POST' && (pathname.endsWith('/model') || pathname.endsWith('/agent'))) {
       // Kept apart from `sent`: switching the session is not a message.
@@ -86,7 +88,7 @@ const createOpenCode = () => {
   return { state, fetchImpl };
 };
 
-const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, prepareBuildCommit, buildMonitorDelayMs, buildRecheckMs, settingsFilePath } = {}) => {
+const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, prepareBuildCommit, buildMonitorDelayMs, buildRecheckMs, buildCompletionGraceMs, settingsFilePath } = {}) => {
   let eventHandler = () => {};
   let statusHandler = () => {};
   const broadcasts = [];
@@ -115,6 +117,7 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   if (prepareBuildCommit) options.prepareBuildCommit = prepareBuildCommit;
   if (buildMonitorDelayMs !== undefined) options.buildMonitorDelayMs = buildMonitorDelayMs;
   if (buildRecheckMs !== undefined) options.buildRecheckMs = buildRecheckMs;
+  if (buildCompletionGraceMs !== undefined) options.buildCompletionGraceMs = buildCompletionGraceMs;
   if (settingsFilePath !== undefined) options.settingsFilePath = settingsFilePath;
   const runtime = createMessageQueueRuntime(options);
   return {
@@ -1288,6 +1291,56 @@ describe('project-wide build queue', () => {
     expect(promptCalls(second.openCode).map(call => call.body.text)).toEqual(['safe successor']);
     second.runtime.stop();
     await second.runtime.flush();
+  });
+
+  it('offers manual recovery when a live lease stays idle without a completed reply', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10, buildCompletionGraceMs: 40 });
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'first' }));
+      await runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'second' }));
+      await settle(140);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'completion-unconfirmed' });
+      await runtime.resolveBuild(DIRECTORY, 'skip');
+      await settle(30);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('allows delayed startup and completion during the grace period', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10, buildCompletionGraceMs: 200 });
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true }));
+      await settle(45);
+      expect(runtime.buildSnapshot().active[0].needsReview).not.toBe(true);
+      openCode.state.active[SESSION] = { type: 'running' };
+      await settle(30);
+      delete openCode.state.active[SESSION];
+      openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+      await settle(45);
+      expect(promptCalls(openCode)).toHaveLength(2);
+      expect(runtime.buildSnapshot().active.every(lease => !lease.needsReview)).toBe(true);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('does not count failed activity reads as idle time for manual recovery', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10, buildCompletionGraceMs: 80 });
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await settle(35);
+      openCode.state.failMessages = true;
+      await settle(120);
+      expect(runtime.buildSnapshot().active[0].needsReview).not.toBe(true);
+      openCode.state.failMessages = false;
+      await settle(35);
+      expect(runtime.buildSnapshot().active[0].needsReview).not.toBe(true);
+      await settle(110);
+      expect(runtime.buildSnapshot().active[0].needsReview).toBe(true);
+    } finally { runtime.stop(); await runtime.flush(); }
   });
 
   it('returns 404 when attempting to pause a nonexistent build', async () => {

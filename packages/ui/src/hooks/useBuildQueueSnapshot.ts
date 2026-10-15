@@ -1,5 +1,6 @@
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 
 export interface BuildQueueEntry {
   id: string;
@@ -30,11 +31,15 @@ export interface BuildQueueSnapshot {
   commits?: Array<{ directory: string; hash: string; subject: string }>;
 }
 
-export function useBuildQueueSnapshot() {
+export function useBuildQueueSnapshot(enabled = true) {
   const [snapshot, setSnapshot] = React.useState<BuildQueueSnapshot | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const sequence = React.useRef(0);
 
   const refresh = React.useCallback(async () => {
+    if (!enabled) return;
+    const request = ++sequence.current;
+    const runtime = getRuntimeKey();
     try {
       const response = await runtimeFetch('/api/build-queue');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -42,23 +47,36 @@ export function useBuildQueueSnapshot() {
       if (!Array.isArray(data.active) || !Array.isArray(data.queued) || !Array.isArray(data.issues)) {
         throw new Error('Invalid build queue response');
       }
+      if (request !== sequence.current || runtime !== getRuntimeKey()) return;
       setSnapshot(data);
       setError(null);
     } catch (cause) {
+      if (request !== sequence.current || runtime !== getRuntimeKey()) return;
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, []);
+  }, [enabled]);
 
   React.useEffect(() => {
+    setSnapshot(null);
+    setError(null);
+    if (!enabled) return;
+    const unsubscribe = subscribeRuntimeEndpointChanged(() => {
+      sequence.current += 1;
+      setSnapshot(null);
+      setError(null);
+      void refresh();
+    });
     void refresh();
     const interval = setInterval(() => void refresh(), 3000);
     const onVisibilityChange = () => { if (document.visibilityState === 'visible') void refresh(); };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
+      sequence.current += 1;
+      unsubscribe();
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [refresh]);
+  }, [enabled, refresh]);
 
   return { snapshot, error, refresh };
 }

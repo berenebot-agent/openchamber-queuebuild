@@ -40,16 +40,8 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
       const directory = await resolveDirectory(req, body.directory);
       const sessionDirectory = body.sessionDirectory ? await resolveDirectory(req, body.sessionDirectory) : directory;
       const sessionId = z.string().trim().min(1).parse(req.params.sessionId);
-      const card = await messageQueueRuntime.parkSession(sessionId, sessionDirectory, async () => {
-        const existing = (await store.list(directory)).find(entry => entry.sessionId === sessionId);
-        const parts = [existing?.text, body.text].filter(value => typeof value === 'string' && value.trim());
-        const text = [...new Set(parts)].join('\n\n');
-        const attachments = [...(existing?.attachments ?? []), ...body.attachments];
-        if (!text.trim() && !attachments.length) throw Object.assign(new Error('Add notes before parking this session'), { status: 400 });
-        if (existing) return store.update(existing.id, { text, attachments, stage: 'todo' });
-        const created = await store.create({ directory, text, attachments });
-        return store.update(created.id, { sessionId, stage: 'todo' });
-      });
+      const card = await messageQueueRuntime.parkSession(sessionId, sessionDirectory,
+        () => store.parkSession({ directory, sessionId, text: body.text, attachments: body.attachments }));
       return res.json({ card });
     } catch (error) { return failure(res, error); }
   });

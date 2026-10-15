@@ -15,7 +15,6 @@ import { prepareLocalAttachments, useDraftAttachedFiles, useInputStore, type Syn
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { createWorkBoardCard, saveSessionToTodo } from '@/lib/workBoardApi';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { Button } from '@/components/ui/button';
 import { captureWorkBoardAttachments } from '@/components/workBoard/workBoardWorkflow';
 import { openParallelComposer } from '@/lib/multirun/openParallelComposer';
 import { useParallelComposer } from './composer/parallel/useParallelComposer';
@@ -83,7 +82,7 @@ import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
 import { isCapacitorApp } from '@/lib/platform';
 import { isIMECompositionEvent } from '@/lib/ime';
 import { setNativeImagePasteEnabled, subscribeToNativeImagePastes } from '@/lib/nativeImagePaste';
-import { getCycledPrimaryAgentName, type MobileControlsPanel } from './mobileControlsUtils';
+import { getCycledComposerMode, type MobileControlsPanel } from './mobileControlsUtils';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -1357,20 +1356,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [attachedFiles.length, hasDrafts, hasLinkedReferences, isBtwActive]);
 
     const [todoMode, setTodoMode] = React.useState(false);
-    React.useEffect(() => { setTodoMode(false); }, [currentSessionId, newSessionDraftOpen, activeRuntimeKey]);
+    const todoSupported = !isMobile && !isCapacitorApp() && !isVSCodeRuntime() && !isBtwActive && !parallelActive
+        && !isAutoModel(currentProviderId, currentModelId);
+    React.useEffect(() => { setTodoMode(false); }, [currentSessionId, newSessionDraftOpen, activeRuntimeKey, todoSupported]);
     const [savingTodo, setSavingTodo] = React.useState(false);
-    const { snapshot: todoBuildQueue, error: todoQueueError } = useBuildQueueSnapshot();
+    const { snapshot: todoBuildQueue, error: todoQueueError } = useBuildQueueSnapshot(todoSupported && Boolean(currentSessionId));
     const todoQueueBlocked = Boolean(currentSessionId && (
         todoBuildQueue?.queued.some(item => item.sessionId === currentSessionId)
         || todoBuildQueue?.active.some(item => item.sessionId === currentSessionId)
     ));
-    const todoAvailable = !savingTodo && (!currentSessionId || (
+    const todoAvailable = todoSupported && !savingTodo && (!currentSessionId || (
         currentSessionPhase === 'idle' && !autoReviewRunning && !hasQueuedMessages
         && !todoQueueBlocked && !todoQueueError && todoBuildQueue !== null
     ));
     const saveToTodo = React.useCallback(async () => {
         if (savingTodo || !chatDraftIdentity || !todoAvailable) {
-            if (!todoAvailable) toast.error('Remove queued messages and wait for the session to become idle before saving to To-Do');
+            if (!todoAvailable) toast.error(t('workBoard.parkBlocked'));
             return;
         }
         const draft = getCurrentInputSnapshot().message;
@@ -1426,6 +1427,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         targetOverride?: MessageQueueTarget,
         inputOverride?: { message: string; hasContent: boolean },
     ) => {
+        // Queue buttons must obey the same virtual mode as Enter and Send.
+        if (todoMode && !isBtwActive && !parallelActive) { await saveToTodo(); return; }
         // The comment's exit paths are attach/cancel; queueing a real prompt
         // underneath comment mode must never fire.
         if (isMobileCommentOpen()) return;
@@ -1562,7 +1565,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }
         void resumeAfterQueue().catch(console.warn);
         recordLinkedReferences(queueSessionId, queueTarget.directory, linked);
-    }, [getCurrentInputSnapshot, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareReadOnSendMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t]);
+    }, [getCurrentInputSnapshot, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareReadOnSendMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t, todoMode, isBtwActive, parallelActive, saveToTodo]);
 
     /**
      * The first build prompt of a session has no session id yet: the composer
@@ -2439,7 +2442,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         } else {
             void handleSubmitRef.current();
         }
-    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isMobileCommentOpen, todoMode, saveToTodo]);
+    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isMobileCommentOpen, todoMode, saveToTodo, parallel.isActive]);
 
     // Draft welcome presets: submit immediately.
     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
@@ -2744,29 +2747,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [abortCurrentOperation, btwSessionId, clearAbortPrompt, currentSessionId, isBtwActive]);
 
     const handleCycleAgent = React.useCallback((direction: 1 | -1 = 1) => {
-        const modes = ['todo', 'plan', 'build'].filter(mode => mode === 'todo' || agents.some(agent => agent.name === mode));
-        const index = modes.indexOf(todoMode ? 'todo' : currentAgentName);
-        if (!isBtwActive && !parallel.isActive && index >= 0 && modes.length > 1) {
-            const next = modes[(index + direction + modes.length) % modes.length];
-            if (next === 'todo') { if (todoAvailable) setTodoMode(true); return; }
-            setTodoMode(false);
-            if (!columnPinned) setAgent(next);
-            if (currentSessionId) saveSessionAgentSelection(currentSessionId, next);
-            return;
-        }
         // Auto hides the agent control, so the shortcut must not change a
         // choice the user cannot see.
         if (isAutoModel(currentProviderId, currentModelId)) return;
-        const nextAgentName = getCycledPrimaryAgentName(agents, currentAgentName, direction, useUIStore.getState().favoriteAgents);
-        if (!nextAgentName) return;
+        const next = getCycledComposerMode(agents, currentAgentName, todoMode, todoAvailable, direction, useUIStore.getState().favoriteAgents);
+        if (!next) return;
+        if (next.kind === 'todo') { setTodoMode(true); return; }
+        setTodoMode(false);
 
         // A pinned column's agent is its own session's choice only.
-        if (!columnPinned) setAgent(nextAgentName);
+        if (!columnPinned) setAgent(next.name);
 
         if (currentSessionId) {
-            saveSessionAgentSelection(currentSessionId, nextAgentName);
+            saveSessionAgentSelection(currentSessionId, next.name);
         }
-    }, [agents, columnPinned, currentAgentName, currentModelId, currentProviderId, currentSessionId, setAgent, saveSessionAgentSelection, todoMode, todoAvailable, isBtwActive, parallel.isActive]);
+    }, [agents, columnPinned, currentAgentName, currentModelId, currentProviderId, currentSessionId, setAgent, saveSessionAgentSelection, todoMode, todoAvailable]);
 
     // Height the failed-dictation salvage text needs. Its overlay sits
     // absolutely over the composer, so the composer must be able to grow for
@@ -4560,7 +4555,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         hasContent={Boolean(hasContent)}
                         todoMode={todoMode && !isBtwActive && !parallelActive}
                         todoAvailable={todoAvailable}
-                        onTodoModeChange={!isBtwActive && !parallelActive ? setTodoMode : undefined}
+                        onTodoModeChange={todoSupported ? setTodoMode : undefined}
                         isExpandedInput={isExpandedInput}
                         permissionMode={shownPermissionMode}
                         isPermissionAutoAcceptInteractive={isPermissionAutoAcceptInteractive}

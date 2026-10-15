@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardLane } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -41,6 +41,22 @@ describe('work board lanes', () => {
     expect(workBoardLane(parked, { messages: [user(2), assistant('plan', 3)], busy: true }, undefined)).toBe('plan');
     expect(workBoardLane(parked, { messages: [user(2), assistant('build', 3), idle, user(7), assistant('plan', 8)], busy: true }, undefined)).toBe('plan');
     expect(workBoardLane(parked, { messages: [user(2), assistant('build', 3), idle, user(7)], busy: false }, undefined)).toBe('plan');
+  });
+});
+
+describe('compact card feedback', () => {
+  test('reports unknown activity even if cached history succeeded', () => {
+    expect(workBoardFeedback(undefined, false, false)).toBe('unknown');
+    expect(workBoardFeedback({ messages: [idle], busy: false }, true, false)).toBe('unknown');
+  });
+  test('keeps failed, stopped and uncertain turns visible without marking a new turn blocked', () => {
+    const failed: Message = { ...idle, outcome: 'failed', error: undefined };
+    const stopped: Message = { ...idle, outcome: 'interrupted' };
+    expect(workBoardFeedback({ messages: [user(2), failed], busy: false }, false, false)).toBe('blocked');
+    expect(workBoardFeedback({ messages: [user(2), stopped], busy: false }, false, false)).toBe('blocked');
+    expect(workBoardFeedback({ messages: [idle], busy: false }, false, true)).toBe('blocked');
+    expect(workBoardFeedback({ messages: [failed, user(7)], busy: true }, false, false)).toBeUndefined();
+    expect(workBoardFeedback({ messages: [user(2), idle], busy: false }, false, false)).toBeUndefined();
   });
 });
 

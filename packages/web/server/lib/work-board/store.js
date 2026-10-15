@@ -23,6 +23,7 @@ const contentSchema = z.object({ text: z.string().default(''), attachments: z.ar
   .refine(value => value.text.trim() || value.attachments.length, 'Text or attachments are required')
   .refine(value => Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_PAYLOAD_BYTES, 'Work board payload exceeds 50 MiB');
 const createSchema = z.object({ directory: nonempty, text: z.string().default(''), attachments: z.array(attachmentSchema).default([]) });
+const parkSchema = createSchema.extend({ sessionId: nonempty });
 const updateSchema = z.object({
   text: z.string().optional(), attachments: z.array(attachmentSchema).optional(),
   sessionId: nonempty.optional(), stage: z.enum(['todo', 'plan']).optional(),
@@ -67,6 +68,30 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
   };
   return {
     list: directory => serialized(async () => (await read()).filter(card => directory === undefined || card.directory === directory)),
+    parkSession: input => serialized(async () => {
+      const parsed = parkSchema.safeParse(input);
+      if (!parsed.success) throw invalid(parsed.error);
+      const { directory, sessionId, text, attachments } = parsed.data;
+      const cards = await read();
+      const index = cards.findIndex(card => card.directory === directory && card.sessionId === sessionId);
+      const current = cards[index];
+      const previousText = current?.text ?? '';
+      const alreadySaved = previousText === text || previousText.endsWith(`\n\n${text}`);
+      const mergedText = !text.trim() || alreadySaved ? previousText
+        : [previousText, text].filter(value => value.trim()).join('\n\n');
+      const mergedFiles = new Map((current?.attachments ?? []).map(file => [file.id, file]));
+      for (const file of attachments) mergedFiles.set(file.id, file);
+      const content = contentSchema.safeParse({ text: mergedText, attachments: [...mergedFiles.values()] });
+      if (!content.success) throw invalid(content.error);
+      const at = now();
+      const card = { id: current?.id ?? id(), directory, ...content.data, sessionId,
+        stage: 'todo', createdAt: current?.createdAt ?? at, updatedAt: at };
+      const next = [...cards];
+      if (index < 0) next.push(card);
+      else next[index] = card;
+      await write(next);
+      return card;
+    }),
     create: input => serialized(async () => {
       const parsed = createSchema.safeParse(input);
       if (!parsed.success) throw invalid(parsed.error);

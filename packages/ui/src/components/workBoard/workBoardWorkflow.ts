@@ -7,6 +7,16 @@ export type WorkBoardActivity = {
   busy: boolean;
 };
 
+export function workBoardFeedback(activity: WorkBoardActivity | undefined, unavailable: boolean, needsReview: boolean): 'unknown' | 'blocked' | undefined {
+  if (unavailable || !activity) return 'unknown';
+  const messages = [...activity.messages].reverse();
+  const lastIdle = messages.find(message => message.role === 'idle');
+  const lastPrompt = messages.find(message => message.role === 'user');
+  if (needsReview || (!activity.busy && lastIdle?.role === 'idle' && lastIdle.outcome !== 'succeeded'
+    && lastIdle.time.created >= (lastPrompt?.time.created ?? 0))) return 'blocked';
+  return undefined;
+}
+
 export function workBoardLane(card: WorkBoardCard, activity: WorkBoardActivity | undefined, queue: 'queued' | 'building' | undefined): WorkBoardLane {
   if (queue) return queue;
   // A new user turn after parking reopens the card without a UI-only marker.

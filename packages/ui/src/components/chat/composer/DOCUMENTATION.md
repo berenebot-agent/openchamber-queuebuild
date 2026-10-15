@@ -9,13 +9,24 @@ belongs to one of them.
 
 ## Save to To-do
 
-Web and desktop composers offer Save to To-do for text or file attachments.
-The action captures those contents in the server work board without creating
-an OpenCode session or calling a model. It clears only a composer whose runtime,
+Web and desktop composers, including pinned columns, offer a virtual To-do
+mode in the agent picker for text or file attachments. Tab cycles through the
+available primary or favorite agents and To-do, skipping To-do while parking
+is unavailable. Auto hides this picker and disables the shortcut.
+An existing session can be parked only while idle, with no queued messages,
+active Build lease, or auto-review run, and with a healthy queue snapshot.
+Every submit path, including the busy-session queue button, keeps To-do notes
+out of execution if the session becomes busy after To-do was selected.
+Saving a new-session draft creates a card without an OpenCode session or model
+call. Saving an existing session atomically creates or updates its linked card
+through the server's parking operation. It clears only a composer whose runtime,
 draft identity, text, and files still match the captured save after acceptance.
 Edits made during a save stay in the composer. Linked reference chips and pinned
 project context are outside this capture; they remain in the composer.
 The dedicated mobile and VS Code composers do not offer this action.
+Their composers do not start To-do queue polling. Auto, BTW, parallel mode,
+and new-session drafts also skip this parking-status poll. Queue snapshot
+requests reject stale responses after disable, unmount, or runtime change.
 See `docs/WORK_BOARD.md` and `components/workBoard` for promotion and recovery.
 
 `ChatContainer.tsx` keeps one `ChatInput` mounted while a new-session draft

@@ -102,7 +102,6 @@ export async function prepareQueuedBuild({ directory, run, generateMessage, onPr
   const root = await fs.realpath(probe.stdout.trim());
   if (unsupportedRepositoryRootReason(root)) throw new Error('Cannot prepare a repository rooted at a home directory or filesystem root.');
   const relative = path.relative(root, project).split(path.sep).join('/');
-  const scope = relative ? `:(literal)${relative}` : '.';
   const status = await execute(root, ['status', '--porcelain=v1', '--untracked-files=normal'], 'Git status');
   const conflicts = await execute(root, ['ls-files', '--unmerged', '-z'], 'Conflict inspection');
   if (conflicts) throw new Error('Resolve Git conflicts before retrying the queued build.');

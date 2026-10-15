@@ -18,8 +18,8 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { fetchWorkBoard, createWorkBoardCard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
-import { workBoardLane, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
+import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
+import { workBoardLane, workBoardFeedback, startWorkBoardPlan, captureWorkBoardAttachments, type WorkBoardActivity, type WorkBoardLane } from './workBoardWorkflow';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queued', 'building', 'done'];
 
@@ -271,10 +271,13 @@ export function WorkBoardView() {
             {inLane.map(card => {
               const activity = activities.get(card.id);
               const statusUnknown = Boolean(card.sessionId) && (!activity || unavailable.has(card.id));
+              const active = !queueError ? queue?.active.find(item => item.sessionId === card.sessionId) : undefined;
+              const feedback = card.sessionId ? workBoardFeedback(activity, statusUnknown, Boolean(active?.needsReview)) : undefined;
               const hasRunningTurn = Boolean(activity?.busy);
               const canReturnToTodo = Boolean(card.sessionId) && lane !== 'todo' && lane !== 'queued'
-                && lane !== 'building' && !hasRunningTurn && !statusUnknown;
-              const canRemove = lane === 'todo' && !hasRunningTurn;
+                && lane !== 'building' && !hasRunningTurn && !statusUnknown && !queueError && queue !== null;
+              const canRemove = lane === 'todo' && !hasRunningTurn
+                && (!card.sessionId || (!statusUnknown && !queueError && queue !== null));
               const title = workBoardCardTitle(card.text, card.attachments);
               return <article key={card.id} className="group relative rounded-md border border-border bg-surface-elevated px-2.5 py-1.5">
                 {editing === card.id ? <>
@@ -305,6 +308,7 @@ export function WorkBoardView() {
                     </DropdownMenuContent>
                   </DropdownMenu>}
                 </div>}
+                {feedback && <p className={feedback === 'blocked' ? 'text-xs text-[var(--status-warning-text)]' : 'text-xs text-muted-foreground'}>{t(`workBoard.${feedback}`)}</p>}
               </article>;
             })}
           </div>

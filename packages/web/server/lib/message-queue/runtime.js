@@ -285,6 +285,7 @@ export function createMessageQueueRuntime({
   prepareBuildCommit = null,
   buildMonitorDelayMs = 2500,
   buildRecheckMs = BUILD_RECHECK_MS,
+  buildCompletionGraceMs = 30000,
   settingsFilePath = defaultBuildQueueSettingsFile,
 }) {
   const filePath = path.join(dataDir, QUEUE_FILE_NAME);
@@ -737,22 +738,28 @@ export function createMessageQueueRuntime({
     // completed: it may have been interrupted, especially across a restart.
     // Require a completed assistant response from this lease's own turn.
     let completed = false;
+    let inspected = false;
     if (idle === true && children === false) {
       const page = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
         directory, query: { limit: '5' },
       }).catch(() => null);
-      completed = (asList(asRecord(page)?.data) ?? []).some(value => {
+      const messages = asList(asRecord(page)?.data);
+      inspected = messages !== null;
+      completed = (messages ?? []).some(value => {
         const message = asRecord(value);
         return (message?.type === 'assistant' || message?.role === 'assistant')
           && (asCount(asRecord(message.time)?.completed) ?? 0) >= lease.startedAt;
       });
     }
     if (activeBuilds.get(directory) !== lease) return;
-    if (lease.restored && idle === true && children === false && !completed) {
+    if (idle !== true || children !== false || !inspected) delete lease.unconfirmedIdleAt;
+    else if (!completed) lease.unconfirmedIdleAt ??= now();
+    if (inspected && idle === true && children === false && !completed
+      && (lease.restored || now() - lease.unconfirmedIdleAt >= buildCompletionGraceMs)) {
       // The previous server may have died mid-turn, or OpenCode may still be
       // starting the accepted prompt. Neither permits starting another build.
       lease.needsReview = true;
-      lease.reviewReason = 'restart-unconfirmed';
+      lease.reviewReason = lease.restored ? 'restart-unconfirmed' : 'completion-unconfirmed';
       commit(lease.sessionId);
       return;
     }

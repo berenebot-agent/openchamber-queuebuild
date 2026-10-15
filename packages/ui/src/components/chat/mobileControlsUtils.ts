@@ -39,6 +39,27 @@ export const getCycledPrimaryAgentName = (
     return primaryAgents[nextIndex]?.name ?? null;
 };
 
+type ComposerMode = { kind: 'todo' } | { kind: 'agent'; name: string };
+
+/** Adds the virtual To-do step without dropping primary or favorite agents. */
+export const getCycledComposerMode = (
+    agents: readonly CyclableAgent[],
+    currentAgentName: string | undefined,
+    todoMode: boolean,
+    todoAvailable: boolean,
+    direction: 1 | -1 = 1,
+    favoriteAgentNames: readonly string[] = [],
+): ComposerMode | null => {
+    const primary = getCyclablePrimaryAgents(agents);
+    const favorites = primary.filter(agent => favoriteAgentNames.includes(agent.name));
+    const modes: ComposerMode[] = (favorites.length ? favorites : primary).map(agent => ({ kind: 'agent', name: agent.name }));
+    if (todoAvailable) modes.unshift({ kind: 'todo' });
+    const index = modes.findIndex(mode => todoMode ? mode.kind === 'todo' : mode.kind === 'agent' && mode.name === currentAgentName);
+    if (index < 0) return (direction === 1 ? modes[0] : modes.at(-1)) ?? null;
+    if (modes.length <= 1) return null;
+    return modes[(index + direction + modes.length) % modes.length] ?? null;
+};
+
 const capitalizeLabel = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 export const getAgentDisplayName = (agents: Agent[], agentName?: string) => {

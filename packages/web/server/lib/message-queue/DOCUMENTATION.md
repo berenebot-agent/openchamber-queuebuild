@@ -231,6 +231,11 @@ It blocks another model call for that item until "Retry preparation" uses
 `POST /api/build-queue/resolve` with `action: 'retry'`, or a different policy
 is observed. The existing uncertain-dispatch review flow remains separate.
 A restart re-inspects Git; an already completed clean commit is a no-op. A restored running lease is released only when a completed assistant turn is verifiable; otherwise the queue remains paused for manual review.
+Live leases that remain verifiably idle without completion evidence for 30 seconds
+also enter manual review. Delayed startup can settle during this grace period.
+A busy session, active descendant, or failed activity/history read resets the
+idle grace period. Unknown status keeps the lease held; it never admits the next
+Build. Continue releases an uncertain dispatched lease only after an idle check.
 The Git service's scope, ignore rules and failure contract are documented in
 `../git/DOCUMENTATION.md`, under "Automatic build preparation".
 

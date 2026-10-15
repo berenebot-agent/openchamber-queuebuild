@@ -58,4 +58,44 @@ describe('work board persistence', () => {
       expect(await store.list()).toEqual([card]);
     } finally { await remove(dataDir); }
   });
+
+  it('parks a session with one atomic write and retries without duplicating notes or attachments', async () => {
+    const { dataDir } = await setup();
+    try {
+      let writes = 0;
+      const store = createWorkBoardStore({ dataDir, fs: { ...fs, rename: async (...args) => {
+        writes += 1;
+        return fs.rename(...args);
+      } } });
+      const request = { ...input(), sessionId: 'session1', attachments: [
+        { id: 'attachment1', filename: 'a.txt', mimeType: 'text/plain', size: 2, dataUrl: 'data:text/plain;base64,aGk=' },
+      ] };
+      const first = await store.parkSession(request);
+      expect(writes).toBe(1);
+      expect(first).toMatchObject({ sessionId: 'session1', stage: 'todo' });
+      const note = { ...request, text: 'Extra note' };
+      await store.parkSession(note);
+      const retried = await store.parkSession(note);
+      expect(retried.id).toBe(first.id);
+      expect(retried.text).toBe('Plan this\n\nExtra note');
+      expect(retried.attachments).toHaveLength(1);
+      expect(await store.list()).toHaveLength(1);
+    } finally { await remove(dataDir); }
+  });
+
+  it('leaves no orphan card on a failed park and preserves existing cards on a failed update', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      const original = await store.create(input('/other'));
+      const failing = createWorkBoardStore({ dataDir, fs: { ...fs, rename: async () => { throw new Error('disk failure'); } } });
+      const request = { ...input(), sessionId: 'session1' };
+      await expect(failing.parkSession(request)).rejects.toThrow('disk failure');
+      expect(await store.list()).toEqual([original]);
+      const saved = await store.parkSession(request);
+      await expect(failing.parkSession({ ...request, text: 'Extra note' })).rejects.toThrow('disk failure');
+      expect(await store.list()).toEqual([original, saved]);
+      await Promise.all([store.parkSession(request), store.parkSession(request)]);
+      expect(await store.list()).toHaveLength(2);
+    } finally { await remove(dataDir); }
+  });
 });

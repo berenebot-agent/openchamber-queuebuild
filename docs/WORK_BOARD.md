@@ -10,9 +10,13 @@ retain their own Build queues.
 ## Save a to-do
 
 Write the initial brief in the chat composer and attach files, then choose
-**Save to To-do**. The text and files are saved on the OpenChamber server.
-Saving does not create an OpenCode session or call a model. The composer clears
-only after the server confirms the save.
+**To-do** in the agent picker and submit to save. The text and files are saved
+on the OpenChamber server. Saving a new-session draft does not create an
+OpenCode session or call a model. Saving from an existing idle session links
+the card to that conversation. Remove queued messages and wait for active work
+to finish before parking an existing session. The composer clears only after
+the server confirms the save. If the session becomes busy while To-do is
+selected, its notes stay in the composer and cannot be queued for execution.
 
 To-do cards live on the board. They do not add empty sessions to the sidebar.
 
@@ -37,6 +41,8 @@ agent to submit implementation work through the normal composer. A successful,
 settled Build turn moves to Done. Done does not certify tests or a release.
 Failed or stopped turns show an attention notice. An unavailable status stays
 visible as an error and is never treated as proof of completion.
+Compact cards retain these notices below their titles. Linked-card removal
+and return actions wait for known session and queue state.
 
 Returning an idle card to To-do preserves the linked conversation and saved
 brief. It does not revert files or delete session history.

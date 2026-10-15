@@ -448,6 +448,18 @@ describe('ModelControls effort restore', () => {
     });
   });
 
+  test('a pinned composer displays its virtual To-do selection without changing the session agent', async () => {
+    const { dom, cleanup } = await renderModelControls({
+      sessionId: SESSION_ID,
+      selection: { model: { providerId: PROVIDER_ID, modelId: MODEL_ID }, agent: AGENT, variant: undefined },
+      agentSelectable: true, todoMode: true, todoAvailable: true, onTodoModeChange: () => undefined,
+    });
+    try {
+      expect(dom.container.querySelector('.model-controls__agent-label')?.textContent).toBe('To-do');
+      expect(useSelectionStore.getState().getSessionAgentSelection(SESSION_ID)).toBe(AGENT);
+    } finally { await cleanup(); }
+  });
+
   for (const missing of ['request', 'body', 'permissions', 'v2 fields']) {
     test(`renders a cached agent without ${missing}`, async () => {
       const request = agent.request;
