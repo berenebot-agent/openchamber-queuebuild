@@ -973,7 +973,9 @@ session's saved-brief entry. New drafts return to their project's board and show
 the saved text in a dialog; existing sessions stay selected. The composer only
 clears unchanged text and attachments after the save succeeds. The transcript's
 `SessionSavedTodos` entry reloads linked cards from the server on session entry
-and focus, preserving loaded text on read failure. It never invokes a model or
+and focus, preserving loaded text on read failure. It shows only cards still in
+To-do, so a promoted brief is not echoed beside its own user turn; returning a
+card to To-do restores the entry. It never invokes a model or
 adds synthetic context. See `docs/WORK_BOARD.md` for ownership and supported
 interfaces.
 

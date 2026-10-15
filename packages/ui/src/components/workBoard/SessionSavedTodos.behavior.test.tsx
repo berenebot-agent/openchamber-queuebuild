@@ -84,3 +84,42 @@ test('session view restores full to-do text and attachments, preserves it on fai
     await dom.happyDOM.close();
   }
 });
+
+test('only a parked To-do card shows a footer entry; promotion hides it and a return to To-do restores it', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = { window: dom, document: dom.document, navigator: dom.navigator, CustomEvent: dom.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true };
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  const { SessionSavedTodos } = await import('./SessionSavedTodos');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const parked: WorkBoardCard = {
+    id: 'card1', sessionId: 'plan1', directory: '/repo', stage: 'todo',
+    text: 'Pending brief', createdAt: 1, updatedAt: 1, attachments: [],
+  };
+  let served: WorkBoardCard[] = [parked];
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ cards: served }));
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const render = async () => {
+    await act(async () => { root.render(<I18nProvider><SessionSavedTodos sessionId="plan1" /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 10)); });
+  };
+  try {
+    await render();
+    expect(container.textContent).toContain(parked.text);
+    // Promotion submits the text into the session, so the card leaves To-do. The
+    // transcript already shows the message; the footer must not echo it.
+    served = [{ ...parked, stage: 'plan', updatedAt: 2 }];
+    await act(async () => dom.dispatchEvent(new dom.Event('focus')));
+    expect(container.textContent).not.toContain(parked.text);
+    // A later send to a done card returns it to To-do, so the pending entry comes back.
+    served = [{ ...parked, stage: 'todo', updatedAt: 3 }];
+    await act(async () => dom.dispatchEvent(new dom.Event('focus')));
+    expect(container.textContent).toContain(parked.text);
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore();
+    for (const [name, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, name, descriptor); else Reflect.deleteProperty(globalThis, name); }
+    await dom.happyDOM.close();
+  }
+});

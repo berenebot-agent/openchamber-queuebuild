@@ -44,9 +44,13 @@ export function SessionSavedTodos({ sessionId }: { sessionId: string }) {
   const cards = saved && current?.save !== saved
     ? [...(current?.cards.filter(card => card.id !== saved.id) ?? []), saved]
     : current?.cards ?? (saved ? [saved] : []);
-  if (!cards.length && !current?.failed) return null;
+  // A parked brief is a pending message. Once the card is promoted, its text is
+  // a real user turn in the transcript, so the footer entry would duplicate it.
+  // Only a card still in To-do carries text the session has not received.
+  const pending = cards.filter(card => card.stage === 'todo');
+  if (!pending.length && !current?.failed) return null;
   return <div className="mx-auto w-full max-w-3xl space-y-3 px-4 py-3">
-    {cards.map(card => <SavedTodoBrief key={card.id} card={card} />)}
+    {pending.map(card => <SavedTodoBrief key={card.id} card={card} />)}
     {current?.failed && <div role="alert" className="text-sm text-muted-foreground">
       {t('workBoard.loadSavedFailed')}
       <Button size="sm" variant="ghost" onClick={() => setRetry(value => value + 1)}>{t('workBoard.retry')}</Button>

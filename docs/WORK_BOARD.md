@@ -19,6 +19,10 @@ The **+** buttons in Plan and Building open a fresh composer for the board's
 project with the corresponding agent selected. Nothing runs until submission.
 Build submissions enter the existing queue and may appear in Queued first.
 
+While the board is open it owns the top of the window: the header shows
+**Work board** with a back button, instead of the last opened session's title.
+Sessions live inside a board, not the other way around.
+
 ## Save a to-do
 
 Write the initial brief in the chat composer and attach files, then choose
@@ -35,9 +39,12 @@ Saving a new-session draft returns to that project's board with a
 Saving in an existing session keeps that session open. Its saved brief appears
 at the end of the transcript in a **Saved to To-do** entry, including after
 reopening the session or refreshing the page. Existing linked cards also appear
-there without conversion. The entry reads the server card, so edits and removal
-of that card also change what is shown in the session. It is not an OpenCode
-user turn and does not send context or start a model.
+there, but only while they are still To-do. The entry is a pending message: once
+a card is promoted, its text is a real user turn in the transcript, so the footer
+stops echoing it to avoid showing it twice. Returning a card to To-do brings the
+entry back. The entry reads the server card, so edits and removal of that card
+also change what is shown in the session. It is not an OpenCode user turn and
+does not send context or start a model.
 
 Session entries are scoped by session ID, including when the session lives in a
 worktree and its card belongs to the root project's board. A failed read keeps

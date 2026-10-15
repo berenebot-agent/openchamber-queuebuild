@@ -31,7 +31,9 @@ Promotion to `plan` requires a persisted session link. A card linked to one sess
 Parking uses one serialized store operation and one atomic file replacement to create or update a session-linked card. A failed write preserves the previous board and leaves no unlinked intermediate card. Repeating the latest notes does not append them again; attachment IDs deduplicate repeated uploads. Existing text and files are preserved when returning a card to To-do with no additional content.
 
 The shared session transcript displays linked saved briefs directly from this
-store, including cards saved before this display existed. Parking never writes
+store, including cards saved before this display existed. It shows only cards
+still in `todo`; a promoted card's text is a real user turn in the transcript, so
+showing the card too would duplicate it. Parking never writes
 an OpenCode prompt or synthetic message. The visible entry follows the saved
 card through edits and removal; it does not change session activity or queue
 admission.
