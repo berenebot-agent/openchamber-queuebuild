@@ -214,37 +214,36 @@ export const BuildQueueView: React.FC = () => {
             <div className="mt-2 text-xs font-medium">Queue is clear</div>
             <div className="mt-1 text-[11px] text-muted-foreground">Send a prompt to the Build agent to add one.</div>
           </div> : <div className="space-y-2">
-            {items.map((item, index) => <div key={item.id} className="group rounded-lg border border-border bg-surface-elevated px-3.5 py-3 transition-colors hover:bg-interactive-hover">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-border text-xs font-semibold tabular-nums text-muted-foreground">
+            {items.map((item, index) => <div key={item.id} className="group relative rounded-lg border border-border bg-surface-elevated transition-colors hover:bg-interactive-hover focus-within:bg-interactive-hover">
+              <div className="flex items-center gap-2 px-4 py-3.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--interactive-selection)] text-xs font-semibold tabular-nums text-muted-foreground">
                   {index + 1}
                 </span>
                 <button type="button" onClick={() => openSession(item.sessionId)} className="min-w-0 flex-1 text-start focus-visible:outline-none focus-visible:underline">
-                  <div className="text-xs font-semibold truncate">{sessionTitle(item.sessionId)}</div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground line-clamp-2 break-words">{snippet(item.content)}</p>
+                  <div dir="auto" className="truncate oc-ui-start-align text-sm font-semibold">{sessionTitle(item.sessionId)}</div>
+                  <p dir="auto" className="mt-0.5 truncate oc-ui-start-align text-[11px] text-muted-foreground">{snippet(item.content)}</p>
                 </button>
-              </div>
-              <div className="mt-2 flex items-center justify-end gap-1">
-                <Button size="xs" variant="ghost" disabled={busy}
-                  aria-label={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
-                  title={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
-                  onClick={() => togglePause(item)}>
-                  <Icon name={item.paused ? 'play' : 'time'} className="size-4" />
-                  {item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
-                </Button>
-                <button type="button" aria-label={`Move build ${index + 1} up`} title="Move up" disabled={busy || index === 0}
-                  onClick={() => move(index, -1)} className="size-7 rounded-md inline-flex items-center justify-center hover:bg-surface-muted disabled:opacity-25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Icon name="arrow-up-s" className="size-4" />
-                </button>
-                <button type="button" aria-label={`Move build ${index + 1} down`} title="Move down" disabled={busy || index === items.length - 1}
-                  onClick={() => move(index, 1)} className="size-7 rounded-md inline-flex items-center justify-center hover:bg-surface-muted disabled:opacity-25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Icon name="arrow-down-s" className="size-4" />
-                </button>
-                <span className="mx-1 h-4 w-px bg-border" />
-                <button type="button" aria-label={`Cancel build ${index + 1}`} title="Cancel" disabled={busy}
-                  onClick={() => void cancel(item)} className="size-7 rounded-md inline-flex items-center justify-center text-muted-foreground hover:bg-surface-muted hover:text-[var(--error-text)] disabled:opacity-25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Icon name="close" className="size-4" />
-                </button>
+                <div className="flex shrink-0 items-center gap-1 transition-opacity sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100">
+                  <Button size="icon" variant="ghost" disabled={busy}
+                    aria-label={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
+                    title={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
+                    onClick={() => togglePause(item)}>
+                    <Icon name={item.paused ? 'play' : 'time'} className="size-4" />
+                  </Button>
+                  <button type="button" aria-label={`Move build ${index + 1} up`} title="Move up" disabled={busy || index === 0}
+                    onClick={() => move(index, -1)} className="size-7 rounded-md inline-flex items-center justify-center hover:bg-surface-muted disabled:opacity-25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <Icon name="arrow-up-s" className="size-4" />
+                  </button>
+                  <button type="button" aria-label={`Move build ${index + 1} down`} title="Move down" disabled={busy || index === items.length - 1}
+                    onClick={() => move(index, 1)} className="size-7 rounded-md inline-flex items-center justify-center hover:bg-surface-muted disabled:opacity-25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <Icon name="arrow-down-s" className="size-4" />
+                  </button>
+                  <span className="mx-0.5 h-4 w-px bg-border" />
+                  <button type="button" aria-label={`Cancel build ${index + 1}`} title="Cancel" disabled={busy}
+                    onClick={() => void cancel(item)} className="size-7 rounded-md inline-flex items-center justify-center text-muted-foreground hover:bg-surface-muted hover:text-[var(--error-text)] disabled:opacity-25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <Icon name="close" className="size-4" />
+                  </button>
+                </div>
               </div>
             </div>)}
           </div>}
