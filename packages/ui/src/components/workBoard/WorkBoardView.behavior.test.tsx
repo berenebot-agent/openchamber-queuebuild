@@ -446,3 +446,93 @@ test('the build queue column runs one ordered list with its own row controls', a
     }
   }
 });
+
+test('returning from a chat opens the board on that session\'s project', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = {
+    window: dom, document: dom.document, navigator: dom.navigator,
+    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
+    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
+    KeyboardEvent: dom.KeyboardEvent,
+    getComputedStyle: dom.getComputedStyle.bind(dom),
+    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { rememberWorkBoardReturn } = await import('./workBoardReturn');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projectState = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  const card = (id: string, directory: string): WorkBoardCard => ({
+    id, directory, text: `${id} brief`, attachments: [], stage: 'todo', createdAt: 1, updatedAt: 1,
+  });
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
+    if (url.includes('/api/work-board')) {
+      const directory = new URL(url, 'http://localhost').searchParams.get('directory');
+      return Response.json({ cards: directory === '/repo' ? [card('repo-todo', '/repo')]
+        : directory === '/other' ? [card('other-todo', '/other')] : [] });
+    }
+    return Response.json({});
+  });
+  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
+  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
+  useProjectsStore.setState({
+    projects: [
+      { id: 'project', path: '/repo', label: 'Repository', addedAt: 1 },
+      { id: 'other', path: '/other', label: 'Other', addedAt: 1 },
+    ],
+    activeProjectId: 'project', hasServerSnapshot: true,
+  });
+  useUIStore.setState({
+    workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } },
+    workBoardProjectId: 'project',
+  });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
+    expect(container.querySelector('button[title="repo-todo brief"]')).not.toBeNull();
+
+    // The user leaves for a session in another project and returns to the board
+    // from that chat: the board follows the session, keeping the old tab open.
+    await act(async () => {
+      useUIStore.getState().setWorkBoardOpen(false);
+      useSessionUIStore.setState({ currentSessionId: 'session', currentSessionDirectory: '/other' });
+      rememberWorkBoardReturn();
+      useUIStore.getState().setWorkBoardOpen(true);
+      await new Promise(resolve => setTimeout(resolve, 40));
+    });
+    expect(useUIStore.getState().workBoardProjectTabsByRuntime[getRuntimeKey()]).toEqual({
+      projectIds: ['project', 'other'], activeProjectId: 'other',
+    });
+    expect(container.querySelector('button[title="other-todo brief"]')).not.toBeNull();
+    expect(container.querySelector('button[title="repo-todo brief"]')).toBeNull();
+    const tabs = container.querySelector('nav[aria-label="Work board projects"]');
+    expect([...tabs!.querySelectorAll('button')].map(tab => tab.textContent).filter(text => text)).toEqual(['Repository', 'Other']);
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    useProjectsStore.setState(projectState); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});

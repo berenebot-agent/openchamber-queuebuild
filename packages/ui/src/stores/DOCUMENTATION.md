@@ -20,6 +20,12 @@ unaffected.
 button. It is navigation intent and does not own card contents or completion.
 It is persisted, so the button survives a reload. The button renders only while
 the remembered id still names a project in the loaded project list.
+Using the button targets the project of the session it was clicked from: the
+board's active tab becomes that project, joining the open tabs instead of
+replacing them, so returning from a chat lands where that chat lives rather
+than on the tab the board was left on. A session directory that resolves to no
+project keeps the remembered board. The sidebar's Work board button is
+unaffected and reopens the board as it was left.
 The board's Plan promotion reads `useConfigStore.resolveAgentModel('plan')`
 without mutating the current composer selection. This uses the active config
 directory's remembered agent model, pinned agent model, project/settings default,
@@ -185,7 +191,9 @@ empty after reload.
 The last visited Work Board project is persisted too, so the chat's "Back to
 Work Board" button is still there after a reload. State written before the field
 existed starts with no remembered board, so the button appears after the first
-board is visited.
+board is visited. Clicking the button retargets the board to the project of the
+session it was clicked from, adding a tab for a project that had none, so the
+board follows the chat the user returns from.
 
 Context-panel session chats render in this app as a chat column pinned to
 their session (`ChatView` `pinnedSession`, see the sync documentation's

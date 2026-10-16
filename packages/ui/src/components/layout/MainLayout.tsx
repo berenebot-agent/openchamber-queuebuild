@@ -35,6 +35,7 @@ import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { useOnDemandComponent } from '@/hooks/useOnDemandComponent';
 import { useSessionListSync } from '@/components/session/sidebar/list/useSessionListSync';
+import { rememberWorkBoardReturn } from '@/components/workBoard/workBoardReturn';
 import { setChatCovered } from './rightSlot';
 
 import { ChatView } from '@/components/views/ChatView';
@@ -235,14 +236,19 @@ export const MainLayout: React.FC = () => {
                                             {/* A board the user has opened is a place they can always
                                                 return to, from any session — not only the one a card
                                                 launched. `workBoardProjectId` records that board, so
-                                                the button appears once a board has been visited. */}
+                                                the button appears once a board has been visited.
+                                                Clicking it lands on the project of the session it was
+                                                clicked from, not on the tab the board was left on. */}
                                             {!isSurfacePageOpen && !isSettingsDialogOpen && hasWorkBoardProject && (
                                                 <Button
                                                     type="button"
                                                     variant="outline"
                                                     size="xs"
                                                     className="absolute inset-s-3 top-3 z-30 gap-1.5 border-border/70 bg-background/95 shadow-sm backdrop-blur-sm"
-                                                    onClick={() => useUIStore.getState().setWorkBoardOpen(true)}
+                                                    onClick={() => {
+                                                        rememberWorkBoardReturn();
+                                                        useUIStore.getState().setWorkBoardOpen(true);
+                                                    }}
                                                     aria-label="Back to Work Board"
                                                     title="Back to Work Board"
                                                 >
