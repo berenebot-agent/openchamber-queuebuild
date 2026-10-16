@@ -398,14 +398,19 @@ export function WorkBoardView() {
     if (!workBoardShowsCompletionMark(card) || card.id.startsWith('session:')) return;
     void markWorkBoardCardViewed(card.id).then(() => { void refresh(); }).catch(() => {});
   };
-  const open = (card: WorkBoardCard) => {
-    if (!card.sessionId) return;
-    const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
-    useSessionUIStore.getState().setCurrentSession(card.sessionId, actualDirectory);
+  // Opening a session from the board always leaves the board. The queue rows
+  // and the running-build banner route through here too: the board is a
+  // full-surface overlay, so a session switch that does not dismiss it looks
+  // like a dead click, and leaves the tab-reconcile effect to rewrite the
+  // board out from under the user. The session's own directory wins over the
+  // board's active tab, which may be a different project than the build's.
+  const open = (sessionId: string, fallbackDirectory: string) => {
+    const actualDirectory = sessions.find(session => session.id === sessionId)?.directory ?? fallbackDirectory;
+    useSessionUIStore.getState().setCurrentSession(sessionId, actualDirectory);
     useUIStore.getState().closeMainSurfaces();
   };
   const promote = (card: WorkBoardCard) => void mutate(async () => {
-    if (card.sessionId) { open(card); return; }
+    if (card.sessionId) { open(card.sessionId, card.directory); return; }
     // The board no longer carries a model picker: a promoted card starts on the
     // model the Plan agent would use in a fresh chat. Auto is still refused here
     // because the server resolves it later and could land on another agent.
@@ -614,7 +619,7 @@ export function WorkBoardView() {
             order={queueOrder}
             busy={queueBusy}
             error={queueActionError}
-            onOpen={sessionId => useSessionUIStore.getState().setCurrentSession(sessionId, directory)}
+            onOpen={sessionId => open(sessionId, directory)}
             onMove={moveQueued}
             onTogglePause={toggleQueuedPause}
             onCancel={cancelQueued}
@@ -655,7 +660,7 @@ export function WorkBoardView() {
                   <WorkBoardCardMark card={card} />
                   <button type="button" className={'min-w-0 flex-1 truncate text-start font-medium hover:underline ' + (activePlan ? 'text-sm leading-6' : 'text-xs leading-5')} title={title} onClick={() => {
                     acknowledge(card);
-                    if (card.sessionId) { open(card); return; }
+                    if (card.sessionId) { open(card.sessionId, card.directory); return; }
                     if (loading || error) return;
                     setEditing(card.id); setText(card.text); setFiles(card.attachments);
                   }}>{title}</button>

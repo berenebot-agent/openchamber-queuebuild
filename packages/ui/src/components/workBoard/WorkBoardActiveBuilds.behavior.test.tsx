@@ -62,6 +62,7 @@ test('live builds without queue entries remain visible and reconcile without dup
     }, parts: [] }], cursor: {},
   }));
   const openSpy = spyOn(useSessionUIStore.getState(), 'setCurrentSession').mockImplementation(() => {});
+  const closeSurfacesSpy = spyOn(useUIStore.getState(), 'closeMainSurfaces');
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
   useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
   useConfigStore.setState({ agents: [] });
@@ -92,6 +93,9 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(planCard.className).toContain('border-[color-mix(in_srgb,var(--status-success)');
     await act(async () => { openButtons()[0].click(); });
     expect(openSpy.mock.calls.at(-1)).toEqual(['direct-a', '/repo']);
+    // Opening a build/queue session must also dismiss the board, or the click
+    // reads as dead behind the still-open surface.
+    expect(closeSurfacesSpy.mock.calls).toHaveLength(1);
 
     // Queue authority can arrive after the live read. Each session still has one
     // row, and only the waiting queue item gains queue controls.
@@ -130,7 +134,7 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(lane('Plan').textContent).toContain('planning');
   } finally {
     await act(async () => root.unmount());
-    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore(); openSpy.mockRestore();
+    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore(); openSpy.mockRestore(); closeSurfacesSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useSessionDisplayStore.setState(sessionDisplay);
