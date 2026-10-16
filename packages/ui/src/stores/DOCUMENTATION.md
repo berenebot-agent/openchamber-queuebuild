@@ -6,7 +6,11 @@
 
 The fork's work board uses `useUIStore.isWorkBoardOpen` for its full-page
 navigation alongside the source board and archive. Opening another main page or
-selecting a chat closes it. The open flag is not persisted. Card contents live
+selecting a chat closes it. The open flag is not persisted. `useRouter` reflects
+it into the URL as `?board=<projectId>`, which is what survives a reload: the
+board is a page, so its open state and its active project live in the route,
+while the store holds the in-memory copy the app renders from. Nothing else
+about the flag changes. Card contents live
 in the server work-board module; `lib/workBoardApi.ts` parses their HTTP contract.
 Project tabs and their selected project are persisted per runtime. Closing a tab
 only removes it from that runtime's tab list.

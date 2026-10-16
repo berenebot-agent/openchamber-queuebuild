@@ -15,6 +15,8 @@ export interface RouteState {
   settingsPath: string | null;
   /** File path for diff view */
   diffFile: string | null;
+  /** Project whose work board the URL names; non-null means the board page is open. */
+  boardProjectId: string | null;
 }
 
 /**
@@ -46,4 +48,5 @@ export const ROUTE_PARAMS = {
   TAB: 'tab',
   SETTINGS: 'settings',
   FILE: 'file',
+  BOARD: 'board',
 } as const;

@@ -3,7 +3,7 @@ import type { Session } from '@/lib/opencode/model';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { clearLastActiveSession, persistLastActiveSession, readLastActiveSession } from './last-session-cache';
-import { beginLastSessionRestore, restoreLastActiveSession } from './last-session-restore';
+import { beginLastSessionRestore, restoreLastActiveSession, shouldSelectLastSessionNow } from './last-session-restore';
 import { useSessionUIStore } from './session-ui-store';
 
 const session = (id: string): Session => ({
@@ -213,6 +213,20 @@ describe('beginLastSessionRestore', () => {
         persistLastActiveSession(getRuntimeKey(), { sessionId: 'ses_open', directory: '/repo' });
         beginLastSessionRestore({ selectNow: false });
         expect(selected).toEqual([]);
+    });
+
+    test('a board route stands the session restore down', () => {
+        expect(shouldSelectLastSessionNow({ sessionId: null, boardProjectId: 'proj_1' })).toBe(false);
+        // An empty board id still names the board page.
+        expect(shouldSelectLastSessionNow({ sessionId: null, boardProjectId: '' })).toBe(false);
+    });
+
+    test('a bare launch still restores the last session', () => {
+        expect(shouldSelectLastSessionNow({ sessionId: null, boardProjectId: null })).toBe(true);
+    });
+
+    test('a session route stands the restore down as before', () => {
+        expect(shouldSelectLastSessionNow({ sessionId: 'ses_open', boardProjectId: null })).toBe(false);
     });
 
     test('falls back to the draft and drops the pointer when the list says the session is gone', async () => {

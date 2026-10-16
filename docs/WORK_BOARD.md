@@ -46,6 +46,14 @@ While the board is open it owns the top of the window: the header shows
 **Work board** with a back button, instead of the last opened session's title.
 Sessions live inside a board, not the other way around.
 
+The board is a page, so it is part of the URL: opening it writes
+`?board=<projectId>`, and switching project tabs while it is open rewrites that
+id. The session id stays out of the URL while the board is open, because the
+board covers the chat. A reload therefore returns to the board on its last
+project instead of reopening a chat nobody was looking at, and a launch that
+carries a board link does not restore the last session. Closing the board drops
+the parameter, and the URL names the chat again.
+
 Each project tab in that header carries the project's build load, so the open
 tabs read as an overview of which projects are building without switching
 between them. A blue spinner counts every build in that project's queue — the

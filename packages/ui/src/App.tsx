@@ -43,7 +43,7 @@ import type { RecoveryVariant } from '@/components/onboarding/DesktopConnectionR
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { openSessionLink } from '@/lib/router/openSessionFromRoute';
 import { parseRoute } from '@/lib/router';
-import { beginLastSessionRestore, type LastSessionRestoreResult } from '@/sync/last-session-restore';
+import { beginLastSessionRestore, shouldSelectLastSessionNow, type LastSessionRestoreResult } from '@/sync/last-session-restore';
 import { markSessionViewed } from '@/sync/notification-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { opencodeClient } from '@/lib/opencode/client';
@@ -595,7 +595,7 @@ function App({ apis }: AppProps) {
   React.useLayoutEffect(() => {
     const restore = lastSessionRestoreRef.current;
     if (restore.attempt) return;
-    restore.attempt = beginLastSessionRestore({ selectNow: !parseRoute().sessionId });
+    restore.attempt = beginLastSessionRestore({ selectNow: shouldSelectLastSessionNow(parseRoute()) });
   }, []);
   React.useEffect(() => {
     const restore = lastSessionRestoreRef.current;

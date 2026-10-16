@@ -118,6 +118,19 @@ const confirmReopenedSession = async (reopened: ReopenedSession): Promise<LastSe
 };
 
 /**
+ * Whether the launch should select the last session at once, before the
+ * session list answers.
+ *
+ * A URL that names where the user was wins: a session link opens that session,
+ * and a board link opens the board, so neither should be preempted by whatever
+ * chat was open when the app last closed.
+ */
+export const shouldSelectLastSessionNow = (route: {
+    readonly sessionId: string | null;
+    readonly boardProjectId: string | null;
+}): boolean => !route.sessionId && route.boardProjectId === null;
+
+/**
  * Launch restore for the web and desktop shell. Call it before the chat's
  * first passive effects, which open the automatic draft when nothing is
  * selected. With `selectNow` it selects the last session at once when its
@@ -127,7 +140,7 @@ const confirmReopenedSession = async (reopened: ReopenedSession): Promise<LastSe
  * caller runs the attempt again once startup completes.
  */
 export const beginLastSessionRestore = (options: {
-    /** False when a route already names a session to open. */
+    /** False when a route already names a session or a board to open. */
     readonly selectNow: boolean;
 }): (() => Promise<LastSessionRestoreResult>) => {
     const reopened = options.selectNow ? reopenLastActiveSession() : null;

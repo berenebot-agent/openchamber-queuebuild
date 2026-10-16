@@ -11,12 +11,15 @@
  * - `?tab=<chat|git|diff|terminal|files>` - Legacy URL name for the active workspace surface
  * - `?settings=<section>` - Open settings to specific section
  * - `?file=<path>` - Diff view with file selected
+ * - `?board=<projectId>` - Open the work board on that project; it replaces the
+ *   chat, so the session id stays out of the URL while it is open
  *
  * Examples:
  * - `/?session=abc123` - Open session abc123
  * - `/?tab=git` - Open the Git surface
  * - `/?settings=providers` - Open settings to providers section
  * - `/?tab=diff&file=src/main.ts` - Open the Diff surface with a file
+ * - `/?board=proj_1` - Open the work board on proj_1
  */
 
 export type { RouteState } from './types';

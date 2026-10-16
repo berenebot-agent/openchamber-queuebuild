@@ -65,6 +65,7 @@ const sessionState = (sessionId: string): AppRouteState => ({
   sessionId,
   isSettingsOpen: false,
   settingsPath: '',
+  boardProjectId: null,
 });
 
 describe('updateBrowserURL', () => {
@@ -75,5 +76,48 @@ describe('updateBrowserURL', () => {
 
     const writtenURL = historyOf().lastURL ?? '';
     expect(writtenURL).toContain('session=ses_main');
+  });
+
+  test('writes the open board as its own page and drops the session', () => {
+    installWindow('http://127.0.0.1:5173/app');
+
+    updateBrowserURL({ ...sessionState('ses_main'), boardProjectId: 'proj_1' }, { replace: true, force: true });
+
+    const writtenURL = historyOf().lastURL ?? '';
+    expect(writtenURL).toContain('board=proj_1');
+    // The board covers the chat, so a reload must not resurrect the session.
+    expect(writtenURL).not.toContain('session=');
+  });
+
+  test('keeps the remembered board open with an empty project id', () => {
+    installWindow('http://127.0.0.1:5173/app');
+
+    updateBrowserURL({ ...sessionState('ses_main'), boardProjectId: '' }, { replace: true, force: true });
+
+    const writtenURL = historyOf().lastURL ?? '';
+    expect(writtenURL).toMatch(/(?:^|[?&])board=(?:&|$)/);
+    expect(writtenURL).not.toContain('session=');
+  });
+
+  test('settings stays in front of the board', () => {
+    installWindow('http://127.0.0.1:5173/app');
+
+    updateBrowserURL(
+      { ...sessionState('ses_main'), isSettingsOpen: true, settingsPath: 'providers', boardProjectId: 'proj_1' },
+      { replace: true, force: true },
+    );
+
+    const writtenURL = historyOf().lastURL ?? '';
+    expect(writtenURL).toContain('settings=providers');
+    expect(writtenURL).not.toContain('board=');
+  });
+
+  test('a closed board leaves the session URL as before', () => {
+    installWindow('http://127.0.0.1:5173/app');
+
+    updateBrowserURL(sessionState('ses_main'), { replace: true, force: true });
+
+    const writtenURL = historyOf().lastURL ?? '';
+    expect(writtenURL).not.toContain('board=');
   });
 });

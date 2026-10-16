@@ -33,3 +33,23 @@ describe('parseRoute message', () => {
     expect(parseRoute(new URLSearchParams('session=ses_abc&message=msg"]')).messageId).toBeNull();
   });
 });
+
+describe('parseRoute board', () => {
+  test('reads the board project', () => {
+    expect(parseRoute(new URLSearchParams('board=proj_1')).boardProjectId).toBe('proj_1');
+  });
+
+  test('an empty board param still names the board page', () => {
+    expect(parseRoute(new URLSearchParams('board=')).boardProjectId).toBe('');
+  });
+
+  test('a missing board param means no board is open', () => {
+    expect(parseRoute(new URLSearchParams('session=ses_abc')).boardProjectId).toBeNull();
+  });
+
+  test('reads a board next to a session so a reload can prefer the board', () => {
+    const route = parseRoute(new URLSearchParams('session=ses_abc&board=proj_1'));
+    expect(route.boardProjectId).toBe('proj_1');
+    expect(route.sessionId).toBe('ses_abc');
+  });
+});

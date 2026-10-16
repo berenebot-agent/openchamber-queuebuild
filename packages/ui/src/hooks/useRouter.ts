@@ -74,7 +74,20 @@ export function useRouter(): void {
           setSettingsDialogOpen(false);
         }
 
-        // 3. Apply the view selected by the legacy URL parameter. Desktop
+        // 3. The board page. A named project is selected before the board
+        // opens so the board renders its tab rather than falling back to the
+        // remembered one. A board URL without an id still opens the board, on
+        // whichever project was left active there.
+        if (route.boardProjectId !== null) {
+          if (route.boardProjectId) {
+            useUIStore.getState().setWorkBoardProjectId(route.boardProjectId);
+          }
+          useUIStore.getState().setWorkBoardOpen(true);
+        } else if (useUIStore.getState().isWorkBoardOpen) {
+          useUIStore.getState().setWorkBoardOpen(false);
+        }
+
+        // 4. Apply the view selected by the legacy URL parameter. Desktop
         // surfaces live in the context panel, so a non-chat tab deep link
         // opens the matching panel surface; activeSurface itself stays 'chat'
         // (nothing renders non-chat surfaces in the main area).
@@ -86,7 +99,7 @@ export function useRouter(): void {
           }
         }
 
-        // 4. Apply diff file (only if going to diff tab)
+        // 5. Apply diff file (only if going to diff tab)
         if (route.diffFile && (route.tab === 'diff' || !route.tab)) {
           navigateToDiff(route.diffFile);
         }
@@ -108,6 +121,10 @@ export function useRouter(): void {
       sessionId: sessionState.currentSessionId,
       isSettingsOpen: uiState.isSettingsDialogOpen,
       settingsPath: uiState.settingsPage,
+      // An open board is emitted even without a project (nothing loaded yet, or
+      // the remembered project is gone): `?board=` still returns to the board,
+      // which then falls back to its own remembered tab.
+      boardProjectId: uiState.isWorkBoardOpen ? uiState.workBoardProjectId ?? '' : null,
     };
   }, []);
 
@@ -188,7 +205,7 @@ export function useRouter(): void {
     return unsubscribe;
   }, [isVSCode, syncURLFromState]);
 
-  // Subscribe to UI store changes (view, settings)
+  // Subscribe to UI store changes (view, settings, board)
   React.useEffect(() => {
     if (isVSCode) {
       return;
@@ -196,6 +213,8 @@ export function useRouter(): void {
 
     let prevSettingsOpen: boolean = useUIStore.getState().isSettingsDialogOpen;
     let prevSettingsPath: string = useUIStore.getState().settingsPage;
+    let prevWorkBoardOpen: boolean = useUIStore.getState().isWorkBoardOpen;
+    let prevWorkBoardProjectId: string | null = useUIStore.getState().workBoardProjectId;
 
     const unsubscribe = useUIStore.subscribe((state) => {
       // Skip if we're currently applying a route
@@ -205,11 +224,19 @@ export function useRouter(): void {
 
       const settingsOpenChanged = state.isSettingsDialogOpen !== prevSettingsOpen;
       const settingsPathChanged = state.settingsPage !== prevSettingsPath;
+      const workBoardOpenChanged = state.isWorkBoardOpen !== prevWorkBoardOpen;
+      // The active board tab is the page's address, so switching tabs while
+      // the board is open rewrites the URL. A change made while the board is
+      // closed is not a navigation and belongs only in the store.
+      const workBoardProjectChanged = state.isWorkBoardOpen
+        && state.workBoardProjectId !== prevWorkBoardProjectId;
 
       prevSettingsOpen = state.isSettingsDialogOpen;
       prevSettingsPath = state.settingsPage;
+      prevWorkBoardOpen = state.isWorkBoardOpen;
+      prevWorkBoardProjectId = state.workBoardProjectId;
 
-      if (settingsOpenChanged || settingsPathChanged) {
+      if (settingsOpenChanged || settingsPathChanged || workBoardOpenChanged || workBoardProjectChanged) {
         syncURLFromState();
       }
     });
@@ -236,6 +263,9 @@ export function useRouter(): void {
         const uiState = useUIStore.getState();
         if (uiState.isSettingsDialogOpen) {
           setSettingsDialogOpen(false);
+        }
+        if (uiState.isWorkBoardOpen) {
+          useUIStore.getState().setWorkBoardOpen(false);
         }
       }
     };

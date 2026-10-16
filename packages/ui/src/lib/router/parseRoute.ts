@@ -20,6 +20,7 @@ export function parseRoute(searchParams?: URLSearchParams): RouteState {
     tab: parseTab(params),
     settingsPath: parseSettingsPath(params),
     diffFile: parseDiffFile(params),
+    boardProjectId: parseBoardProjectId(params),
   };
 }
 
@@ -129,6 +130,19 @@ function parseDiffFile(params: URLSearchParams): string | null {
 }
 
 /**
+ * Parse the work board's project from URL parameters. A present board param
+ * names the board page, so it is read even though the board also renders with
+ * a remembered project when the id is missing or blank.
+ */
+function parseBoardProjectId(params: URLSearchParams): string | null {
+  const value = params.get(ROUTE_PARAMS.BOARD);
+  if (value === null) {
+    return null;
+  }
+  return value.trim();
+}
+
+/**
  * Check if the current URL has any route parameters.
  */
 export function hasRouteParams(): boolean {
@@ -142,7 +156,8 @@ export function hasRouteParams(): boolean {
       params.has(ROUTE_PARAMS.SESSION) ||
       params.has(ROUTE_PARAMS.TAB) ||
       params.has(ROUTE_PARAMS.SETTINGS) ||
-      params.has(ROUTE_PARAMS.FILE)
+      params.has(ROUTE_PARAMS.FILE) ||
+      params.has(ROUTE_PARAMS.BOARD)
     );
   } catch {
     return false;

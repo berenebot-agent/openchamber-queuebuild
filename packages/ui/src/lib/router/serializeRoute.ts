@@ -7,6 +7,8 @@ export interface AppRouteState {
   sessionId: string | null;
   isSettingsOpen: boolean;
   settingsPath: string;
+  /** The open work board's project, or null when the board is closed. */
+  boardProjectId: string | null;
 }
 
 /**
@@ -16,19 +18,25 @@ export interface AppRouteState {
 function serializeRoute(state: AppRouteState): URLSearchParams {
   const params = new URLSearchParams();
 
+  // Settings is a full-screen overlay over everything else.
+  if (state.isSettingsOpen) {
+    const settingsPath = state.settingsPath.trim().length > 0 ? state.settingsPath : 'home';
+    params.set(ROUTE_PARAMS.SETTINGS, settingsPath);
+    return params;
+  }
+
+  // The board is a page in its own right: its project names it, and it
+  // replaces the chat, so the session behind it stays out of the URL. A
+  // reload then returns to the board instead of a chat nobody was looking at.
+  if (state.boardProjectId !== null) {
+    params.set(ROUTE_PARAMS.BOARD, state.boardProjectId);
+    return params;
+  }
+
   // Session ID - always include if present
   if (state.sessionId && state.sessionId.trim().length > 0) {
     params.set(ROUTE_PARAMS.SESSION, state.sessionId);
   }
-
-  // Settings takes precedence - if open, include settings section
-  if (state.isSettingsOpen) {
-    const settingsPath = state.settingsPath.trim().length > 0 ? state.settingsPath : 'home';
-    params.set(ROUTE_PARAMS.SETTINGS, settingsPath);
-    // Don't include tab when settings is open (it's a full-screen overlay)
-    return params;
-  }
-
 
   return params;
 }
