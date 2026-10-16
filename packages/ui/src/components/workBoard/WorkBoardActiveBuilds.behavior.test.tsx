@@ -85,6 +85,11 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(lane('Build queue').querySelector('button[aria-label="New Build session"]')).toBeNull();
     expect(lane('Build queue').querySelector('button[aria-label^="Cancel "]')).toBeNull();
     expect(lane('Plan').textContent).toContain('planning');
+    // A running plan turn gets the same moving band as a running build, but in
+    // green: the plan card carries the plan stripe and the build card does not.
+    const planCard = lane('Plan').querySelector('button[title="planning"]')!.closest('article')!;
+    expect(planCard.querySelector('.oc-build-stripes-plan')).not.toBeNull();
+    expect(planCard.className).toContain('border-[color-mix(in_srgb,var(--status-success)');
     await act(async () => { openButtons()[0].click(); });
     expect(openSpy.mock.calls.at(-1)).toEqual(['direct-a', '/repo']);
 
@@ -98,6 +103,8 @@ test('live builds without queue entries remain visible and reconcile without dup
     await refreshQueue();
     expect(openButtons()).toHaveLength(1);
     expect(lane('Build queue').querySelectorAll('.oc-build-stripes')).toHaveLength(1);
+    // The running build keeps the blue band; only the plan card is green.
+    expect(lane('Build queue').querySelector('.oc-build-stripes-plan')).toBeNull();
     expect(lane('Build queue').querySelectorAll('button[aria-label="Cancel direct-b"]')).toHaveLength(1);
     expect(lane('Build queue').querySelector('h2')?.textContent).toBe('Build queue2');
 

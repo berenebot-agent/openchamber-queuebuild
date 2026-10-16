@@ -631,12 +631,21 @@ export function WorkBoardView() {
               const checking = Boolean(card.sessionId) && !verifiedActivities.has(card.id) && !unavailable.has(card.id);
               const statusUnknown = Boolean(card.sessionId) && (!verifiedActivities.has(card.id) || unavailable.has(card.id));
               const hasRunningTurn = Boolean(activity?.busy);
+              // A plan card whose session is running now: it gets the same
+              // moving band as a running build, in green and on a larger card,
+              // so a plan still being worked is visible without opening it.
+              const activePlan = lane === 'plan' && hasRunningTurn;
               const canReturnToTodo = !loading && !error && Boolean(card.sessionId) && lane !== 'todo' && !hasRunningTurn
                 && !statusUnknown && !queueError && queue !== null;
               const canRemove = !loading && !error && lane === 'todo' && !hasRunningTurn
                 && (!card.sessionId || (!statusUnknown && !queueError && queue !== null));
               const title = workBoardCardTitle(card.text, card.attachments);
-              return <article key={card.id} className="group relative rounded-md border border-border bg-surface-elevated px-2.5 py-1.5">
+              return <article key={card.id} className={'group relative overflow-hidden rounded-md border bg-surface-elevated '
+                + (activePlan
+                  ? 'border-[color-mix(in_srgb,var(--status-success)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_12%,var(--surface-elevated))] px-3.5 py-3 '
+                  : 'border-border px-2.5 py-1.5 ')}>
+                {activePlan && <span aria-hidden="true" className="oc-build-stripes oc-build-stripes-plan pointer-events-none absolute inset-0" />}
+                <div className="relative">
                 {editing === card.id ? <>
                   <label className="text-xs font-medium">{t('workBoard.brief')}<textarea value={text} onChange={event => setText(event.target.value)} className="mt-2 min-h-32 w-full rounded-md border border-border bg-background p-2 text-sm" /></label>
                   <label className="mt-2 block text-xs">{t('workBoard.addFiles')}<input type="file" multiple disabled={busy} onChange={event => { void addFiles(event.target.files); event.target.value = ''; }} className="mt-1 block w-full text-xs" /></label>
@@ -644,7 +653,7 @@ export function WorkBoardView() {
                   <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || (!text.trim() && !files.length)} onClick={() => void mutate(async () => { await updateWorkBoardCard(card.id, { text, attachments: files }); setEditing(null); })}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>{t('workBoard.cancel')}</Button></div>
                 </> : <div className="flex min-w-0 items-center gap-1">
                   <WorkBoardCardMark card={card} />
-                  <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title} onClick={() => {
+                  <button type="button" className={'min-w-0 flex-1 truncate text-start font-medium hover:underline ' + (activePlan ? 'text-sm leading-6' : 'text-xs leading-5')} title={title} onClick={() => {
                     acknowledge(card);
                     if (card.sessionId) { open(card); return; }
                     if (loading || error) return;
@@ -671,6 +680,7 @@ export function WorkBoardView() {
                 </div>}
                 {checking ? <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
                   : card.sessionId && <WorkBoardSessionFeedback sessionId={card.sessionId} activity={activity} unavailable={statusUnknown} needsReview={Boolean(queueStateFor(card)?.needsReview)} />}
+                </div>
               </article>;
             })}
           </div>}

@@ -2207,18 +2207,26 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
    animation over a repeating gradient costs one composited layer and no
    layout, so it can sit on a card that stays mounted. 45deg paints the band
    as a construction hazard stripe, and the positive drift carries it left to
-   right across the card. Reduced motion keeps the band as a static stripe,
-   which still separates it from a queued row. */
+   right across the card. The band colour is a variable so the same drift can
+   also mark a running plan turn in green. Reduced motion keeps the band as a
+   static stripe, which still separates it from a settled row. */
 .oc-build-stripes {
+  --oc-stripe-color: var(--status-info);
   background-image: repeating-linear-gradient(
     45deg,
-    color-mix(in srgb, var(--status-info) 16%, transparent) 0,
-    color-mix(in srgb, var(--status-info) 16%, transparent) 7px,
+    color-mix(in srgb, var(--oc-stripe-color) 16%, transparent) 0,
+    color-mix(in srgb, var(--oc-stripe-color) 16%, transparent) 7px,
     transparent 7px,
     transparent 14px
   );
   background-size: 14px 100%;
   animation: oc-build-stripes-drift 0.9s linear infinite;
+}
+
+/* A running plan turn, not a build: the same hazard stripe reading in green so
+   the two active states are told apart at a glance. */
+.oc-build-stripes-plan {
+  --oc-stripe-color: var(--status-success);
 }
 
 @keyframes oc-build-stripes-drift {
