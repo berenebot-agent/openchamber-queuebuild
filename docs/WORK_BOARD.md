@@ -115,18 +115,26 @@ sessions too. The choice is saved locally per runtime and project directory and
 defaults to off. It does not archive or delete sessions, or change the sidebar's
 global session list.
 
-Switching projects retains the last board cards and history in memory, scoped to
-the runtime and project directory. Returning to a board restores its completed
-and planning columns while current status and history load in the background.
-The cache keeps up to 8 boards and 4 MiB of serialized payload, including card
-attachments. Larger boards take the first-load path again. Reloading the app
-clears this memory cache.
+Switching projects retains card previews, column placements, completion ordering
+and compact history summaries in memory, scoped to the runtime and directory.
+Attachment bytes, full briefs and unused history metadata do not enter the cache.
+Returning restores the last columns while current status loads. Histories whose
+session update times are unchanged are reused after a fresh idle check. Running
+sessions, previously running histories, changed versions and missing versions
+require a new history read.
+
+The cache keeps up to 8 boards and 4 MiB of projected payload. Boards whose
+previews exceed that limit take the first-load path again. Reloading the app
+clears this memory cache. Editing and promotion wait for the server to restore
+full briefs and attachment bytes.
 
 Restored history provides display continuity only. Running flags are checked
 again, and card mutations wait for fresh board and activity checks. A pending
 check shows Loading; a failed check shows Status unavailable and preserves the
 last known history. Idle checks and queue guards still run on the server before
 linked cards can be completed or parked.
+Previously running cards retain their last column while checking. Their preview
+shows no running animation or Active label until live state confirms execution.
 
 Build submissions use the existing project Build queue. Waiting and active work
 is shown using the queue's server state. Open the session and choose the Build

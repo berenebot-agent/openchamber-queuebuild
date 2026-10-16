@@ -58,7 +58,7 @@ test('the board reads every linked session history together and stops refetching
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
-    if (url.includes('/api/work-board')) return Response.json({ cards });
+    if (url.includes('/api/work-board')) return Response.json({ cards: new URL(url, 'http://localhost').searchParams.get('directory') === '/repo' ? cards : [] });
     return Response.json({});
   });
   const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
@@ -123,6 +123,20 @@ test('the board reads every linked session history together and stops refetching
     expect(doneCards()).toHaveLength(6);
     expect(container.textContent).not.toContain('Status unavailable');
     expect(container.querySelector('section[aria-label="Plan"]')!.querySelectorAll('article')).toHaveLength(0);
+    expect(historyCalls.length).toBe(settled);
+    // A newer session version invalidates only that session's cached history.
+    await act(async () => {
+      useUIStore.getState().setWorkBoardProjectTabs(getRuntimeKey(), { projectIds: ['project', 'other'], activeProjectId: 'other' });
+    });
+    await act(async () => {
+      useGlobalSessionsStore.setState({ activeSessions: [
+        { ...sessionRecords[0], time: { ...sessionRecords[0].time, updated: 100 } },
+        ...sessionRecords.slice(1), ...oldSessions,
+      ] });
+      useUIStore.getState().setWorkBoardProjectTabs(getRuntimeKey(), { projectIds: ['project', 'other'], activeProjectId: 'project' });
+    });
+    expect(doneCards()).toHaveLength(6);
+    expect(historyCalls.slice(settled)).toEqual(['session-a']);
     failHistory = true;
     await act(async () => { for (const resolve of inFlight.values()) resolve(); inFlight.clear(); await sleep(40); });
     expect(doneCards()).toHaveLength(6);

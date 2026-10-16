@@ -44,6 +44,8 @@ test('live builds without queue entries remain visible and reconcile without dup
     time: { created: 1, updated: Date.now() },
   }));
   let running = true;
+  let holdStatus = false;
+  const pendingStatus: Array<() => void> = [];
   let queue: BuildQueueSnapshot = { revision: 1, active: [], queued: [], issues: [] };
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = String(input instanceof Request ? input.url : input);
@@ -51,9 +53,10 @@ test('live builds without queue entries remain visible and reconcile without dup
     if (url.includes('/api/work-board')) return Response.json({ cards: [] });
     return Response.json({});
   });
-  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockImplementation(async (): ReturnType<typeof opencodeClient.getActiveSessionStatuses> => running
-    ? { 'direct-a': { type: 'busy' }, 'direct-b': { type: 'busy' }, planning: { type: 'busy' } }
-    : {});
+  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockImplementation(async (): ReturnType<typeof opencodeClient.getActiveSessionStatuses> => {
+    if (holdStatus) await new Promise<void>(resolve => { pendingStatus.push(resolve); });
+    return running ? { 'direct-a': { type: 'busy' }, 'direct-b': { type: 'busy' }, planning: { type: 'busy' } } : {};
+  });
   const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockImplementation(async sessionId => ({
     items: [{ info: {
       id: `assistant-${sessionId}`, sessionID: sessionId, role: 'assistant',
@@ -93,6 +96,26 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(planCard.className).toContain('border-[color-mix(in_srgb,var(--status-success)');
     await act(async () => { openButtons()[0].click(); });
     expect(openSpy.mock.calls.at(-1)).toEqual(['direct-a', '/repo']);
+
+    holdStatus = true;
+    await act(async () => {
+      useProjectsStore.setState({ projects: [
+        { id: 'project', path: '/repo', label: 'Repository', addedAt: 1 },
+        { id: 'other', path: '/other', label: 'Other', addedAt: 1 },
+      ] });
+      useUIStore.getState().setWorkBoardProjectTabs(getRuntimeKey(), { projectIds: ['project', 'other'], activeProjectId: 'other' });
+    });
+    await act(async () => {
+      useUIStore.getState().setWorkBoardProjectTabs(getRuntimeKey(), { projectIds: ['project', 'other'], activeProjectId: 'project' });
+    });
+    expect(lane('Build queue').querySelectorAll('button[aria-label="Open session"]')).toHaveLength(2);
+    expect(lane('Build queue').textContent).toContain('Loading');
+    expect(lane('Build queue').querySelectorAll('.oc-build-stripes')).toHaveLength(0);
+    const historyReads = historySpy.mock.calls.length;
+    holdStatus = false;
+    await act(async () => { for (const resolve of pendingStatus.splice(0)) resolve(); await sleep(40); });
+    expect(historySpy.mock.calls.length).toBeGreaterThan(historyReads);
+    expect(lane('Build queue').querySelectorAll('.oc-build-stripes')).toHaveLength(2);
     // Opening a build/queue session must also dismiss the board, or the click
     // reads as dead behind the still-open surface.
     expect(closeSurfacesSpy.mock.calls).toHaveLength(1);

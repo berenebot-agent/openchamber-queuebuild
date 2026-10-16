@@ -1,6 +1,6 @@
 import React from 'react';
 import { workBoardSessions } from './workBoardSessions';
-import { readWorkBoardMemory, rememberWorkBoard } from './workBoardMemory';
+import { readWorkBoardMemory, rememberWorkBoard, type BoardSnapshot } from './workBoardMemory';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -74,7 +74,7 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, bu
   rows: WorkBoardQueueRow[];
   active: { sessionId: string; needsReview?: boolean; startedAt: number } | undefined;
   activeTitle: string;
-  liveBuilds: { sessionId: string; title: string }[];
+  liveBuilds: { sessionId: string; title: string; checking: boolean; unavailable: boolean }[];
   order: string[];
   busy: boolean;
   error: string;
@@ -88,7 +88,7 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, bu
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
     {error && <p role="alert" className="mb-2 px-1 text-xs text-[var(--status-error-text)]">{error}</p>}
     {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} onOpen={() => onOpen(active.sessionId)} />}
-    {liveBuilds.map(build => <WorkBoardActiveBuild key={build.sessionId} title={build.title} needsReview={false} onOpen={() => onOpen(build.sessionId)} />)}
+    {liveBuilds.map(build => <WorkBoardActiveBuild key={build.sessionId} title={build.title} needsReview={false} checking={build.checking} unavailable={build.unavailable} onOpen={() => onOpen(build.sessionId)} />)}
     {!active && !liveBuilds.length && <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
           className="mb-1 h-auto w-full flex-col items-start gap-1 rounded-md border border-dashed border-border px-2.5 py-3 text-xs font-normal text-muted-foreground"
           aria-label={t('workBoard.newBuild')}>
@@ -136,24 +136,24 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, bu
  * actually running gets the moving band, so "working" and "stuck" never look
  * the same.
  */
-function WorkBoardActiveBuild({ title, needsReview, onOpen }: { title: string; needsReview: boolean; onOpen: () => void }) {
+function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, onOpen }: { title: string; needsReview: boolean; checking?: boolean; unavailable?: boolean; onOpen: () => void }) {
   const { t } = useI18n();
   return <button type="button" onClick={onOpen}
     className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
       + (needsReview
         ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
         : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]')}
-    aria-label={t('workBoard.openBuild', { title })}>
-    {!needsReview && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
+    aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })} title={title}>
+    {!needsReview && !checking && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
     <span className="relative flex min-w-0 items-center gap-2">
       <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
-        <Icon name={needsReview ? 'alert' : 'terminal-box'} className="size-3.5" />
+          <Icon name={needsReview ? 'alert' : 'terminal-box'} className="size-3.5" />
       </span>
       <span className="min-w-0 flex-1">
         <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
-        <span className="block truncate text-[11px] text-muted-foreground">{t(needsReview ? 'workBoard.needsReview' : 'workBoard.buildingNow')}</span>
+        <span className="block truncate text-[11px] text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : 'workBoard.buildingNow')}</span>
       </span>
-      {!needsReview && <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--status-info)]">
+      {!needsReview && !checking && <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--status-info)]">
         <span className="size-1.5 rounded-full bg-[var(--status-success)] motion-safe:animate-pulse" />{t('workBoard.active')}
       </span>}
     </span>
@@ -262,6 +262,8 @@ export function WorkBoardView() {
   );
   const sessionVersions = React.useRef(new Map<string, number>());
   const messageCache = React.useRef(new Map<string, WorkBoardActivity['messages']>());
+  const historyBusy = React.useRef(new Set<string>());
+  const [placements, setPlacements] = React.useState<BoardSnapshot['placements']>(new Map());
   const versionsRef = React.useRef(new Map(sessions.map(session => [session.id, session.time.updated])));
   versionsRef.current = new Map(sessions.map(session => [session.id, session.time.updated]));
 
@@ -290,8 +292,7 @@ export function WorkBoardView() {
     }
   }, [directory, t]);
 
-  const lastBoard = React.useRef({ cards, activities });
-  React.useLayoutEffect(() => { lastBoard.current = { cards, activities }; });
+  const lastBoard = React.useRef<BoardSnapshot>({ cards, activities, versions: new Map(), placements: new Map() });
   React.useLayoutEffect(() => {
     generation.current += 1;
     // Paint the board's own cards from the last visit before the fetch lands,
@@ -303,11 +304,13 @@ export function WorkBoardView() {
     setError('');
     setActionError('');
     setActivities(new Map([...remembered?.activities ?? []].map(([id, activity]) => [id, { ...activity, busy: false }])));
+    setPlacements(remembered?.placements ?? new Map());
     setVerifiedActivities(new Set());
     setBoardActive({ directory, ids: new Set() });
     setUnavailable(new Set());
-    sessionVersions.current.clear();
-    messageCache.current.clear();
+    sessionVersions.current = new Map(remembered?.versions);
+    messageCache.current = new Map([...remembered?.activities ?? []].map(([id, activity]) => [id, activity.messages]));
+    historyBusy.current = new Set([...remembered?.activities ?? []].filter(([, activity]) => activity.busy).map(([id]) => id));
     setEditing(null);
     setCompletion(null);
     void refresh();
@@ -351,7 +354,7 @@ export function WorkBoardView() {
             // The session's update time is the history's identity. If it has not
             // moved and no turn is running, the cached history is still what the
             // server would return, so a settled lane does not refetch every tick.
-            if (cached && !running && version !== undefined && sessionVersions.current.get(card.id) === version) {
+            if (cached && !running && !historyBusy.current.has(card.id) && version !== undefined && sessionVersions.current.get(card.id) === version) {
               next.set(card.id, { busy: false, messages: cached });
               return;
             }
@@ -360,6 +363,8 @@ export function WorkBoardView() {
             if (!cancelled && runtime === getRuntimeKey() && token === generation.current) {
               if (version !== undefined) sessionVersions.current.set(card.id, version);
               messageCache.current.set(card.id, messages);
+              if (running) historyBusy.current.add(card.id);
+              else historyBusy.current.delete(card.id);
             }
             next.set(card.id, { busy: running, messages });
           } catch { failed.add(card.id); }
@@ -505,8 +510,28 @@ export function WorkBoardView() {
     return { itemId: active.itemId, paused: false, active: true, needsReview: Boolean(active.needsReview), order: queueOrder };
   };
 
-  const laneFor = (card: WorkBoardCard) => workBoardLane(card,
-    activities.get(card.id), queueStateFor(card));
+  const rememberedPlacement = (card: WorkBoardCard) => {
+    if (verifiedActivities.has(card.id)) return undefined;
+    const placement = placements.get(card.id);
+    return placement?.updatedAt === card.updatedAt && placement.sessionId === card.sessionId ? placement : undefined;
+  };
+  const laneFor = (card: WorkBoardCard): WorkBoardLane => queueStateFor(card) ? 'queue'
+    : rememberedPlacement(card)?.lane ?? workBoardLane(card, activities.get(card.id), undefined);
+  const completionTimeFor = (card: WorkBoardCard) => rememberedPlacement(card)?.completedAt
+    ?? workBoardCompletionTime(card, activities.get(card.id));
+
+  React.useLayoutEffect(() => {
+    const ids = new Set(visibleCards.map(card => card.id));
+    lastBoard.current = {
+      cards,
+      activities: new Map([...activities].filter(([id]) => ids.has(id)).map(([id, activity]) =>
+        [id, { ...activity, busy: activity.busy || historyBusy.current.has(id) }])),
+      versions: new Map([...sessionVersions.current].filter(([id]) => ids.has(id))),
+      placements: new Map(visibleCards.map(card => [card.id, {
+        lane: laneFor(card), completedAt: completionTimeFor(card), updatedAt: card.updatedAt, sessionId: card.sessionId,
+      }])),
+    };
+  });
   // A lease awaiting review is unfinished work the server will not release on
   // its own; completing its card would hide that resolution. Manual Done stays
   // out of reach for it.
@@ -604,16 +629,16 @@ export function WorkBoardView() {
         const inLane = visibleCards.filter(card => laneFor(card) === lane);
         // The queue snapshot owns managed rows. Live builds without a queue
         // entry must also render, once per session, with no queue mutations.
-        const liveBuilds = new Map<string, { sessionId: string; title: string }>();
+        const liveBuilds = new Map<string, { sessionId: string; title: string; checking: boolean; unavailable: boolean }>();
         if (lane === 'queue') {
           for (const card of inLane) {
             if (card.sessionId && !queueStateFor(card)) {
-              liveBuilds.set(card.sessionId, { sessionId: card.sessionId, title: sessionTitleFor(card.sessionId) });
+              liveBuilds.set(card.sessionId, { sessionId: card.sessionId, title: sessionTitleFor(card.sessionId), checking: !verifiedActivities.has(card.id), unavailable: unavailable.has(card.id) });
             }
           }
         }
         const count = lane === 'queue' ? queueRows.length + (activeBuild ? 1 : 0) + liveBuilds.size : inLane.length;
-        if (lane === 'done') inLane.sort((a, b) => workBoardCompletionTime(b, activities.get(b.id)) - workBoardCompletionTime(a, activities.get(a.id)) || a.id.localeCompare(b.id));
+        if (lane === 'done') inLane.sort((a, b) => completionTimeFor(b) - completionTimeFor(a) || a.id.localeCompare(b.id));
         return <section key={lane} className="flex min-w-[240px] flex-1 flex-col rounded-lg bg-surface-muted" aria-label={t(`workBoard.${lane}`)}>
           <div className="flex items-center gap-2 px-3 py-3">
             <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{count}</span></h2>
