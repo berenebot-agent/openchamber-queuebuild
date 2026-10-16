@@ -269,6 +269,25 @@ for pending dispatches; the review banner offers only Open session and Continue.
 The common request middleware parses JSON for `/api/build-queue`, including
 resolve, reorder and pause requests.
 
+### Unfreezing from the session
+
+A Build prompt submitted to the session that holds a review-frozen lease is the
+user unfreezing that lease from the chat the error belongs to. `enqueue` treats
+it as the same decision Continue makes: it drops the frozen item, clears the
+lease and the project problem, and the new prompt takes the session's lane slot.
+Only the lease-holding session can unfreeze itself, and only a Build prompt
+counts; a plain message to that session, or a Build prompt to another session in
+the same directory, leaves the lane parked.
+
+The lease is released at enqueue without a fresh idle check. Dispatch timing
+stays with the tick, so an ambiguous dispatch that really did start leaves the
+session busy and the new build waits for that turn to end rather than steering
+into it.
+
+`persistence-failed` is the one review reason this does not clear. Its cause is
+the queue file failing to write, so an unfreeze would dispatch onto an enqueue
+that cannot be persisted either; the lane stays parked until storage is repaired.
+
 The saved setting applies without a restart. `createMessageQueueRuntime` takes
 `settingsFilePath` to point at another instance's file (tests, embedders).
 

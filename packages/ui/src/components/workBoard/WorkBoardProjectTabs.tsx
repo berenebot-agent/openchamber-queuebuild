@@ -55,24 +55,36 @@ const restrictToXAxis: Modifier = ({ transform }) => ({
 
 /**
  * A project's build queue at a glance: a blue spinner carrying the number of
- * builds in flight or waiting, or an amber exclamation when the queue state
- * could not be read. It sits beside the tab's label but outside the tab button,
- * so a disabled tab during another write still shows whether that project is
- * building. Motion follows the appearance setting, like every other activity
- * indicator.
+ * builds in flight or waiting, an amber exclamation when the queue state could
+ * not be read, or a warning mark when the queue was read and is waiting for the
+ * user. The mark sits outside the tab button, so a disabled tab during another
+ * write still shows what the queue is doing. Motion follows the appearance
+ * setting, like every other activity indicator.
  */
 function WorkBoardTabBuildBadge({ badge, label }: { badge: WorkBoardBuildBadge; label: string }) {
   const { t } = useI18n();
   const animated = useSessionDisplayStore(state => state.animatedActivityIndicators);
   const title = badge.error
     ? t('workBoard.headerQueueError', { project: label })
-    : t('workBoard.headerBuilds', { project: label, count: badge.count });
+    : badge.paused === 'git'
+      ? t('workBoard.headerPausedGit', { project: label })
+      : badge.paused === 'review'
+        ? t('workBoard.headerPausedReview', { project: label })
+        : t('workBoard.headerBuilds', { project: label, count: badge.count });
   if (badge.error) {
     return <span
       className="me-1 inline-flex shrink-0 items-center justify-center"
       aria-label={title} title={title} data-work-board-build="error"
     >
       <Icon name="error-warning" className="size-3.5 text-status-warning" />
+    </span>;
+  }
+  if (badge.paused) {
+    return <span
+      className="me-1 inline-flex shrink-0 items-center justify-center"
+      aria-label={title} title={title} data-work-board-build={'paused-' + badge.paused}
+    >
+      <Icon name="alert" className="size-3.5 text-status-warning" />
     </span>;
   }
   return <span

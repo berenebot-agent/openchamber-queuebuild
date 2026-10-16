@@ -247,6 +247,7 @@ export function WorkBoardView() {
   const { snapshot: queue, error: queueError, refresh: refreshQueue } = useBuildQueueSnapshot();
   const [queueBusy, setQueueBusy] = React.useState(false);
   const [queueActionError, setQueueActionError] = React.useState('');
+  const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
   const generation = React.useRef(0);
   const refreshSequence = React.useRef(0);
   const [verifiedActivities, setVerifiedActivities] = React.useState<Set<string>>(new Set());
@@ -506,6 +507,15 @@ export function WorkBoardView() {
   const queueRows = React.useMemo(() => workBoardQueueRows(queuedItems, sessionTitleFor), [queuedItems, sessionTitleFor]);
   const queueOrder = React.useMemo(() => queuedItems.map(item => item.id), [queuedItems]);
 
+  // The active project's own paused state, if any. A review-frozen lease needs
+  // the user to look at that session; a Git hold only needs the tree cleaned or
+  // the policy changed. The two carry different actions below.
+  const queueIssue = React.useMemo(
+    () => (!queueError && queue ? queue.issues.find(item => item.directory === directory)?.issue : undefined),
+    [directory, queue, queueError],
+  );
+  const needsReview = Boolean(activeBuild?.needsReview);
+
   const queueStateFor = (card: WorkBoardCard): WorkBoardQueueState | undefined => {
     if (queueError || !queue || !card.sessionId) return undefined;
     const index = queuedItems.findIndex(item => item.sessionId === card.sessionId);
@@ -573,7 +583,7 @@ export function WorkBoardView() {
   // Queue rows act on the queue itself. The board is a second surface on the
   // same server state, so every one of these refreshes the snapshot rather than
   // guessing the result.
-  const queueMutate = async (url: string, method: 'PUT' | 'DELETE', body?: WorkBoardQueueWrite) => {
+  const queueMutate = async (url: string, method: 'PUT' | 'DELETE' | 'POST', body?: WorkBoardQueueWrite) => {
     setQueueBusy(true);
     setQueueActionError('');
     try {
@@ -606,6 +616,17 @@ export function WorkBoardView() {
   const cancelQueued = (row: { itemId: string; sessionId: string }) =>
     void queueMutate('/api/build-queue/sessions/' + encodeURIComponent(row.sessionId) +
       '/items/' + encodeURIComponent(row.itemId), 'DELETE');
+  // Continue drops the frozen item and releases the lane, so it confirms first:
+  // a mis-click on a header control must not silently discard queued work. The
+  // itemId pins the confirmation to the lease the user was looking at.
+  const confirmResolve = () => {
+    if (!resolveConfirm || !directory) return;
+    const body: WorkBoardQueueWrite = resolveConfirm.action === 'skip'
+      ? { directory, itemId: activeBuild?.itemId, action: 'skip' }
+      : { directory, action: 'retry' };
+    setResolveConfirm(null);
+    void queueMutate('/api/build-queue/resolve', 'POST', body);
+  };
 
   return <div className="absolute inset-0 z-10 flex flex-col bg-background" aria-label={t('workBoard.title')}>
     {/* items-end + pt-3-only puts the project tabs on the header's lower edge, so
@@ -637,6 +658,18 @@ export function WorkBoardView() {
       <Button size="sm" variant="ghost" className="mb-2" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
     </header>
     <p className="px-4 py-2 text-xs text-muted-foreground">{t('workBoard.newBrief')}</p>
+    {(needsReview || queueIssue) && <section role="alert" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3 py-2">
+      <Icon name="alert" className="size-4 shrink-0 text-status-warning" />
+      <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{queueIssue || t('workBoard.needsReview')}</p>
+      {needsReview && <Button size="sm" variant="outline" disabled={!directory || queueBusy}
+        onClick={() => setResolveConfirm({ action: 'skip', issue: queueIssue || t('workBoard.needsReview') })}>
+        {t('buildQueue.recovery.continue')}
+      </Button>}
+      {!needsReview && queueIssue && <Button size="sm" variant="outline" disabled={!directory || queueBusy}
+        onClick={() => setResolveConfirm({ action: 'retry', issue: queueIssue })}>
+        {t('settings.openchamber.buildQueue.policy.retry')}
+      </Button>}
+    </section>}
     {(actionError || error || queueError || sessionsError) && <div role="alert" className="px-4 py-2 text-sm text-[var(--status-error-text)]">{actionError || error || queueError || t('workBoard.unknown')}</div>}
     {!directory ? <p className="p-4">{t('workBoard.noProject')}</p> : <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
       {lanes.map(lane => {
@@ -759,6 +792,18 @@ export function WorkBoardView() {
         {Boolean(completion?.skipped) && <p className="text-sm text-muted-foreground">{t('workBoard.completeSkipped', { count: completion?.skipped ?? 0 })}</p>}
         <ul className="max-h-64 overflow-y-auto space-y-1 text-sm">{completion?.cards.map(card => <li key={card.id} dir="auto">{workBoardCardTitle(card.text, card.attachments)}</li>)}</ul>
         <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setCompletion(null)}>{t('workBoard.cancel')}</Button><Button disabled={busy || !completion?.cards.length} onClick={() => { if (completion) complete(completion.cards); }}>{t('workBoard.complete')}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={resolveConfirm !== null} onOpenChange={open => { if (!open && !queueBusy) setResolveConfirm(null); }}>
+      <DialogContent showCloseButton={!queueBusy}>
+        <DialogTitle>{resolveConfirm?.action === 'retry'
+          ? t('settings.openchamber.buildQueue.policy.retry')
+          : t('buildQueue.recovery.continue')}</DialogTitle>
+        <DialogDescription>{resolveConfirm?.issue}</DialogDescription>
+        <DialogFooter>
+          <Button variant="outline" disabled={queueBusy} onClick={() => setResolveConfirm(null)}>{t('workBoard.cancel')}</Button>
+          <Button disabled={queueBusy} onClick={confirmResolve}>{t('workBoard.resume')}</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   </div>;

@@ -1335,6 +1335,108 @@ describe('project-wide build queue', () => {
     await second.runtime.flush();
   });
 
+  it('resumes the project lane when the lease-holding session is sent another build', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, retryDelayMs: () => 10 });
+    openCode.state.failNext = /\/prompt$/;
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'frozen', text: 'frozen', buildQueue: true }));
+    await settle(80);
+    expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'dispatch-failed' });
+
+    // The chat the error belongs to is where the user fixes it: a new Build
+    // prompt releases the lease and takes the frozen item's place.
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'replacement', text: 'replacement', buildQueue: true }));
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+    await settle(80);
+    // The frozen item is dropped, not resumed: only the replacement is sent.
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['replacement']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('leaves another session unable to unfreeze the lease holder', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, retryDelayMs: () => 10 });
+    openCode.state.failNext = /\/prompt$/;
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'frozen', text: 'frozen', buildQueue: true }));
+    await settle(80);
+    expect(runtime.buildSnapshot().active[0].needsReview).toBe(true);
+
+    await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'other project work', text: 'other project work', buildQueue: true }));
+    expect(runtime.buildSnapshot().active[0]).toMatchObject({ sessionId: SESSION, needsReview: true });
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does not unfreeze on a plain message to the lease-holding session', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, retryDelayMs: () => 10 });
+    openCode.state.failNext = /\/prompt$/;
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'frozen', text: 'frozen', buildQueue: true }));
+    await settle(80);
+    expect(runtime.buildSnapshot().active[0].needsReview).toBe(true);
+
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'what did it do?', text: 'what did it do?' }));
+    expect(runtime.buildSnapshot().active[0]).toMatchObject({ sessionId: SESSION, needsReview: true });
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('keeps a storage-failed review frozen when its session is sent another build', async () => {
+    // This flag comes from the queue file failing to write at dispatch, so drive
+    // that instead of seeding the reason: a restart rewrites it to
+    // restart-during-dispatch. Reads stay valid; every write fails because the
+    // temp file it renames into place is a directory.
+    const dataDir = makeDataDir();
+    const { runtime } = createRuntime({ dataDir, checkBuildGit: async () => null, retryDelayMs: () => 10 });
+    const tmpPath = path.join(dataDir, `message-queue.json.${process.pid}.tmp`);
+    fs.mkdirSync(tmpPath);
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'frozen', text: 'frozen', buildQueue: true }));
+      await settle(80);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'persistence-failed' });
+
+      // Unfreezing here would dispatch onto an enqueue that cannot be persisted
+      // either, so storage stays the fix and the lane stays parked. The new
+      // prompt therefore takes the session's own queue rather than replacing it.
+      await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'replacement', text: 'replacement', buildQueue: true }));
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ sessionId: SESSION, needsReview: true });
+      expect(runtime.buildSnapshot().queued).toHaveLength(1);
+      expect(runtime.buildSnapshot().queued[0].paused).toBe(false);
+    } finally {
+      fs.rmSync(tmpPath, { recursive: true, force: true });
+      runtime.stop();
+      await runtime.flush();
+    }
+  });
+
+  it('waits for the running turn when the unfrozen build finds the session busy', async () => {
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null, retryDelayMs: () => 10, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    runtime.start();
+    openCode.state.failNext = /\/prompt$/;
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'frozen', text: 'frozen', buildQueue: true }));
+    await settle(80);
+    expect(runtime.buildSnapshot().active[0].needsReview).toBe(true);
+
+    // The ambiguous dispatch really did start: the session is mid-turn. The lane
+    // is released, but the new build must not steer into that turn.
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'replacement', text: 'replacement', buildQueue: true }));
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+    expect(runtime.buildSnapshot().queued.map(entry => entry.content)).toEqual(['replacement']);
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(0);
+
+    delete openCode.state.active[SESSION];
+    await settle(30);
+    emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
+    await settle(120);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['replacement']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('rejects a project directory change in an existing queue', async () => {
     const { runtime, openCode } = createRuntime();
     openCode.state.active[SESSION] = { type: 'running' };

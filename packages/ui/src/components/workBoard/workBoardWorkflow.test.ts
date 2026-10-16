@@ -133,7 +133,13 @@ describe('build queue column', () => {
 });
 
 describe('project build badges', () => {
-  const queue = {
+  // A named fixture type, so the paused cases below can carry their own fields.
+  type BadgeQueue = {
+    active: { directory: string; needsReview?: boolean }[];
+    queued: { directory: string }[];
+    issues?: { directory: string; issue: string }[];
+  };
+  const queue: BadgeQueue = {
     active: [{ directory: '/repo' }],
     queued: [{ directory: '/repo' }, { directory: '/repo' }],
   };
@@ -156,6 +162,27 @@ describe('project build badges', () => {
       expect(badges.get('a')).toEqual({ count: 0, error: true });
       expect(badges.get('b')).toEqual({ count: 0, error: true });
     }
+  });
+  test('a parked lease or a Git hold is a paused tab, not a failed read', () => {
+    const projects = [{ id: 'a', path: '/repo' }, { id: 'b', path: '/other' }, { id: 'c', path: '/third' }];
+    const badges = workBoardBuildBadges(projects, {
+      active: [{ directory: '/repo', needsReview: true }],
+      queued: [{ directory: '/repo' }],
+      issues: [{ directory: '/other', issue: 'Repository has uncommitted changes.' }],
+    }, false);
+    // The review mark names its own state; the count survives beside it.
+    expect(badges.get('a')).toEqual({ count: 2, error: false, paused: 'review' });
+    expect(badges.get('b')).toEqual({ count: 0, error: false, paused: 'git' });
+    expect(badges.has('c')).toBe(false);
+  });
+  test('a review outranks a Git hold on the same project', () => {
+    const badges = workBoardBuildBadges([{ id: 'a', path: '/repo' }], {
+      active: [{ directory: '/repo', needsReview: true }],
+      queued: [],
+      issues: [{ directory: '/repo', issue: 'Repository has uncommitted changes.' }],
+    }, false);
+    // Only the user can clear a review, so it is the state worth naming.
+    expect(badges.get('a')?.paused).toBe('review');
   });
 });
 

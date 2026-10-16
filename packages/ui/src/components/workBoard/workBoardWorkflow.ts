@@ -25,10 +25,14 @@ export type WorkBoardActivity = {
 };
 
 /**
- * What the board sends when a queued row moves or pauses. Both routes take a
- * narrow body, so the union names each shape instead of leaving it untyped.
+ * What the board sends when a queued row moves or pauses, or when a paused
+ * project's queue is resolved. Each route takes a narrow body, so the union
+ * names each shape instead of leaving it untyped.
  */
-export type WorkBoardQueueWrite = { directory: string; ids: string[] } | { paused: boolean };
+export type WorkBoardQueueWrite =
+  | { directory: string; ids: string[] }
+  | { paused: boolean }
+  | { directory: string; itemId?: string; action: 'skip' | 'retry' };
 
 export function workBoardFeedback(activity: WorkBoardActivity | undefined, unavailable: boolean, needsReview: boolean, hasUnseenTurn: boolean): 'unknown' | 'blocked' | undefined {
   if (unavailable || !activity) return 'unknown';
@@ -130,10 +134,17 @@ export function workBoardReordered(ids: readonly string[], index: number, delta:
  * build in the queue — the running lease plus everything waiting — so one
  * running build already reads as one, and it never reports zero: a project with
  * an empty queue shows no badge at all, which is the absence of this record.
+ *
+ * `error` and `paused` are different failures. `error` means the queue could not
+ * be read at all, so nothing about the project is known. `paused` means the
+ * queue was read and it is waiting for the user: a lease parked for review, or
+ * the Git policy holding dispatch back. They carry different fixes, so they must
+ * not render the same.
  */
 export type WorkBoardBuildBadge = {
   count: number;
   error: boolean;
+  paused?: 'review' | 'git';
 };
 
 const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -145,10 +156,17 @@ const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, 
  * silently reading as an idle project. Directories are normalised the same way
  * the Build queue pane does, so a worktree's queue does not inflate its root
  * project's badge.
+ *
+ * A paused project keeps its build count: the work is still queued, and how much
+ * of it waits is what the tab is for.
  */
 export function workBoardBuildBadges(
   projects: readonly { id: string; path: string }[],
-  queue: { active: readonly { directory: string }[]; queued: readonly { directory: string }[] } | null,
+  queue: {
+    active: readonly { directory: string; needsReview?: boolean }[];
+    queued: readonly { directory: string }[];
+    issues?: readonly { directory: string; issue: string }[];
+  } | null,
   queueError: boolean,
 ): Map<string, WorkBoardBuildBadge> {
   const badges = new Map<string, WorkBoardBuildBadge>();
@@ -167,10 +185,24 @@ export function workBoardBuildBadges(
     const key = projectKey(item.directory);
     waiting.set(key, (waiting.get(key) ?? 0) + 1);
   }
+  // A lease awaiting review is a waiting project, and it outranks a Git hold
+  // when both apply: the review is the thing only the user can clear.
+  const paused = new Map<string, 'review' | 'git'>();
+  for (const lease of queue.active) {
+    if (lease.needsReview) paused.set(projectKey(lease.directory), 'review');
+  }
+  for (const issue of queue.issues ?? []) {
+    const key = projectKey(issue.directory);
+    if (!paused.has(key)) paused.set(key, 'git');
+  }
   for (const project of projects) {
     const key = projectKey(project.path);
+    const state = paused.get(key);
     const count = (running.get(key) ?? 0) + (waiting.get(key) ?? 0);
-    if (count > 0) badges.set(project.id, { count, error: false });
+    if (count <= 0 && !state) continue;
+    const badge: WorkBoardBuildBadge = { count, error: false };
+    if (state) badge.paused = state;
+    badges.set(project.id, badge);
   }
   return badges;
 }

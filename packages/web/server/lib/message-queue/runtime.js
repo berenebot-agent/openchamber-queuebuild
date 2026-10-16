@@ -891,6 +891,42 @@ export function createMessageQueueRuntime({
     return buildSnapshot();
   };
 
+  /**
+   * A review flag whose cause was server storage, not the build itself. Clearing
+   * it would unfreeze the lane onto an enqueue that cannot be persisted either,
+   * so a dispatch could run with no durable record of it. Storage is the fix.
+   */
+  const buildReviewBlocksUserUnfreeze = (lease) => lease.reviewReason === 'persistence-failed';
+
+  /**
+   * A Build prompt submitted to the session that holds the project's lease is the
+   * user unfreezing that lease from the chat it belongs to: whatever the
+   * uncertain dispatch did, they want this build instead. This is the same
+   * decision the queue pane's Continue makes (it drops the frozen item), so it
+   * uses the same effect. Only the lease-holding session can unfreeze itself, and
+   * only a Build prompt counts; a plain message or another session's build is not
+   * an instruction to carry on building.
+   *
+   * The lease is released here without waiting for idleness. Dispatch timing is
+   * the tick's job: if the ambiguous build really did start, the session is busy
+   * and the new item waits for the turn to end rather than steering into it.
+   */
+  const unfreezeBuildLeaseForSession = (sessionId, directory) => {
+    const lease = activeBuilds.get(directory);
+    if (!lease || lease.sessionId !== sessionId || !lease.needsReview) return false;
+    if (buildReviewBlocksUserUnfreeze(lease)) return false;
+    // The frozen item is what the user is replacing. Dropping it matches the
+    // Continue action; appending to it would resume the abandoned prompt.
+    const queue = queues.get(sessionId);
+    if (queue) setQueueItems(sessionId, directory, queue.items.filter(item => item.id !== lease.itemId));
+    clearTimeout(buildMonitors.get(directory));
+    buildMonitors.delete(directory);
+    buildProblems.delete(directory);
+    activeBuilds.delete(directory);
+    console.log(`[build-queue] unfroze ${directory} from a build prompt in ${sessionId}`);
+    return true;
+  };
+
   const reorderBuilds = async (directory, ids) => {
     await load();
     if (!asNonEmptyString(directory) || !Array.isArray(ids)) throw new TypeError('directory and ordered ids required');
@@ -1189,8 +1225,14 @@ export function createMessageQueueRuntime({
     // lane is released, and a session that already waits appends to the item it
     // holds. Either way the session keeps one row and one place.
     if (isBuildItem(parsed)) {
+      // A review-frozen lease owned by this session is unfrozen by this prompt
+      // before anything else looks at the lane. That drops the frozen item, so
+      // this session's queue is re-read below: the slot and lease are what is
+      // left after the unfreeze, not what was there before it.
+      unfreezeBuildLeaseForSession(sessionId, directory);
       const lease = activeBuilds.get(directory);
-      const slot = (originalQueue?.items ?? []).find(entry => isBuildItem(entry));
+      const current = queues.get(sessionId);
+      const slot = (current?.items ?? []).find(entry => isBuildItem(entry));
       if (lease?.sessionId === sessionId && !lease.needsReview) {
         // The lane is already this session's: the prompt needs no second place
         // in the order, and the session's own queue delivers it in turn.
