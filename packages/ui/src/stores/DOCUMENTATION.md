@@ -13,7 +13,8 @@ while the store holds the in-memory copy the app renders from. Nothing else
 about the flag changes. Card contents live
 in the server work-board module; `lib/workBoardApi.ts` parses their HTTP contract.
 Project tabs and their selected project are persisted per runtime. Closing a tab
-only removes it from that runtime's tab list.
+only removes it from that runtime's tab list, and dragging one tab onto another
+reorders that list while leaving the selected project unchanged.
 UI state version 26 adds `workBoardOlderSessions`, which persists the Include
 older sessions preference by the
 JSON-encoded runtime and directory pair. Missing or malformed preferences default

@@ -29,7 +29,7 @@ import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoard
 import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
 import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, type WorkBoardActivity, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
-import { removeWorkBoardProjectTab } from './workBoardProjectState';
+import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
 import { SavedTodoBrief } from './SavedTodoBrief';
 
@@ -203,6 +203,14 @@ export function WorkBoardView() {
   const closeProjectTab = (closedProjectId: string) => {
     const next = removeWorkBoardProjectTab(visibleProjectTabs.map(project => project.id), projectId, closedProjectId);
     setWorkBoardProjectTabs(runtimeKey, next);
+  };
+  // Reordering rearranges the tabs only: the project the user is looking at
+  // stays the one on screen.
+  const reorderProjectTab = (draggedProjectId: string, overProjectId: string) => {
+    setWorkBoardProjectTabs(runtimeKey, {
+      projectIds: reorderWorkBoardProjectTabs(visibleProjectTabs.map(project => project.id), draggedProjectId, overProjectId),
+      activeProjectId: projectId,
+    });
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
   const includeOlder = useUIStore(state => state.workBoardOlderSessions[JSON.stringify([runtimeKey, directory])] ?? false);
@@ -600,8 +608,13 @@ export function WorkBoardView() {
       '/items/' + encodeURIComponent(row.itemId), 'DELETE');
 
   return <div className="absolute inset-0 z-10 flex flex-col bg-background" aria-label={t('workBoard.title')}>
-    <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-      <h1 className="text-lg font-semibold">{t('workBoard.title')}</h1>
+    {/* items-end + pt-3-only puts the project tabs on the header's lower edge, so
+        a selected tab can flow into the board; the title and controls carry their
+        own bottom padding and stay vertically centred. The header owns a surface
+        because the selected tab is filled with the board's colour — against the
+        bare board background the connection would read as an outline. */}
+    <header className="flex flex-wrap items-end gap-3 border-b border-border bg-surface-muted px-4 pt-3">
+      <h1 className="pb-3 text-lg font-semibold">{t('workBoard.title')}</h1>
       <WorkBoardProjectTabs
         projects={projects}
         openProjectIds={visibleProjectTabs.map(project => project.id)}
@@ -614,13 +627,14 @@ export function WorkBoardView() {
         })}
         onAdd={addProjectTab}
         onClose={closeProjectTab}
+        onReorder={reorderProjectTab}
       />
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+      <label className="flex items-center gap-2 pb-3 text-xs text-muted-foreground">
         <input type="checkbox" checked={includeOlder} disabled={!directory || busy}
           onChange={event => useUIStore.getState().setWorkBoardOlderSessions(runtimeKey, directory, event.target.checked)} />
         {t('workBoard.includeOlderSessions')}
       </label>
-      <Button size="sm" variant="ghost" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
+      <Button size="sm" variant="ghost" className="mb-2" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
     </header>
     <p className="px-4 py-2 text-xs text-muted-foreground">{t('workBoard.newBrief')}</p>
     {(actionError || error || queueError || sessionsError) && <div role="alert" className="px-4 py-2 text-sm text-[var(--status-error-text)]">{actionError || error || queueError || t('workBoard.unknown')}</div>}

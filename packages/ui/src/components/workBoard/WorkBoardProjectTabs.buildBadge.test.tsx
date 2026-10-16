@@ -35,7 +35,7 @@ test('a project tab carries its own build count, or an error mark, and nothing w
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  const tabFor = (label: string) => [...container.querySelectorAll('nav > div')].find(tab => tab.textContent?.includes(label));
+  const tabFor = (label: string) => [...container.querySelectorAll('nav button[aria-current], nav button:not([aria-label])')].find(tab => tab.textContent?.includes(label))?.parentElement ?? undefined;
   try {
     await act(async () => root.render(<I18nProvider><WorkBoardProjectTabs
       projects={projects}
@@ -46,6 +46,7 @@ test('a project tab carries its own build count, or an error mark, and nothing w
       onSelect={() => {}}
       onAdd={() => {}}
       onClose={() => {}}
+      onReorder={() => {}}
     /></I18nProvider>));
     // One running plus two waiting reads as three, on Alpha's own tab.
     const running = tabFor('Alpha')!.querySelector<HTMLElement>('[data-work-board-build="running"]');
@@ -100,6 +101,7 @@ test('the spinner steps only when the appearance setting asks for animation', as
     onSelect={() => {}}
     onAdd={() => {}}
     onClose={() => {}}
+    onReorder={() => {}}
   /></I18nProvider>);
   try {
     useSessionDisplayStore.setState({ animatedActivityIndicators: true });
@@ -148,6 +150,7 @@ test('the accessible label names the project and its count', async () => {
       onSelect={() => {}}
       onAdd={() => {}}
       onClose={() => {}}
+      onReorder={() => {}}
     /></I18nProvider>));
     expect(container.querySelector('[data-work-board-build="running"]')?.getAttribute('aria-label'))
       .toBe('Alpha: 1 builds in the queue');
