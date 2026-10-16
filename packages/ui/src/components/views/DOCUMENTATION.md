@@ -50,6 +50,12 @@ settings checkbox. The pane explains the policy's scope and shows a visible
 warning that automatic commit mode writes all project changes without
 confirmation, initializes Git if needed and can include tracked secrets.
 
+The pane reads one project's queue, chosen by `useBuildQueueDirectory`: the work
+board's active project tab while that tab names a loaded project, else the
+chat's effective directory. A board tab switch changes neither the chat session
+nor the app directory, so without this the pane kept showing whichever project
+the chat was on while the board showed another.
+
 The UI store and settings registry persist the selector. The server remains
 authoritative for preparation, failures and dispatch. Queue snapshots project
 preparation phases and the last successful automatic commit. "Retry preparation"

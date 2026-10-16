@@ -4,7 +4,7 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+import { useBuildQueueDirectory } from '@/hooks/useEffectiveDirectory';
 import { useBuildQueueSnapshot, type BuildQueueEntry } from '@/hooks/useBuildQueueSnapshot';
 import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -19,7 +19,7 @@ const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, 
 const snippet = (value: string) => value.trim().split('\n').find(line => line.trim())?.trim() || 'Queued build';
 
 export const BuildQueueView: React.FC = () => {
-  const directory = useEffectiveDirectory() ?? '';
+  const directory = useBuildQueueDirectory() ?? '';
   const key = projectKey(directory);
   const enabled = useBuildQueuePreferences(state => state.enabled[key] === true);
   const setEnabled = useBuildQueuePreferences(state => state.setEnabled);
