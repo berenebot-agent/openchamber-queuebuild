@@ -1,4 +1,5 @@
 import React from 'react';
+import { readWorkBoardMemory, rememberWorkBoard } from './workBoardMemory';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -235,7 +236,7 @@ export function WorkBoardView() {
   const [queueActionError, setQueueActionError] = React.useState('');
   const generation = React.useRef(0);
   const refreshSequence = React.useRef(0);
-  const refreshing = React.useRef(false);
+  const [verifiedActivities, setVerifiedActivities] = React.useState<Set<string>>(new Set());
   const visibleCards = React.useMemo(() => {
     const linked = new Set(cards.map(card => card.sessionId));
     const existing: WorkBoardCard[] = sessions.filter(session => session.directory === directory && !session.parentID && !linked.has(session.id))
@@ -281,16 +282,20 @@ export function WorkBoardView() {
     }
   }, [directory, t]);
 
-  React.useEffect(() => {
+  const lastBoard = React.useRef({ cards, activities });
+  React.useLayoutEffect(() => { lastBoard.current = { cards, activities }; });
+  React.useLayoutEffect(() => {
     generation.current += 1;
     // Paint the board's own cards from the last visit before the fetch lands,
     // so the first frame already shows the user their board instead of an empty
     // one that fills in. The fetch replaces this seed with authoritative cards.
-    setCards(directory ? readWorkBoardCards(directory) ?? [] : []);
+    const remembered = readWorkBoardMemory(runtimeKey, directory);
+    setCards(remembered?.cards ?? (directory ? readWorkBoardCards(directory) ?? [] : []));
     setLoading(true);
     setError('');
     setActionError('');
-    setActivities(new Map());
+    setActivities(new Map([...remembered?.activities ?? []].map(([id, activity]) => [id, { ...activity, busy: false }])));
+    setVerifiedActivities(new Set());
     setUnavailable(new Set());
     sessionVersions.current.clear();
     messageCache.current.clear();
@@ -300,16 +305,20 @@ export function WorkBoardView() {
     const onFocus = () => { if (document.visibilityState === 'visible') void refresh(); };
     window.addEventListener('focus', onFocus);
     const timer = setInterval(onFocus, 30000);
-    return () => { generation.current += 1; clearInterval(timer); window.removeEventListener('focus', onFocus); };
-  }, [directory, refresh]);
+    return () => {
+      rememberWorkBoard(runtimeKey, directory, lastBoard.current);
+      generation.current += 1; clearInterval(timer); window.removeEventListener('focus', onFocus);
+    };
+  }, [directory, refresh, runtimeKey]);
 
   // History identifies the agent that actually ran. Live status decides whether
   // a completed step can be treated as a settled turn.
   React.useEffect(() => {
     let cancelled = false;
+    let refreshing = false;
     const readActivity = async () => {
-      if (refreshing.current || document.visibilityState !== 'visible') return;
-      refreshing.current = true;
+      if (refreshing || !directory || document.visibilityState !== 'visible') return;
+      refreshing = true;
       const runtime = getRuntimeKey();
       const token = generation.current;
       const next = new Map<string, WorkBoardActivity>();
@@ -346,10 +355,18 @@ export function WorkBoardView() {
           } catch { failed.add(card.id); }
         }));
         if (!cancelled && token === generation.current && runtime === getRuntimeKey()) {
-          setActivities(previous => new Map([...previous, ...next]));
+          setActivities(previous => {
+            const merged = new Map([...previous, ...next]);
+            for (const id of failed) {
+              const activity = merged.get(id);
+              if (activity) merged.set(id, { ...activity, busy: false });
+            }
+            return merged;
+          });
           setUnavailable(failed);
+          setVerifiedActivities(new Set(next.keys()));
         }
-      } finally { refreshing.current = false; }
+      } finally { refreshing = false; }
     };
     void readActivity();
     const timer = setInterval(() => void readActivity(), 5000);
@@ -474,15 +491,16 @@ export function WorkBoardView() {
   };
 
   const laneFor = (card: WorkBoardCard) => workBoardLane(card,
-    unavailable.has(card.id) ? undefined : activities.get(card.id), queueStateFor(card));
+    activities.get(card.id), queueStateFor(card));
   // A lease awaiting review is unfinished work the server will not release on
   // its own; completing its card would hide that resolution. Manual Done stays
   // out of reach for it.
   const canComplete = (card: WorkBoardCard) => {
+    if (loading || error) return false;
     const lane = laneFor(card);
     if (lane !== 'todo' && lane !== 'plan') return false;
     if (!card.sessionId) return true;
-    return Boolean(activities.get(card.id)) && !activities.get(card.id)?.busy && !unavailable.has(card.id)
+    return verifiedActivities.has(card.id) && Boolean(activities.get(card.id)) && !activities.get(card.id)?.busy && !unavailable.has(card.id)
       && !queueError && queue !== null;
   };
   const complete = (targets: WorkBoardCard[]) => void mutate(async () => {
@@ -610,11 +628,12 @@ export function WorkBoardView() {
             }</p>}
             {inLane.map(card => {
               const activity = activities.get(card.id);
-              const statusUnknown = Boolean(card.sessionId) && (!activity || unavailable.has(card.id));
+              const checking = Boolean(card.sessionId) && !verifiedActivities.has(card.id) && !unavailable.has(card.id);
+              const statusUnknown = Boolean(card.sessionId) && (!verifiedActivities.has(card.id) || unavailable.has(card.id));
               const hasRunningTurn = Boolean(activity?.busy);
-              const canReturnToTodo = Boolean(card.sessionId) && lane !== 'todo' && !hasRunningTurn
+              const canReturnToTodo = !loading && !error && Boolean(card.sessionId) && lane !== 'todo' && !hasRunningTurn
                 && !statusUnknown && !queueError && queue !== null;
-              const canRemove = lane === 'todo' && !hasRunningTurn
+              const canRemove = !loading && !error && lane === 'todo' && !hasRunningTurn
                 && (!card.sessionId || (!statusUnknown && !queueError && queue !== null));
               const title = workBoardCardTitle(card.text, card.attachments);
               return <article key={card.id} className="group relative rounded-md border border-border bg-surface-elevated px-2.5 py-1.5">
@@ -628,11 +647,12 @@ export function WorkBoardView() {
                   <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title} onClick={() => {
                     acknowledge(card);
                     if (card.sessionId) { open(card); return; }
+                    if (loading || error) return;
                     setEditing(card.id); setText(card.text); setFiles(card.attachments);
                   }}>{title}</button>
                   {(!card.sessionId || canReturnToTodo || canRemove || canComplete(card)) && <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button type="button" disabled={busy} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" title="Card actions" aria-label={`Actions for ${title}`}>
+                      <button type="button" disabled={busy || loading || Boolean(error)} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" title="Card actions" aria-label={`Actions for ${title}`}>
                         <Icon name="more" className="size-3.5" />
                       </button>
                     </DropdownMenuTrigger>
@@ -649,7 +669,8 @@ export function WorkBoardView() {
                     </DropdownMenuContent>
                   </DropdownMenu>}
                 </div>}
-                {card.sessionId && <WorkBoardSessionFeedback sessionId={card.sessionId} activity={activity} unavailable={statusUnknown} needsReview={Boolean(queueStateFor(card)?.needsReview)} />}
+                {checking ? <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+                  : card.sessionId && <WorkBoardSessionFeedback sessionId={card.sessionId} activity={activity} unavailable={statusUnknown} needsReview={Boolean(queueStateFor(card)?.needsReview)} />}
               </article>;
             })}
           </div>}

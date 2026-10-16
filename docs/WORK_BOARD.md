@@ -105,6 +105,19 @@ another submission. A lost response can mean the original prompt was accepted.
 
 ## Continue work
 
+Switching projects retains the last board cards and history in memory, scoped to
+the runtime and project directory. Returning to a board restores its completed
+and planning columns while current status and history load in the background.
+The cache keeps up to 8 boards and 4 MiB of serialized payload, including card
+attachments. Larger boards take the first-load path again. Reloading the app
+clears this memory cache.
+
+Restored history provides display continuity only. Running flags are checked
+again, and card mutations wait for fresh board and activity checks. A pending
+check shows Loading; a failed check shows Status unavailable and preserves the
+last known history. Idle checks and queue guards still run on the server before
+linked cards can be completed or parked.
+
 Build submissions use the existing project Build queue. Waiting and active work
 is shown using the queue's server state. Open the session and choose the Build
 agent to submit implementation work through the normal composer. A linked card

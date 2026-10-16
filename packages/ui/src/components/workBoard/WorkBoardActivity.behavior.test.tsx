@@ -64,12 +64,17 @@ test('the board reads every linked session history together and stops refetching
   const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
   const inFlight = new Map<string, () => void>();
   const historyCalls: string[] = [];
+  let failHistory = false;
   const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockImplementation(async (sessionId: string) => {
     historyCalls.push(sessionId);
     // Hold every request open so the board's concurrency, not the mock's speed,
     // decides when the histories resolve.
     await new Promise<void>(resolve => { inFlight.set(sessionId, resolve); });
-    return { items: [{ info: { id: `idle-${sessionId}`, sessionID: sessionId, role: 'idle', outcome: 'succeeded', time: { created: 5 } }, parts: [] }], cursor: {} };
+    if (failHistory) throw new Error('History offline');
+    return { items: [
+      { info: { id: `idle-${sessionId}`, sessionID: sessionId, role: 'idle', outcome: 'succeeded', time: { created: 5 } }, parts: [] },
+      { info: { id: `build-${sessionId}`, sessionID: sessionId, role: 'assistant', agent: 'build', providerID: 'provider', modelID: 'model', time: { created: 4 } }, parts: [] },
+    ], cursor: {} };
   });
   const draftSpy = spyOn(useSessionUIStore.getState(), 'openNewSessionDraft').mockImplementation(() => {});
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
@@ -96,6 +101,28 @@ test('the board reads every linked session history together and stops refetching
     // history it already has instead of refetching every settled card.
     await act(async () => { await sleep(5200); });
     expect(historyCalls.length).toBe(settled);
+
+    const doneCards = () => container.querySelector('section[aria-label="Done"]')!.querySelectorAll('article');
+    expect(doneCards()).toHaveLength(6);
+    await act(async () => {
+      useProjectsStore.setState({ projects: [
+        { id: 'project', path: '/repo', label: 'Repository', addedAt: 1 },
+        { id: 'other', path: '/other', label: 'Other', addedAt: 1 },
+      ] });
+      useUIStore.getState().setWorkBoardProjectTabs(getRuntimeKey(), { projectIds: ['project', 'other'], activeProjectId: 'other' });
+    });
+    await act(async () => {
+      useUIStore.getState().setWorkBoardProjectTabs(getRuntimeKey(), { projectIds: ['project', 'other'], activeProjectId: 'project' });
+    });
+    // Histories are deliberately unresolved. All 6 cards must already be back
+    // in Done, without a fallback through Plan or a false failure notice.
+    expect(doneCards()).toHaveLength(6);
+    expect(container.textContent).not.toContain('Status unavailable');
+    expect(container.querySelector('section[aria-label="Plan"]')!.querySelectorAll('article')).toHaveLength(0);
+    failHistory = true;
+    await act(async () => { for (const resolve of inFlight.values()) resolve(); inFlight.clear(); await sleep(40); });
+    expect(doneCards()).toHaveLength(6);
+    expect(container.textContent).toContain('Status unavailable');
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore(); draftSpy.mockRestore();
