@@ -65,15 +65,14 @@ function WorkBoardSessionFeedback({ sessionId, activity, unavailable, needsRevie
 }
 
 /**
- * The Build queue lane. The project runs one build at a time, so the running
- * lease sits above the gap and everything waiting sits below it, in the order
- * the queue will dispatch them. A queued row carries the same controls the
- * Build queue pane offers, because it is the same queue.
+ * The Build queue lane. The running lease and builds started outside the queue
+ * sit above the gap. Waiting items keep the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, active, activeTitle, order, busy, error, onOpen, onMove, onTogglePause, onCancel, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, busy, error, onOpen, onMove, onTogglePause, onCancel, onNewBuild }: {
   rows: WorkBoardQueueRow[];
   active: { sessionId: string; needsReview?: boolean; startedAt: number } | undefined;
   activeTitle: string;
+  liveBuilds: { sessionId: string; title: string }[];
   order: string[];
   busy: boolean;
   error: string;
@@ -84,13 +83,11 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, order, busy, error, o
   onNewBuild: () => void;
 }) {
   const { t } = useI18n();
-  // The active slot keeps its height whether or not a build is running, so the
-  // rows below it do not jump when one starts or finishes.
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
     {error && <p role="alert" className="mb-2 px-1 text-xs text-[var(--status-error-text)]">{error}</p>}
-    {active
-      ? <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} onOpen={() => onOpen(active.sessionId)} />
-      : <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
+    {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} onOpen={() => onOpen(active.sessionId)} />}
+    {liveBuilds.map(build => <WorkBoardActiveBuild key={build.sessionId} title={build.title} needsReview={false} onOpen={() => onOpen(build.sessionId)} />)}
+    {!active && !liveBuilds.length && <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
           className="mb-1 h-auto w-full flex-col items-start gap-1 rounded-md border border-dashed border-border px-2.5 py-3 text-xs font-normal text-muted-foreground"
           aria-label={t('workBoard.newBuild')}>
           <span className="flex items-center gap-1.5 font-medium"><Icon name="add" className="size-3.5" />{t('workBoard.newBuild')}</span>
@@ -567,10 +564,21 @@ export function WorkBoardView() {
     {!directory ? <p className="p-4">{t('workBoard.noProject')}</p> : <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
       {lanes.map(lane => {
         const inLane = visibleCards.filter(card => laneFor(card) === lane);
+        // The queue snapshot owns managed rows. Live builds without a queue
+        // entry must also render, once per session, with no queue mutations.
+        const liveBuilds = new Map<string, { sessionId: string; title: string }>();
+        if (lane === 'queue') {
+          for (const card of inLane) {
+            if (card.sessionId && !queueStateFor(card)) {
+              liveBuilds.set(card.sessionId, { sessionId: card.sessionId, title: sessionTitleFor(card.sessionId) });
+            }
+          }
+        }
+        const count = lane === 'queue' ? queueRows.length + (activeBuild ? 1 : 0) + liveBuilds.size : inLane.length;
         if (lane === 'done') inLane.sort((a, b) => workBoardCompletionTime(b, activities.get(b.id)) - workBoardCompletionTime(a, activities.get(a.id)) || a.id.localeCompare(b.id));
         return <section key={lane} className="flex min-w-[240px] flex-1 flex-col rounded-lg bg-surface-muted" aria-label={t(`workBoard.${lane}`)}>
           <div className="flex items-center gap-2 px-3 py-3">
-            <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{inLane.length}</span></h2>
+            <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{count}</span></h2>
             {(lane === 'todo' || lane === 'plan') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane === 'plan' && !agents.some(agent => agent.name === 'plan'))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')} title={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')}><Icon name="add" className="size-4" /></Button>}
             {lane === 'plan' && <DropdownMenu>
               <DropdownMenuTrigger asChild><Button size="sm" variant="ghost" disabled={busy || !inLane.length} aria-label={t('workBoard.laneActions')}><Icon name="more" className="size-4" /></Button></DropdownMenuTrigger>
@@ -584,6 +592,7 @@ export function WorkBoardView() {
             rows={queueRows}
             active={activeBuild}
             activeTitle={activeBuild ? sessionTitleFor(activeBuild.sessionId) : ''}
+            liveBuilds={[...liveBuilds.values()]}
             order={queueOrder}
             busy={queueBusy}
             error={queueActionError}

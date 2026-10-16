@@ -35,6 +35,13 @@ no card for, so it never shows a shorter queue than the project actually has.
 Rows act on the queue's own order, so a move keeps the builds the board cannot
 see. A queued build with no board card has no card action: it is queue work.
 
+Live Build sessions in the board's scope also appear above the waiting rows when
+they have no server queue entry. These sessions offer Open session only; queue
+pause, reorder, and cancel controls apply only to waiting queue entries. A session
+that gains a queue entry uses that entry's row without a duplicate live card.
+The column count includes the running lease, waiting entries, and these live
+builds. Project-tab badges continue to count server-managed queue work only.
+
 While the board is open it owns the top of the window: the header shows
 **Work board** with a back button, instead of the last opened session's title.
 Sessions live inside a board, not the other way around.
