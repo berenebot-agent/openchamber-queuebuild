@@ -919,6 +919,20 @@ describe('message queue runtime', () => {
 });
 
 describe('project-wide build queue', () => {
+  it('announces the build queue the moment a build is enqueued', async () => {
+    // The queue pane and the work board read this snapshot. Without the
+    // broadcast, a queued build only appeared on the next poll.
+    const { runtime, broadcasts } = createRuntime({ settingsFilePath: path.join(makeDataDir(), 'settings.json') });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    expect(broadcasts).toContainEqual({ type: 'openchamber:build-queue.updated', properties: { directory: DIRECTORY } });
+    // An ordinary message is not project build work and does not announce it.
+    const before = broadcasts.length;
+    await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'plain', text: 'plain' }));
+    expect(broadcasts.slice(before).some(event => event.type === 'openchamber:build-queue.updated')).toBe(false);
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('ignores an item flagged as a build by a non-Build session', async () => {
     // A Plan session whose prompt was flagged before the composer gated on the
     // session's own agent must not surface as a project build.

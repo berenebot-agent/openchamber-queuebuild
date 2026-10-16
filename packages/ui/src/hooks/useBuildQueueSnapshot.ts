@@ -1,6 +1,7 @@
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
 
 export interface BuildQueueEntry {
   id: string;
@@ -66,6 +67,13 @@ export function useBuildQueueSnapshot(enabled = true) {
       setError(null);
       void refresh();
     });
+    // The server broadcasts every build-queue mutation. Reading on that push is
+    // what makes a queued build appear when it was submitted rather than on the
+    // next poll; the interval below stays as the reconnect and missed-event
+    // safety net, since a dropped push must not strand a stale column.
+    const unsubscribeEvents = subscribeOpenchamberEvents(event => {
+      if (event.type === 'build-queue-updated') void refresh();
+    });
     void refresh();
     const interval = setInterval(() => void refresh(), 3000);
     const onVisibilityChange = () => { if (document.visibilityState === 'visible') void refresh(); };
@@ -73,6 +81,7 @@ export function useBuildQueueSnapshot(enabled = true) {
     return () => {
       sequence.current += 1;
       unsubscribe();
+      unsubscribeEvents();
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };

@@ -99,6 +99,14 @@ const browserProviderResetSchema = z.object({
 });
 type BrowserProviderResetEvent = { type: 'browser-provider-reset' } & z.infer<typeof browserProviderResetSchema>;
 
+/**
+ * The project build queue changed. The server owns the queue and already
+ * broadcast it; listeners re-read the snapshot, so only the directory travels
+ * and nothing here can go stale against the server's own order.
+ */
+const buildQueueUpdatedSchema = z.object({ directory: z.string().min(1) });
+type BuildQueueUpdatedEvent = { type: 'build-queue-updated' } & z.infer<typeof buildQueueUpdatedSchema>;
+
 /** Jev routing events; each carries what the routing store needs and nothing the UI must re-derive. */
 const routingUpdatedSchema = z.object({
   available: z.boolean(),
@@ -172,6 +180,7 @@ type OpenChamberEvent =
   | RoutingPermissionHeldEvent
   | RoutingSafetySkippedEvent
   | MessageQueueUpdatedEvent
+  | BuildQueueUpdatedEvent
   | ScheduledTaskRanEvent
   | SessionCreatedEvent
   | WorktreeChangedEvent
@@ -367,6 +376,12 @@ const dispatchFromEnvelope = (envelope: { type: string; properties: unknown }) =
   if (envelope.type === 'openchamber:tracked-items.changed') {
     const records = trackedItemRecordsSchema.parse(getEventProperties(envelope.properties)?.states);
     if (records.length > 0) for (const listener of listeners) listener({ type: 'tracked-items-changed', records });
+    return;
+  }
+
+  if (envelope.type === 'openchamber:build-queue.updated') {
+    const parsed = buildQueueUpdatedSchema.safeParse(envelope.properties);
+    if (parsed.success) for (const listener of listeners) listener({ type: 'build-queue-updated', ...parsed.data });
     return;
   }
 

@@ -39,6 +39,26 @@ describe('openchamber events', () => {
     Reflect.deleteProperty(globalThis, 'EventSource');
   });
 
+  test('a build queue broadcast reaches listeners with its directory', async () => {
+    const { subscribeOpenchamberEvents } = await import('./openchamberEvents');
+    const seen: Array<{ type: string; directory?: string | null }> = [];
+    const unsubscribe = subscribeOpenchamberEvents(event => { seen.push(event); });
+    try {
+      const source = MockEventSource.instances[0];
+      source.onmessage?.({ data: JSON.stringify({ type: 'openchamber:build-queue.updated', properties: { directory: '/repo' } }) });
+      expect(seen).toEqual([{ type: 'build-queue-updated', directory: '/repo' }]);
+      // A malformed payload is dropped rather than published without a directory.
+      seen.length = 0;
+      source.onmessage?.({ data: JSON.stringify({ type: 'openchamber:build-queue.updated', properties: {} }) });
+      expect(seen).toEqual([]);
+      unsubscribe();
+      source.onmessage?.({ data: JSON.stringify({ type: 'openchamber:build-queue.updated', properties: { directory: '/repo' } }) });
+      expect(seen).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test('does not open the server-only event stream in VS Code', async () => {
     Object.defineProperty(window, '__VSCODE_CONFIG__', {
       value: { workspaceFolder: 'C:/repo', workspaceFolders: [] },

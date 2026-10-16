@@ -160,6 +160,18 @@ reuses a card's history while its session has not been updated and no turn is
 running, rather than re-reading settled cards on every poll. A card whose session
 history has not yet arrived keeps the lane its saved stage implies.
 
+The project queue outranks that history. A session the server has queued for a
+build sits in the Build queue column even while its last assistant turn was
+Plan, which is the usual shape of a Plan session the user follows up with a
+Build prompt. The board asks the server's queue first, so the card is placed
+when the build was submitted rather than when its first Build turn starts
+streaming. A queue read that fails is not "nothing queued": the card falls back
+to its history until the queue can be read again.
+
+The board re-reads the queue when the server announces a change, so a submitted
+build reaches the column immediately. Its timed refresh remains as the fallback
+for a missed event.
+
 Failed or stopped unread turns show an attention notice. Opening the session
 from the board or session list clears that notice and the unread icon. Another
 unread failed or stopped turn can show the notice again. Build-queue recovery

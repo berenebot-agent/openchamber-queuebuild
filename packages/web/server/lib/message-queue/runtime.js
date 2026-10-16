@@ -738,6 +738,10 @@ export function createMessageQueueRuntime({
     for (const [sessionId, queue] of queues) {
       if (queue.directory === directory && queue.items.some(isBuildItem)) armDispatch(sessionId);
     }
+    // Every build-lane mutation ends here, and the queue pane and the work board
+    // both read this snapshot. Announcing it here is what makes a queued or
+    // completed build appear when it happened rather than on the next poll.
+    broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
   };
   const scheduleBuildMonitor = (directory, delay = buildMonitorDelayMs) => {
     if (stopped || !activeBuilds.has(directory) || activeBuilds.get(directory).needsReview) return;
@@ -1242,6 +1246,7 @@ export function createMessageQueueRuntime({
     // The session may already be idle (queued from a busy-looking composer
     // right as the turn ended); the tick verifies before sending.
     armDispatch(sessionId);
+    if (isBuildItem(item)) wakeProject(directory);
     return { ...result, itemId: item.id };
   };
 

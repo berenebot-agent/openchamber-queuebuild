@@ -315,6 +315,16 @@ keys its projection by directory, and a broadcast without one left the
 delivered message on screen (a session's directory is remembered until the
 session is deleted or evicted).
 
+Build-lane changes additionally broadcast `openchamber:build-queue.updated` with
+`{ directory }` to every connected client. It carries no snapshot because the
+build pane and the work board already read `GET /api/build-queue`, and the queue
+is the authority for order, pause state and the running lease. `wakeProject`
+emits it, so every build mutation reaches it, and `enqueue` calls it for a
+newly queued build; the preparation lifecycle emits its own as phases advance.
+Clients re-read on that event instead of waiting for the next poll, so a build
+appears in the pane and on the board when it was submitted. The poll remains as
+the reconnect and missed-event fallback.
+
 Limits: 20 items per session, 50 sessions (oldest evicted, never one with an
 item in flight), 200k characters of content; attachment payloads are bounded
 by the route family's 50 MB JSON limit.

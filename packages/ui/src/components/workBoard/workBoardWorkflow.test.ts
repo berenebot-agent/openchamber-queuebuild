@@ -36,6 +36,18 @@ describe('work board lanes', () => {
     expect(workBoardLane(card, undefined, waiting())).toBe('queue');
     expect(workBoardLane(card, undefined, running())).toBe('queue');
   });
+  test('a queued Build from a Plan session is queue work, not Plan, before any build turn runs', () => {
+    const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
+    // The reported case: Plan finished, the user followed up with a Build prompt,
+    // and the server queued it. History still ends in a Plan turn, so only the
+    // queue can place the card correctly.
+    const planHistory = { messages: [user(2), assistant('plan', 3), idle], busy: false };
+    expect(workBoardLane(linked, planHistory, undefined)).toBe('plan');
+    expect(workBoardLane(linked, planHistory, waiting())).toBe('queue');
+    expect(workBoardLane(linked, planHistory, running())).toBe('queue');
+    // And with no history read yet, the queue alone still places it.
+    expect(workBoardLane(linked, undefined, waiting())).toBe('queue');
+  });
   test('an idle Build card is Done whether or not that turn settled successfully', () => {
     const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
     const messages = [user(2), assistant('build', 3), idle];
