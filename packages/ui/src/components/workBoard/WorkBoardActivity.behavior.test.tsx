@@ -80,7 +80,10 @@ test('the board reads every linked session history together and stops refetching
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
   useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
   useConfigStore.setState({ agents: [] });
-  useGlobalSessionsStore.setState({ activeSessions: sessionRecords, status: 'ready', hasLoaded: true });
+  const oldSessions = Array.from({ length: 100 }, (_, index) => ({
+    ...sessionRecords[0], id: `old-${index}`, directory: '/repo', title: `Old session ${index}`,
+  }));
+  useGlobalSessionsStore.setState({ activeSessions: [...sessionRecords, ...oldSessions], status: 'ready', hasLoaded: true });
   useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
   useSessionDisplayStore.setState({ animatedActivityIndicators: false });
   const container = document.createElement('div');
@@ -92,6 +95,7 @@ test('the board reads every linked session history together and stops refetching
     // The board's own cards arrive from the fetch; the linked histories then
     // start together. A batch of four would have started only four.
     expect([...inFlight.keys()].sort()).toEqual([...sessionIds].sort());
+    expect(container.textContent).not.toContain('Old session');
     const settled = historyCalls.length;
 
     // Let every history resolve.
@@ -123,6 +127,14 @@ test('the board reads every linked session history together and stops refetching
     await act(async () => { for (const resolve of inFlight.values()) resolve(); inFlight.clear(); await sleep(40); });
     expect(doneCards()).toHaveLength(6);
     expect(container.textContent).toContain('Status unavailable');
+    // Explicitly saved cards above remain visible despite their old timestamps.
+    // Opting in admits the inherited old sessions and starts their history reads.
+    const includeOlder = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(includeOlder?.checked).toBe(false);
+    await act(async () => { includeOlder!.click(); await sleep(30); });
+    expect(container.textContent).toContain('Old session 0');
+    expect(historyCalls).toContain('old-0');
+    await act(async () => { for (const resolve of inFlight.values()) resolve(); inFlight.clear(); await sleep(30); });
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore(); draftSpy.mockRestore();

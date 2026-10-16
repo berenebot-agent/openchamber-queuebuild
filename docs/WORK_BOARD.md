@@ -105,6 +105,16 @@ another submission. A lost response can mean the original prompt was accepted.
 
 ## Continue work
 
+By default, automatically inherited session cards include only sessions updated
+in the last 30 days. Running sessions, sessions with running background commands
+or subagents, and queued sessions remain included regardless of age. Saved board
+cards always remain visible. The filter runs before per-session history reads.
+
+Use **Include older sessions** in the board header to show the older inherited
+sessions too. The choice is saved locally per runtime and project directory and
+defaults to off. It does not archive or delete sessions, or change the sidebar's
+global session list.
+
 Switching projects retains the last board cards and history in memory, scoped to
 the runtime and project directory. Returning to a board restores its completed
 and planning columns while current status and history load in the background.

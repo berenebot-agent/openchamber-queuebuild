@@ -47,4 +47,26 @@ test('Work Board tabs hydrate per runtime, keep explicit empty lists, and persis
       },
     },
   });
+  expect(useUIStore.getState().workBoardOlderSessions).toEqual({});
+  useUIStore.getState().setWorkBoardOlderSessions('runtime-a', '/alpha', true);
+  const key = JSON.stringify(['runtime-a', '/alpha']);
+  expect(useUIStore.getState().workBoardOlderSessions[key]).toBe(true);
+  expect(useUIStore.getState().workBoardOlderSessions[JSON.stringify(['runtime-b', '/alpha'])]).toBeUndefined();
+  expect(useUIStore.getState().workBoardOlderSessions[JSON.stringify(['runtime-a', '/beta'])]).toBeUndefined();
+  expect(writes.at(-1)).toMatchObject({ state: { workBoardOlderSessions: { [key]: true } } });
+});
+
+test('older-session preferences survive hydration and migrate from UI state version 25', async () => {
+  const key = JSON.stringify(['runtime-a', '/alpha']);
+  useUIStore.persist.setOptions({
+    ...originalOptions,
+    storage: {
+      getItem: () => ({ version: 25, state: { workBoardOlderSessions: { [key]: true } } }),
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    },
+  });
+  useUIStore.setState(useUIStore.getInitialState(), true);
+  await useUIStore.persist.rehydrate();
+  expect(useUIStore.getState().workBoardOlderSessions).toEqual({ [key]: true });
 });

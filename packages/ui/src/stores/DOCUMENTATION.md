@@ -10,6 +10,12 @@ selecting a chat closes it. The open flag is not persisted. Card contents live
 in the server work-board module; `lib/workBoardApi.ts` parses their HTTP contract.
 Project tabs and their selected project are persisted per runtime. Closing a tab
 only removes it from that runtime's tab list.
+UI state version 26 adds `workBoardOlderSessions`, which persists the Include
+older sessions preference by the
+JSON-encoded runtime and directory pair. Missing or malformed preferences default
+to off. The board filters inherited cards to the last 30 days before requesting
+their histories, with exceptions for live and queued work. Saved cards are
+unaffected.
 `workBoardProjectId` remembers the last visited board for the chat's return
 button. It is navigation intent and does not own card contents or completion.
 It is persisted, so the button survives a reload. The button renders only while

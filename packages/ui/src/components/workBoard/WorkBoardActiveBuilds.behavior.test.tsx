@@ -41,7 +41,7 @@ test('live builds without queue entries remain visible and reconcile without dup
   const sessionRecords = ['direct-a', 'direct-b', 'planning'].map(id => ({
     id, directory: '/repo', projectID: 'project', title: id,
     cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    time: { created: 1, updated: 3 },
+    time: { created: 1, updated: Date.now() },
   }));
   let running = true;
   let queue: BuildQueueSnapshot = { revision: 1, active: [], queued: [], issues: [] };

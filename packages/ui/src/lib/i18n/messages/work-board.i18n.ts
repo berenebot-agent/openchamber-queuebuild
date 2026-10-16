@@ -1,6 +1,7 @@
 /** Work board labels and actions, merged into each locale's main dictionary. */
 export const workBoardI18n = {
   en: {
+    'workBoard.includeOlderSessions': 'Include older sessions',
     'workBoard.loadSavedFailed': 'Could not load saved to-do text.', 'workBoard.retry': 'Try again',
     'workBoard.newPlan': 'New Plan session', 'workBoard.newBuild': 'New Build session', 'workBoard.laneActions': 'Column actions', 'workBoard.complete': 'Move to Done', 'workBoard.completeAll': 'Move all cards to Done', 'workBoard.completeConfirm': 'Cards to move to Done: {count}. Conversations are preserved. No work will run or be cancelled.', 'workBoard.completeSkipped': 'Cards excluded because they are busy or their status is unavailable: {count}.', 'workBoard.completeFailed': 'Cards that could not move to Done: {count}.',
     'workBoard.parkBlocked': 'Remove queued messages and wait for the session to become idle before saving to To-do.',
@@ -9,6 +10,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds in the queue', 'workBoard.headerQueueError': '{project}: build queue status unavailable',
   },
   de: {
+    'workBoard.includeOlderSessions': 'Ältere Sitzungen einbeziehen',
     'workBoard.loadSavedFailed': 'Der gespeicherte Aufgabentext konnte nicht geladen werden.', 'workBoard.retry': 'Erneut versuchen',
     'workBoard.newPlan': 'Neue Planungssitzung', 'workBoard.newBuild': 'Neue Build-Sitzung', 'workBoard.laneActions': 'Spaltenaktionen', 'workBoard.complete': 'Nach Erledigt verschieben', 'workBoard.completeAll': 'Alle Karten nach Erledigt verschieben', 'workBoard.completeConfirm': 'Nach Erledigt zu verschiebende Karten: {count}. Gespräche bleiben erhalten. Es wird keine Arbeit gestartet oder abgebrochen.', 'workBoard.completeSkipped': 'Wegen Aktivität oder unbekanntem Status ausgeschlossene Karten: {count}.', 'workBoard.completeFailed': 'Karten, die nicht nach Erledigt verschoben werden konnten: {count}.',
     'workBoard.parkBlocked': 'Entferne Nachrichten aus der Warteschlange und warte, bis die Sitzung inaktiv ist, bevor du sie als Aufgabe speicherst.',
@@ -17,6 +19,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} Builds in der Warteschlange', 'workBoard.headerQueueError': '{project}: Status der Build-Warteschlange nicht verfügbar',
   },
   fr: {
+    'workBoard.includeOlderSessions': 'Inclure les sessions plus anciennes',
     'workBoard.loadSavedFailed': 'Impossible de charger le texte de la tâche enregistrée.', 'workBoard.retry': 'Réessayer',
     'workBoard.newPlan': 'Nouvelle session Plan', 'workBoard.newBuild': 'Nouvelle session Build', 'workBoard.laneActions': 'Actions de la colonne', 'workBoard.complete': 'Déplacer vers Terminé', 'workBoard.completeAll': 'Déplacer toutes les cartes vers Terminé', 'workBoard.completeConfirm': 'Cartes à déplacer vers Terminé : {count}. Les conversations sont conservées. Aucun travail ne sera lancé ou annulé.', 'workBoard.completeSkipped': 'Cartes exclues car actives ou de statut inconnu : {count}.', 'workBoard.completeFailed': 'Cartes impossibles à déplacer vers Terminé : {count}.',
     'workBoard.parkBlocked': 'Retirez les messages en attente et attendez que la session soit inactive avant de l’enregistrer dans À faire.',
@@ -25,6 +28,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project} : {count} builds en file d’attente', 'workBoard.headerQueueError': '{project} : état de la file de build indisponible',
   },
   nl: {
+    'workBoard.includeOlderSessions': 'Oudere sessies tonen',
     'workBoard.loadSavedFailed': 'De opgeslagen taaktekst kon niet worden geladen.', 'workBoard.retry': 'Opnieuw proberen',
     'workBoard.newPlan': 'Nieuwe Plan-sessie', 'workBoard.newBuild': 'Nieuwe Build-sessie', 'workBoard.laneActions': 'Kolomacties', 'workBoard.complete': 'Verplaatsen naar Klaar', 'workBoard.completeAll': 'Alle kaarten verplaatsen naar Klaar', 'workBoard.completeConfirm': 'Kaarten om naar Klaar te verplaatsen: {count}. Gesprekken blijven behouden. Er wordt geen werk gestart of geannuleerd.', 'workBoard.completeSkipped': 'Uitgesloten kaarten wegens activiteit of onbekende status: {count}.', 'workBoard.completeFailed': 'Kaarten die niet naar Klaar konden worden verplaatst: {count}.',
     'workBoard.parkBlocked': 'Verwijder berichten uit de wachtrij en wacht tot de sessie inactief is voordat je opslaat bij Te doen.',
@@ -33,6 +37,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds in de wachtrij', 'workBoard.headerQueueError': '{project}: status van de buildwachtrij niet beschikbaar',
   },
   es: {
+    'workBoard.includeOlderSessions': 'Incluir sesiones antiguas',
     'workBoard.loadSavedFailed': 'No se pudo cargar el texto de la tarea guardada.', 'workBoard.retry': 'Volver a intentar',
     'workBoard.newPlan': 'Nueva sesión Plan', 'workBoard.newBuild': 'Nueva sesión Build', 'workBoard.laneActions': 'Acciones de columna', 'workBoard.complete': 'Mover a Hecho', 'workBoard.completeAll': 'Mover todas las tarjetas a Hecho', 'workBoard.completeConfirm': 'Tarjetas que se moverán a Hecho: {count}. Se conservan las conversaciones. No se ejecutará ni cancelará ningún trabajo.', 'workBoard.completeSkipped': 'Tarjetas excluidas por actividad o estado desconocido: {count}.', 'workBoard.completeFailed': 'Tarjetas que no se pudieron mover a Hecho: {count}.',
     'workBoard.parkBlocked': 'Quita los mensajes de la cola y espera a que la sesión esté inactiva antes de guardar en Por hacer.',
@@ -41,6 +46,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds en la cola', 'workBoard.headerQueueError': '{project}: estado de la cola de build no disponible',
   },
   ja: {
+    'workBoard.includeOlderSessions': '古いセッションを含める',
     'workBoard.loadSavedFailed': '保存したタスクのテキストを読み込めませんでした。', 'workBoard.retry': '再試行',
     'workBoard.newPlan': '新しい計画セッション', 'workBoard.newBuild': '新しいビルドセッション', 'workBoard.laneActions': '列の操作', 'workBoard.complete': '完了に移動', 'workBoard.completeAll': 'すべてのカードを完了に移動', 'workBoard.completeConfirm': '完了に移動するカード数：{count}。会話は保持されます。作業の実行やキャンセルは行いません。', 'workBoard.completeSkipped': '実行中または状態不明のため除外されたカード数：{count}。', 'workBoard.completeFailed': '完了に移動できなかったカード数：{count}。',
     'workBoard.parkBlocked': 'キュー内のメッセージを削除し、セッションが待機状態になってから未着手に保存してください。',
@@ -49,6 +55,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: キュー内のビルド {count} 件', 'workBoard.headerQueueError': '{project}: ビルドキューの状態を確認できません',
   },
   ko: {
+    'workBoard.includeOlderSessions': '이전 세션 포함',
     'workBoard.loadSavedFailed': '저장된 할 일 텍스트를 불러오지 못했습니다.', 'workBoard.retry': '다시 시도',
     'workBoard.newPlan': '새 계획 세션', 'workBoard.newBuild': '새 빌드 세션', 'workBoard.laneActions': '열 작업', 'workBoard.complete': '완료로 이동', 'workBoard.completeAll': '모든 카드를 완료로 이동', 'workBoard.completeConfirm': '완료로 이동할 카드 수: {count}. 대화는 유지됩니다. 작업을 실행하거나 취소하지 않습니다.', 'workBoard.completeSkipped': '실행 중이거나 상태를 알 수 없어 제외된 카드 수: {count}.', 'workBoard.completeFailed': '완료로 이동하지 못한 카드 수: {count}.',
     'workBoard.parkBlocked': '대기열의 메시지를 제거하고 세션이 유휴 상태가 된 후 할 일에 저장하세요.',
@@ -57,6 +64,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: 대기열에 빌드 {count}개', 'workBoard.headerQueueError': '{project}: 빌드 대기열 상태를 사용할 수 없습니다',
   },
   pl: {
+    'workBoard.includeOlderSessions': 'Uwzględnij starsze sesje',
     'workBoard.loadSavedFailed': 'Nie udało się wczytać tekstu zapisanego zadania.', 'workBoard.retry': 'Spróbuj ponownie',
     'workBoard.newPlan': 'Nowa sesja Plan', 'workBoard.newBuild': 'Nowa sesja Build', 'workBoard.laneActions': 'Działania kolumny', 'workBoard.complete': 'Przenieś do Gotowe', 'workBoard.completeAll': 'Przenieś wszystkie karty do Gotowe', 'workBoard.completeConfirm': 'Liczba kart do przeniesienia do Gotowe: {count}. Rozmowy zostaną zachowane. Żadna praca nie zostanie uruchomiona ani anulowana.', 'workBoard.completeSkipped': 'Karty pominięte z powodu aktywności lub nieznanego statusu: {count}.', 'workBoard.completeFailed': 'Karty, których nie udało się przenieść do Gotowe: {count}.',
     'workBoard.parkBlocked': 'Usuń wiadomości z kolejki i poczekaj, aż sesja będzie bezczynna, zanim zapiszesz ją w Do zrobienia.',
@@ -65,6 +73,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} kompilacji w kolejce', 'workBoard.headerQueueError': '{project}: status kolejki kompilacji niedostępny',
   },
   'pt-BR': {
+    'workBoard.includeOlderSessions': 'Incluir sessões antigas',
     'workBoard.loadSavedFailed': 'Não foi possível carregar o texto da tarefa salva.', 'workBoard.retry': 'Tentar novamente',
     'workBoard.newPlan': 'Nova sessão Plan', 'workBoard.newBuild': 'Nova sessão Build', 'workBoard.laneActions': 'Ações da coluna', 'workBoard.complete': 'Mover para Concluído', 'workBoard.completeAll': 'Mover todos os cartões para Concluído', 'workBoard.completeConfirm': 'Cartões a mover para Concluído: {count}. As conversas serão preservadas. Nenhum trabalho será executado ou cancelado.', 'workBoard.completeSkipped': 'Cartões excluídos por atividade ou status desconhecido: {count}.', 'workBoard.completeFailed': 'Cartões que não puderam ser movidos para Concluído: {count}.',
     'workBoard.parkBlocked': 'Remova as mensagens da fila e aguarde a sessão ficar inativa antes de salvar em A fazer.',
@@ -73,6 +82,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds na fila', 'workBoard.headerQueueError': '{project}: status da fila de build indisponível',
   },
   uk: {
+    'workBoard.includeOlderSessions': 'Показувати старіші сесії',
     'workBoard.loadSavedFailed': 'Не вдалося завантажити текст збереженого завдання.', 'workBoard.retry': 'Спробувати ще раз',
     'workBoard.newPlan': 'Нова сесія Plan', 'workBoard.newBuild': 'Нова сесія Build', 'workBoard.laneActions': 'Дії стовпця', 'workBoard.complete': 'Перемістити до Готово', 'workBoard.completeAll': 'Перемістити всі картки до Готово', 'workBoard.completeConfirm': 'Картки для переміщення до Готово: {count}. Розмови збережуться. Роботу не буде запущено чи скасовано.', 'workBoard.completeSkipped': 'Картки, пропущені через активність або невідомий статус: {count}.', 'workBoard.completeFailed': 'Картки, які не вдалося перемістити до Готово: {count}.',
     'workBoard.parkBlocked': 'Видаліть повідомлення з черги та дочекайтеся завершення роботи сеансу, перш ніж зберігати в «До виконання».',
@@ -81,6 +91,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} збірок у черзі', 'workBoard.headerQueueError': '{project}: статус черги збірок недоступний',
   },
   'zh-CN': {
+    'workBoard.includeOlderSessions': '包含较早的会话',
     'workBoard.loadSavedFailed': '无法加载已保存的待办文本。', 'workBoard.retry': '重试',
     'workBoard.newPlan': '新建计划会话', 'workBoard.newBuild': '新建构建会话', 'workBoard.laneActions': '列操作', 'workBoard.complete': '移至已完成', 'workBoard.completeAll': '将所有卡片移至已完成', 'workBoard.completeConfirm': '将移至已完成的卡片数：{count}。会话将保留，不会执行或取消任何工作。', 'workBoard.completeSkipped': '因忙碌或状态未知而排除的卡片数：{count}。', 'workBoard.completeFailed': '无法移至已完成的卡片数：{count}。',
     'workBoard.parkBlocked': '请移除排队中的消息，并等待会话空闲后再保存到待办。',
@@ -89,6 +100,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}：队列中有 {count} 个构建', 'workBoard.headerQueueError': '{project}：构建队列状态不可用',
   },
   'zh-TW': {
+    'workBoard.includeOlderSessions': '包含較早的工作階段',
     'workBoard.loadSavedFailed': '無法載入已儲存的待辦文字。', 'workBoard.retry': '重試',
     'workBoard.newPlan': '新增計畫工作階段', 'workBoard.newBuild': '新增建置工作階段', 'workBoard.laneActions': '欄位操作', 'workBoard.complete': '移至已完成', 'workBoard.completeAll': '將所有卡片移至已完成', 'workBoard.completeConfirm': '將移至已完成的卡片數：{count}。對話將保留，不會執行或取消任何工作。', 'workBoard.completeSkipped': '因忙碌或狀態不明而排除的卡片數：{count}。', 'workBoard.completeFailed': '無法移至已完成的卡片數：{count}。',
     'workBoard.parkBlocked': '請移除佇列中的訊息，並等待工作階段閒置後再儲存至待辦。',
@@ -97,6 +109,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}：佇列中有 {count} 個建置', 'workBoard.headerQueueError': '{project}：建置佇列狀態無法使用',
   },
   tr: {
+    'workBoard.includeOlderSessions': 'Eski oturumları dahil et',
     'workBoard.loadSavedFailed': 'Kaydedilen görev metni yüklenemedi.', 'workBoard.retry': 'Yeniden dene',
     'workBoard.newPlan': 'Yeni Plan oturumu', 'workBoard.newBuild': 'Yeni Build oturumu', 'workBoard.laneActions': 'Sütun işlemleri', 'workBoard.complete': 'Tamamlandı sütununa taşı', 'workBoard.completeAll': 'Tüm kartları Tamamlandı sütununa taşı', 'workBoard.completeConfirm': 'Tamamlandı sütununa taşınacak kart sayısı: {count}. Konuşmalar korunur. Hiçbir iş çalıştırılmaz veya iptal edilmez.', 'workBoard.completeSkipped': 'Meşgul veya durumu bilinmediği için dışlanan kart sayısı: {count}.', 'workBoard.completeFailed': 'Tamamlandı sütununa taşınamayan kart sayısı: {count}.',
     'workBoard.parkBlocked': 'Yapılacaklara kaydetmeden önce kuyruktaki mesajları kaldırın ve oturumun boşta kalmasını bekleyin.',
@@ -105,6 +118,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: kuyrukta {count} derleme', 'workBoard.headerQueueError': '{project}: derleme kuyruğu durumu kullanılamıyor',
   },
   ar: {
+    'workBoard.includeOlderSessions': 'تضمين الجلسات القديمة',
     'workBoard.loadSavedFailed': 'تعذر تحميل نص المهمة المحفوظة.', 'workBoard.retry': 'حاول مجددًا',
     'workBoard.newPlan': 'جلسة تخطيط جديدة', 'workBoard.newBuild': 'جلسة بناء جديدة', 'workBoard.laneActions': 'إجراءات العمود', 'workBoard.complete': 'نقل إلى مكتمل', 'workBoard.completeAll': 'نقل جميع البطاقات إلى مكتمل', 'workBoard.completeConfirm': 'عدد البطاقات التي ستُنقل إلى مكتمل: {count}. تُحفظ المحادثات. لن يُنفذ أي عمل أو يُلغى.', 'workBoard.completeSkipped': 'عدد البطاقات المستبعدة لانشغالها أو لعدم توفر حالتها: {count}.', 'workBoard.completeFailed': 'عدد البطاقات التي تعذر نقلها إلى مكتمل: {count}.',
     'workBoard.parkBlocked': 'أزل الرسائل من قائمة الانتظار وانتظر حتى تصبح الجلسة خاملة قبل الحفظ في المهام.',
@@ -113,6 +127,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} عمليات بناء في قائمة الانتظار', 'workBoard.headerQueueError': '{project}: حالة قائمة انتظار البناء غير متاحة',
   },
   he: {
+    'workBoard.includeOlderSessions': 'הכללת הפעלות ישנות',
     'workBoard.loadSavedFailed': 'לא ניתן לטעון את טקסט המשימה שנשמרה.', 'workBoard.retry': 'ניסיון נוסף',
     'workBoard.newPlan': 'הפעלת תכנון חדשה', 'workBoard.newBuild': 'הפעלת בנייה חדשה', 'workBoard.laneActions': 'פעולות עמודה', 'workBoard.complete': 'העברה להושלם', 'workBoard.completeAll': 'העברת כל הכרטיסים להושלם', 'workBoard.completeConfirm': 'מספר הכרטיסים להעברה להושלם: {count}. השיחות נשמרות. לא תופעל או תבוטל עבודה.', 'workBoard.completeSkipped': 'מספר הכרטיסים שלא נכללו עקב פעילות או סטטוס לא ידוע: {count}.', 'workBoard.completeFailed': 'מספר הכרטיסים שלא ניתן היה להעביר להושלם: {count}.',
     'workBoard.parkBlocked': 'הסירו הודעות מהתור והמתינו לסיום הפעילות בהפעלה לפני השמירה לביצוע.',

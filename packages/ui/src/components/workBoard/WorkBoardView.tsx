@@ -1,4 +1,5 @@
 import React from 'react';
+import { workBoardSessions } from './workBoardSessions';
 import { readWorkBoardMemory, rememberWorkBoard } from './workBoardMemory';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -7,7 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { workBoardCardTitle } from './workBoardCardTitle';
 import { Icon } from '@/components/icon/Icon';
 import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
-import { useSessionTurnActivity } from '@/sync/global-session-status';
+import { useSessionTurnActivity, useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useI18n } from '@/lib/i18n';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -18,7 +19,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { prepareLocalAttachments } from '@/sync/input-store';
 import { createSession } from '@/sync/session-actions';
 import { hasActiveSubagent } from '@/sync/global-session-status';
-import { hasRunningShell } from '@/sync/background-shells';
+import { hasRunningShell, useBackgroundShellsStore } from '@/sync/background-shells';
 import { opencodeClient } from '@/lib/opencode/client';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isAutoModel } from '@/lib/routing/autoModel';
@@ -204,6 +205,10 @@ export function WorkBoardView() {
     setWorkBoardProjectTabs(runtimeKey, next);
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
+  const includeOlder = useUIStore(state => state.workBoardOlderSessions[JSON.stringify([runtimeKey, directory])] ?? false);
+  const activeSessionIds = useGlobalSessionStatusStore(state => state.activeSessionIds);
+  const shellSessionIds = useBackgroundShellsStore(state => state.sessionIds);
+  const [boardActive, setBoardActive] = React.useState<{ directory: string; ids: Set<string> }>({ directory: '', ids: new Set() });
   const savedCard = confirmation?.runtimeKey === runtimeKey && confirmation.card.directory === directory ? confirmation.card : null;
   // Remember which board the user is on so any chat can return to it, and so a
   // New to-do draft is rooted in this project rather than the sidebar's.
@@ -239,11 +244,14 @@ export function WorkBoardView() {
   const [verifiedActivities, setVerifiedActivities] = React.useState<Set<string>>(new Set());
   const visibleCards = React.useMemo(() => {
     const linked = new Set(cards.map(card => card.sessionId));
-    const existing: WorkBoardCard[] = sessions.filter(session => session.directory === directory && !session.parentID && !linked.has(session.id))
+    const active = new Set([...activeSessionIds, ...shellSessionIds,
+      ...(boardActive.directory === directory ? boardActive.ids : []),
+      ...(queue?.active.map(item => item.sessionId) ?? []), ...(queue?.queued.map(item => item.sessionId) ?? [])]);
+    const existing: WorkBoardCard[] = workBoardSessions(sessions, directory, includeOlder, active, Date.now()).filter(session => !linked.has(session.id))
       .map(session => ({ id: `session:${session.id}`, directory, text: session.title, attachments: [],
         sessionId: session.id, stage: 'plan', createdAt: session.time.created, updatedAt: session.time.updated }));
     return [...cards, ...existing];
-  }, [cards, sessions, directory]);
+  }, [cards, sessions, directory, includeOlder, activeSessionIds, shellSessionIds, boardActive, queue]);
   const cardsRef = React.useRef(visibleCards);
   cardsRef.current = visibleCards;
   // A stable identity for the linked card set, so the activity read reruns when
@@ -296,6 +304,7 @@ export function WorkBoardView() {
     setActionError('');
     setActivities(new Map([...remembered?.activities ?? []].map(([id, activity]) => [id, { ...activity, busy: false }])));
     setVerifiedActivities(new Set());
+    setBoardActive({ directory, ids: new Set() });
     setUnavailable(new Set());
     sessionVersions.current.clear();
     messageCache.current.clear();
@@ -327,6 +336,7 @@ export function WorkBoardView() {
         const status = await opencodeClient.getActiveSessionStatuses(directory);
         if (cancelled || token !== generation.current || runtime !== getRuntimeKey()) return;
         const activeIds = new Set(Object.keys(status ?? {}));
+        if (status !== null) setBoardActive({ directory, ids: activeIds });
         const linked = cardsRef.current.filter(card => card.sessionId);
         // Every linked card's history is an independent request. Run them
         // together so the first paint of a lane waits on one round trip rather
@@ -580,6 +590,11 @@ export function WorkBoardView() {
         onAdd={addProjectTab}
         onClose={closeProjectTab}
       />
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <input type="checkbox" checked={includeOlder} disabled={!directory || busy}
+          onChange={event => useUIStore.getState().setWorkBoardOlderSessions(runtimeKey, directory, event.target.checked)} />
+        {t('workBoard.includeOlderSessions')}
+      </label>
       <Button size="sm" variant="ghost" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
     </header>
     <p className="px-4 py-2 text-xs text-muted-foreground">{t('workBoard.newBrief')}</p>
