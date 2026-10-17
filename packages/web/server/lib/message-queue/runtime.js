@@ -294,6 +294,8 @@ export function createMessageQueueRuntime({
   const queues = new Map();
   // One build lease per project directory, held through the entire agent turn.
   const activeBuilds = new Map();
+  // Authoritative per-directory opt-in, shared by web, Electron and mobile.
+  const projectQueueEnabled = new Map();
   const buildProblems = new Map();
   const preparingBuilds = new Map();
   const preparationFailures = new Map();
@@ -336,6 +338,7 @@ export function createMessageQueueRuntime({
     version: QUEUE_FILE_VERSION,
     revision,
     nextBuildOrder,
+    projectQueueEnabled: Object.fromEntries(projectQueueEnabled),
     activeBuilds: Object.fromEntries(activeBuilds),
     sessions: Object.fromEntries(
       Array.from(queues.entries()).map(([sessionId, queue]) => [sessionId, { directory: queue.directory, items: queue.items }]),
@@ -347,7 +350,7 @@ export function createMessageQueueRuntime({
     try {
       raw = await fs.promises.readFile(filePath, 'utf8');
     } catch (error) {
-      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, nextBuildOrder: 1 };
+      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, projectQueueEnabled: {}, nextBuildOrder: 1 };
       throw error;
     }
     let parsed;
@@ -359,7 +362,7 @@ export function createMessageQueueRuntime({
       const backup = `${filePath}.corrupt-${now()}`;
       await fs.promises.rename(filePath, backup).catch(() => undefined);
       console.warn(`[message-queue] queue file was unreadable and moved to ${backup}: ${error?.message ?? error}`);
-      return { sessions: {}, revision: 0, activeBuilds: {}, nextBuildOrder: 1 };
+      return { sessions: {}, revision: 0, activeBuilds: {}, projectQueueEnabled: {}, nextBuildOrder: 1 };
     }
     const stored = asRecord(parsed) ?? {};
     const sessions = {};
@@ -371,7 +374,7 @@ export function createMessageQueueRuntime({
       if (!directory || items.length === 0) continue;
       sessions[sessionId] = { directory, items };
     }
-    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1 };
+    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, projectQueueEnabled: asRecord(stored.projectQueueEnabled) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1 };
   };
 
   const load = () => {
@@ -380,6 +383,9 @@ export function createMessageQueueRuntime({
         .then((stored) => {
           for (const [sessionId, entry] of Object.entries(stored.sessions)) queues.set(sessionId, entry);
           revision = Math.max(revision, stored.revision);
+          for (const [directory, enabled] of Object.entries(stored.projectQueueEnabled)) {
+            if (asNonEmptyString(directory) && typeof enabled === 'boolean') projectQueueEnabled.set(directory, enabled);
+          }
           for (const [directory, value] of Object.entries(stored.activeBuilds)) {
             if (asNonEmptyString(directory) && isValidSessionId(asRecord(value)?.sessionId)) {
               // A restored lease represents a prompt dispatched before restart.
@@ -468,6 +474,7 @@ export function createMessageQueueRuntime({
     .sort((a, b) => a.item.buildOrder - b.item.buildOrder || a.item.createdAt - b.item.createdAt || a.item.id.localeCompare(b.item.id));
   const runnableBuilds = (directory) => pendingBuilds(directory).filter(entry => !entry.item.buildPaused);
   const buildSnapshot = () => ({
+    projectQueueEnabled: Object.fromEntries(projectQueueEnabled),
     revision,
     preparation: Array.from(preparingBuilds, ([directory, value]) => ({ directory, phase: value.phase })),
     commits: Array.from(buildCommits, ([directory, value]) => ({ directory, ...value })),
@@ -1487,12 +1494,34 @@ export function createMessageQueueRuntime({
     return sessionId;
   };
 
+  /** Persist queue enablement centrally. Never report success before the disk write. */
+  const setProjectQueueEnabled = async (directoryInput, enabled) => {
+    const directory = asNonEmptyString(directoryInput)?.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!directory || typeof enabled !== 'boolean') throw new TypeError('directory and boolean enabled are required');
+    await load();
+    const previous = projectQueueEnabled.get(directory);
+    projectQueueEnabled.set(directory, enabled);
+    commit('');
+    await writePromise;
+    if (persistenceError) {
+      if (previous === undefined) projectQueueEnabled.delete(directory);
+      else projectQueueEnabled.set(directory, previous);
+      throw httpError('Could not persist project queue settings', 503);
+    }
+    wakeProject(directory);
+    return buildSnapshot();
+  };
+
   const enqueue = async (sessionIdInput, directoryInput, itemInput) => {
     const sessionId = requireSessionId(sessionIdInput);
     const directory = asNonEmptyString(directoryInput);
     if (!directory) throw new TypeError('directory is required');
     const parsed = parseQueuedItemInput(itemInput);
     await load();
+    // A stale mobile/browser profile cannot opt out of a server-enabled queue
+    // when explicitly adding a Build-agent message to the shared inbox.
+    if (projectQueueEnabled.get(directory.replace(/\\/g, '/').replace(/\/+$/, '')) === true
+      && parsed.sendConfig?.agent?.toLowerCase() === 'build' && !parsed.scheduledTask) parsed.buildQueue = true;
     if (parkingSessions.has(sessionId)) throw httpError('Session is being parked to To-do', 409);
     const originalQueue = queues.get(sessionId);
     if (originalQueue && originalQueue.directory !== directory) throw httpError('session queue directory mismatch', 409);
@@ -1814,6 +1843,7 @@ export function createMessageQueueRuntime({
     setBuildPaused,
     resolveBuild,
     forceDispatch,
+    setProjectQueueEnabled,
     sessionSnapshot,
     enqueue,
     cancelScheduledTask,
@@ -1841,6 +1871,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.get('/api/build-queue', async (_req, res) => {
     try { await runtime.load(); res.json(runtime.buildSnapshot()); }
     catch (error) { respondError(res, error, 'Failed to load build queue'); }
+  });
+  app.put('/api/build-queue/projects', async (req, res) => {
+    try { res.json(await runtime.setProjectQueueEnabled(req.body?.directory, req.body?.enabled)); }
+    catch (error) { respondError(res, error, 'Failed to update project queue settings'); }
   });
   app.post('/api/build-queue/resolve', async (req, res) => {
     try { res.json(await runtime.resolveBuild(req.body?.directory, req.body?.action, req.body?.itemId)); }
