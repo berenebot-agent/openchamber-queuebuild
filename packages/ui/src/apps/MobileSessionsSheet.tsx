@@ -2335,7 +2335,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button type="button" variant="default" size="lg" className="w-10 shrink-0 px-0"
-                    aria-label="More pages" title="More pages" style={{ touchAction: 'manipulation' }}>
+                    aria-label={t('mobile.menu.titleAria')} title={t('mobile.menu.titleAria')} style={{ touchAction: 'manipulation' }}>
                     <Icon name="more" className="size-5" />
                     {footer.onOpenUpdate ? <span className="absolute inset-e-1 top-1 size-2 rounded-full bg-primary" aria-hidden /> : null}
                   </Button>
