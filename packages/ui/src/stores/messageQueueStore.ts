@@ -225,6 +225,8 @@ const serverSessionResponseSchema = z.object({
 
 const serverTakeResponseSchema = serverSessionResponseSchema.extend({ item: serverItemSchema });
 const serverTakeAllResponseSchema = serverSessionResponseSchema.extend({ items: z.array(serverItemSchema) });
+/** A cancellation hands the removed item back so the composer can restore it. */
+const serverCancelResponseSchema = serverSessionResponseSchema.extend({ item: serverItemSchema.optional() });
 
 type ServerQueueSession = z.infer<typeof serverSessionSchema>;
 type ServerQueueItem = z.infer<typeof serverItemSchema>;
@@ -396,6 +398,12 @@ interface MessageQueueActions {
     reorderQueue: (target: MessageQueueTarget, fromId: string, toId: string) => void;
     /** Removes the message and returns it in full, attachments included. */
     popToInput: (target: MessageQueueTarget, messageId: string) => Promise<QueuedMessage | null>;
+    /**
+     * Cancels a queued build and returns it in full, attachments and context
+     * included, so the composer can restore what the user typed. Null when the
+     * item was already gone or the runtime has no server-owned build queue.
+     */
+    cancelBuild: (target: MessageQueueTarget, messageId: string) => Promise<QueuedMessage | null>;
     /**
      * Removes what the composer is about to send itself — one message or every
      * message not already being delivered — and returns it in full.
@@ -647,6 +655,25 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                     popToInput: async (target, messageId) => {
                         const [message] = await get().takeForSend(target, messageId);
                         return message ?? null;
+                    },
+
+                    cancelBuild: async (target, messageId) => {
+                        const key = getMessageQueueKey(target);
+                        set((state) => removeMessageLocally(state, key, messageId));
+                        // The build queue is server-owned; VS Code never creates these items.
+                        if (!isServerOwnedMessageQueue()) return null;
+                        try {
+                            const result = await requestJson(
+                                serverCancelResponseSchema,
+                                `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}`,
+                                jsonInit('DELETE'),
+                            );
+                            applyServerSession(result.session, result.revision, target.runtimeKey);
+                            return result.item ? toQueuedMessage(result.item) : null;
+                        } catch (error) {
+                            await refreshSession(target);
+                            throw error;
+                        }
                     },
 
                     takeForSend: async (target, messageId) => {

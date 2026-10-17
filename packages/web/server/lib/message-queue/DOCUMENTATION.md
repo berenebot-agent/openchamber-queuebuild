@@ -326,7 +326,7 @@ allowlists.
 |---|---|
 | `GET /api/message-queue` | Full snapshot `{ revision, sessions[] }` |
 | `POST .../sessions/:id/items` | Append `{ directory, item }`; returns `{ revision, session, itemId }` and arms a dispatch (the session may already be idle) |
-| `DELETE .../sessions/:id/items/:itemId` | Remove; `409` while that item is in flight |
+| `DELETE .../sessions/:id/items/:itemId` | Remove; `409` while that item is in flight. Returns `{ revision, session, item? }` — the removed item's full payload — so the composer can restore a cancelled build instead of losing the prompt |
 | `POST .../sessions/:id/items/:itemId/take` | Remove and return the full item (payloads included); `404`/`409` |
 | `POST .../sessions/:id/take` | Remove and return every item not in flight, in order |
 | `PUT .../sessions/:id/order` | `{ itemIds }` must be a complete permutation |

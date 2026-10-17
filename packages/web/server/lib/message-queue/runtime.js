@@ -1348,19 +1348,23 @@ export function createMessageQueueRuntime({
     return { ...result, itemId: item.id };
   };
 
+  /**
+   * Removes the item and hands its full payload back so the composer can
+   * restore a cancelled message instead of losing what the user typed.
+   */
   const remove = async (sessionIdInput, itemId) => {
     const sessionId = requireSessionId(sessionIdInput);
     await load();
     if (sending.get(sessionId) === itemId || Array.from(activeBuilds.values()).some(lease => lease.sessionId === sessionId && lease.itemId === itemId)) throw httpError('build is active or awaiting review', 409);
     const queue = queues.get(sessionId);
-    if (!queue || !queue.items.some((item) => item.id === itemId)) {
+    const removed = queue?.items.find((item) => item.id === itemId);
+    if (!removed) {
       return { revision, session: sessionSnapshot(sessionId) };
     }
-    const wasBuild = queue.items.some(item => item.id === itemId && isBuildItem(item));
     setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id !== itemId));
     const updated = commit(sessionId);
-    if (wasBuild) wakeProject(queue.directory);
-    return updated;
+    if (isBuildItem(removed)) wakeProject(queue.directory);
+    return { ...updated, item: removed };
   };
 
   /** Removes the item and hands its full payload (attachments included) back. */

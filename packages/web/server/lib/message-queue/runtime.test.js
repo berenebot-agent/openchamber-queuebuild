@@ -1353,6 +1353,18 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('removing an item hands its full payload back so the composer can restore it', async () => {
+    const { runtime } = createRuntime();
+    const context = [{ kind: 'context', text: 'linked issue', metadata: { openchamberContext: { kind: 'repository-issue', number: 7, title: 'Bug', url: 'https://x/7' } } }];
+    const queued = await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'planned task', text: 'planned task', context }));
+    const removed = await runtime.remove(SESSION, queued.itemId);
+    expect(removed.item).toMatchObject({ id: queued.itemId, content: 'planned task', text: 'planned task' });
+    expect(removed.item.context).toEqual(context);
+    expect(runtime.sessionSnapshot(SESSION).items).toEqual([]);
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('holds an uncertain dispatch after restart until the owner resolves it', async () => {
     const first = createRuntime({ checkBuildGit: async () => null });
     first.openCode.state.active[SESSION] = { type: 'running' };

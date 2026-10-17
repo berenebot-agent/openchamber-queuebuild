@@ -4,10 +4,19 @@ import { Icon } from '@/components/icon/Icon';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
 import { useUIStore } from '@/stores/useUIStore';
-import { runtimeFetch } from '@/lib/runtime-fetch';
+import { createMessageQueueTarget, useMessageQueueStore, type QueuedMessage } from '@/stores/messageQueueStore';
 import { workBoardDirectoryKey } from '@/components/workBoard/workBoardWorkflow';
 
-export const BuildQueueBanner: React.FC<{ sessionId: string | null; directory: string | null }> = ({ sessionId, directory }) => {
+/**
+ * The in-session build queue row. Cancelling a queued build hands the prompt
+ * back to the composer (`onMessageRestored`) so the typed message is not lost;
+ * the project-wide pane and work board only remove it.
+ */
+export const BuildQueueBanner: React.FC<{
+  sessionId: string | null;
+  directory: string | null;
+  onMessageRestored?: (message: QueuedMessage) => void;
+}> = ({ sessionId, directory, onMessageRestored }) => {
   const { snapshot, refresh } = useBuildQueueSnapshot();
   const key = (directory ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
   const enabled = useBuildQueuePreferences(state => state.enabled[key] === true);
@@ -31,11 +40,12 @@ export const BuildQueueBanner: React.FC<{ sessionId: string | null; directory: s
   const open = () => useUIStore.getState().openContextSurface(directory, 'build-queue');
   const cancel = async () => {
     if (!queuedItem) return;
+    const target = createMessageQueueTarget(sessionId, directory);
+    if (!target) return;
     try {
-      const response = await runtimeFetch('/api/build-queue/sessions/' + encodeURIComponent(sessionId) +
-        '/items/' + encodeURIComponent(queuedItem.id), { method: 'DELETE' });
-      if (!response.ok) throw new Error('Could not cancel queued build');
+      const restored = await useMessageQueueStore.getState().cancelBuild(target, queuedItem.id);
       await refresh();
+      if (restored) onMessageRestored?.(restored);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : String(cause));
     }

@@ -327,6 +327,9 @@ round-trips re-read instead of guessing. Empty legacy events without a directory
 clear all projections of their session in that runtime. Projection items carry
 attachment metadata only, so `popToInput()` and `takeForSend()` asynchronously
 remove the message on the server and retrieve its complete captured payload.
+`cancelBuild()` does the same through the removal route: it returns the
+cancelled build in full so the composer can restore the typed prompt as a draft,
+which is what the in-session build banner does on Cancel.
 
 `lib/messages/queuedMessagePreview.ts` derives the queue row from typed text,
 then attached comments/context, then the first filename. The store sends a

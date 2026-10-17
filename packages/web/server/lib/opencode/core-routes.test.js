@@ -9,10 +9,12 @@ describe('core-routes', () => {
   it('parses JSON for build recovery, reordering, and pause through the real middleware', async () => {
     const app = express();
     registerCommonRequestMiddleware(app, { express });
+    const removed = { id: 'item-1', content: 'planned task' };
     const runtime = {
       resolveBuild: vi.fn(async () => ({ active: [] })),
       reorderBuilds: vi.fn(async () => ({ queued: [] })),
       setBuildPaused: vi.fn(async () => ({ queued: [] })),
+      remove: vi.fn(async () => ({ revision: 1, session: { sessionId: 'ses_test', directory: '/repo', items: [], sendingId: null }, item: removed })),
     };
     registerMessageQueueRoutes(app, runtime);
     await request(app).post('/api/build-queue/resolve')
@@ -24,6 +26,9 @@ describe('core-routes', () => {
     await request(app).put('/api/build-queue/sessions/ses_test/items/item-1/pause')
       .send({ paused: true }).expect(200);
     expect(runtime.setBuildPaused).toHaveBeenCalledWith('ses_test', 'item-1', true);
+    const cancelled = await request(app).delete('/api/build-queue/sessions/ses_test/items/item-1').expect(200);
+    expect(runtime.remove).toHaveBeenCalledWith('ses_test', 'item-1');
+    expect(cancelled.body.item).toEqual(removed);
   });
   afterEach(() => {
     vi.useRealTimers();

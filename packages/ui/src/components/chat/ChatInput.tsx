@@ -1702,6 +1702,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleQueuedMessageEdit = React.useCallback((queued: QueuedMessage) => {
         setMessage(queued.content);
         restoreQueuedContext(queued.context ?? []);
+        // The chips came back with the message; put them back on the composer.
+        if (queued.attachments && queued.attachments.length > 0) {
+            const currentAttachments = useInputStore.getState().attachedFiles;
+            useInputStore.getState().setAttachedFiles([...currentAttachments, ...queued.attachments]);
+        }
         setTimeout(() => {
             composerRef.current?.focus();
         }, 0);
@@ -4125,7 +4130,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         />
     ) : null;
     const buildQueueRow = !isBtwActive && !newSessionDraftOpen ? (
-        <BuildQueueBanner sessionId={currentSessionId} directory={currentSessionDirectoryForSync ?? currentDirectory ?? null} />
+        <BuildQueueBanner
+            sessionId={currentSessionId}
+            directory={currentSessionDirectoryForSync ?? currentDirectory ?? null}
+            onMessageRestored={handleQueuedMessageEdit}
+        />
     ) : null;
     const queueRow = !isBtwActive && !newSessionDraftOpen ? (
         <QueuedMessagesStrip

@@ -15,7 +15,6 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { getMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedMessage } from '@/stores/messageQueueStore';
-import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { useI18n } from '@/lib/i18n';
 import { Icon } from '@/components/icon/Icon';
@@ -184,13 +183,10 @@ export const QueuedMessagesStrip = memo(({ target, onEditMessage, onSendMessage 
         if (!target) return;
 
         // The full message (attachments included) comes back from the queue's
-        // owner; the row itself only knows the summary.
+        // owner; the row itself only knows the summary. The composer restores
+        // the text, context and chips.
         void popToInput(target, message.id).then((popped) => {
             if (!popped) return;
-            if (popped.attachments && popped.attachments.length > 0) {
-                const currentAttachments = useInputStore.getState().attachedFiles;
-                useInputStore.getState().setAttachedFiles([...currentAttachments, ...popped.attachments]);
-            }
             onEditMessage(popped);
         }).catch((error) => {
             console.warn('[queue] failed to take queued message for editing:', error);

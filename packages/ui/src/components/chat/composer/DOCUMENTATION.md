@@ -164,6 +164,12 @@ local slash commands, and an explicit steer (`delivery`, set only for a session
 that is not idle) are not intercepted: a steer belongs to the session's own
 running turn, and only the queue is serialized.
 
+`BuildQueueBanner`, the in-session build row above the queue, cancels a waiting
+build through `messageQueueStore.cancelBuild()` and puts the removed prompt
+back into the composer as an active draft — text, chips and attachments — the
+same restore the queued-message Edit uses. The project-wide queue pane and the
+work board cancel only, since the build there may belong to another session.
+
 `BackgroundShellsStrip` lists the commands that went to the background (not the ones
 a turn is waiting for, see `background` in `sync/background-shells.ts`) of
 the session and of its
