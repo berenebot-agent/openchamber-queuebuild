@@ -27,7 +27,7 @@ import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-sw
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, markWorkBoardCardViewed, WorkBoardRequestError, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
 import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
-import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, workBoardDirectoryKey, type WorkBoardActivity, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
+import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, type WorkBoardActivity, type WorkBoardActiveEntry, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
@@ -35,7 +35,7 @@ import { SavedTodoBrief } from './SavedTodoBrief';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queue', 'done'];
 
-const queueErrorSchema = z.object({ error: z.string() });
+const queueErrorSchema = z.object({ error: z.string().optional(), warning: z.string().optional() });
 
 /**
  * The one mark a card can show before its title: live activity, or — for a
@@ -76,17 +76,18 @@ function WorkBoardSessionFeedback({ feedback }: { feedback: 'unknown' | 'blocked
  * The Build queue lane. The running lease and builds started outside the queue
  * sit above the gap. Waiting items keep the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, busy, error, onOpen, onMove, onTogglePause, onCancel, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy, error, onOpen, onMove, onTogglePause, onForce, onCancel, onNewBuild }: {
   rows: WorkBoardQueueRow[];
   active: { sessionId: string; needsReview?: boolean; startedAt: number } | undefined;
   activeTitle: string;
-  liveBuilds: { sessionId: string; title: string; checking: boolean; unavailable: boolean }[];
+  entries: WorkBoardActiveEntry[];
   order: string[];
   busy: boolean;
   error: string;
   onOpen: (sessionId: string) => void;
   onMove: (itemId: string, delta: number) => void;
   onTogglePause: (row: { itemId: string; sessionId: string; paused: boolean }) => void;
+  onForce: (row: { itemId: string; sessionId: string }) => void;
   onCancel: (row: { itemId: string; sessionId: string }) => void;
   onNewBuild: () => void;
 }) {
@@ -94,8 +95,8 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, bu
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
     {error && <p role="alert" className="mb-2 px-1 text-xs text-[var(--status-error-text)]">{error}</p>}
     {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} onOpen={() => onOpen(active.sessionId)} />}
-    {liveBuilds.map(build => <WorkBoardActiveBuild key={build.sessionId} title={build.title} needsReview={false} checking={build.checking} unavailable={build.unavailable} onOpen={() => onOpen(build.sessionId)} />)}
-    {!active && !liveBuilds.length && <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
+    {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title} needsReview={false} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced} onOpen={() => onOpen(entry.sessionId)} />)}
+    {!active && !entries.length && <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
           className="mb-1 h-auto w-full flex-col items-start gap-1 rounded-md border border-dashed border-border px-2.5 py-3 text-xs font-normal text-muted-foreground"
           aria-label={t('workBoard.newBuild')}>
           <span className="flex items-center gap-1.5 font-medium"><Icon name="add" className="size-3.5" />{t('workBoard.newBuild')}</span>
@@ -129,6 +130,9 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, bu
             aria-label={t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}
             title={t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}
             onClick={() => onTogglePause(row)}><Icon name={row.paused ? 'play' : 'time'} className="size-3.5" /></Button>
+          <Button size="icon" variant="ghost" className="size-6" disabled={busy}
+            aria-label={t('workBoard.force', { title: row.title })} title={t('workBoard.force', { title: row.title })}
+            onClick={() => onForce(row)}><Icon name="rocket" className="size-3.5" /></Button>
           <Button size="icon" variant="ghost" className="size-6 hover:text-[var(--status-error-text)]" disabled={busy}
             aria-label={t('workBoard.cancelBuild', { title: row.title })} title={t('workBoard.cancelBuild', { title: row.title })}
             onClick={() => onCancel(row)}><Icon name="close" className="size-3.5" /></Button>
@@ -144,24 +148,26 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, bu
  * actually running gets the moving band, so "working" and "stuck" never look
  * the same.
  */
-function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, onOpen }: { title: string; needsReview: boolean; checking?: boolean; unavailable?: boolean; onOpen: () => void }) {
+function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, forced = false, onOpen }: { title: string; needsReview: boolean; checking?: boolean; unavailable?: boolean; forced?: boolean; onOpen: () => void }) {
   const { t } = useI18n();
   return <button type="button" onClick={onOpen}
     className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
       + (needsReview
         ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
-        : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]')}
+        : forced
+          ? 'border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-warning)_18%,var(--surface-elevated))]'
+          : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]')}
     aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })} title={title}>
-    {!needsReview && !checking && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
+    {!needsReview && !checking && !forced && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
     <span className="relative flex min-w-0 items-center gap-2">
-      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
-          <Icon name={needsReview ? 'alert' : 'terminal-box'} className="size-3.5" />
+      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : forced ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
+          <Icon name={needsReview ? 'alert' : forced ? 'rocket' : 'terminal-box'} className="size-3.5" />
       </span>
       <span className="min-w-0 flex-1">
         <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
-        <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : 'workBoard.buildingNow')}</span>
+        <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : forced ? 'workBoard.outsideQueue' : 'workBoard.buildingNow')}</span>
       </span>
-      {!needsReview && !checking && <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--status-info)]">
+      {!needsReview && !checking && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (forced ? 'text-[var(--status-warning-text)]' : 'text-[var(--status-info)]')}>
         <span className="size-1.5 rounded-full bg-[var(--status-success)] motion-safe:animate-pulse" />{t('workBoard.active')}
       </span>}
     </span>
@@ -326,6 +332,7 @@ export function WorkBoardView() {
   const [queueBusy, setQueueBusy] = React.useState(false);
   const [queueActionError, setQueueActionError] = React.useState('');
   const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
+  const [forceConfirm, setForceConfirm] = React.useState<{ itemId: string; sessionId: string; title: string } | null>(null);
   const generation = React.useRef(0);
   const refreshSequence = React.useRef(0);
   const [verifiedActivities, setVerifiedActivities] = React.useState<Set<string>>(new Set());
@@ -333,7 +340,8 @@ export function WorkBoardView() {
     const linked = new Set(cards.map(card => card.sessionId));
     const active = new Set([...activeSessionIds, ...shellSessionIds,
       ...(boardActive.directory === directory ? boardActive.ids : []),
-      ...(queue?.active.map(item => item.sessionId) ?? []), ...(queue?.queued.map(item => item.sessionId) ?? [])]);
+      ...(queue?.active.map(item => item.sessionId) ?? []), ...(queue?.queued.map(item => item.sessionId) ?? []),
+      ...(queue?.forced?.map(item => item.sessionId) ?? [])]);
     const existing: WorkBoardCard[] = workBoardSessions(sessions, directory, includeOlder, active, Date.now()).filter(session => !linked.has(session.id))
       .map(session => ({ id: `session:${session.id}`, directory, text: session.title, attachments: [],
         sessionId: session.id, stage: 'plan', createdAt: session.time.created, updatedAt: session.time.updated }));
@@ -639,6 +647,14 @@ export function WorkBoardView() {
   );
   const queueRows = React.useMemo(() => workBoardQueueRows(queuedItems, sessionTitleFor), [queuedItems, sessionTitleFor]);
   const queueOrder = React.useMemo(() => queuedItems.map(item => item.id), [queuedItems]);
+  // Forced builds have no lease and no queue row; the server names them, and
+  // their titles come from the same session list the rows use.
+  const forcedBuilds = React.useMemo(
+    () => (!queueError && queue ? (queue.forced ?? [])
+      .filter(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory))
+      .map(item => ({ sessionId: item.sessionId, title: sessionTitleFor(item.sessionId) })) : []),
+    [directory, queue, queueError, sessionTitleFor],
+  );
 
   // The active project's own paused state, if any. A review-frozen lease needs
   // the user to look at that session; a Git hold only needs the tree cleaned or
@@ -726,10 +742,11 @@ export function WorkBoardView() {
         init.body = JSON.stringify(body);
       }
       const response = await runtimeFetch(url, init);
-      if (!response.ok) {
-        const detail = queueErrorSchema.safeParse(await response.json().catch(() => null));
-        throw new Error(detail.success ? detail.data.error : `HTTP ${response.status}`);
-      }
+      const payload = queueErrorSchema.safeParse(await response.json().catch(() => null));
+      if (!response.ok) throw new Error((payload.success && payload.data.error) || `HTTP ${response.status}`);
+      // A forced build can report that its prompt was not confirmed: the item
+      // stays queued, so say so instead of reading as a clean success.
+      if (payload.success && payload.data.warning) setQueueActionError(payload.data.warning);
       await refreshQueue();
     } catch (cause) {
       setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
@@ -759,6 +776,17 @@ export function WorkBoardView() {
       : { directory, action: 'retry' };
     setResolveConfirm(null);
     void queueMutate('/api/build-queue/resolve', 'POST', body);
+  };
+  // Force starts one waiting build outside the queue, so it confirms first: a
+  // mis-click must not start a second build in a project that is already
+  // building. The captured session and item pin the confirmation to that row.
+  const forceQueued = (row: { itemId: string; sessionId: string }) =>
+    setForceConfirm({ itemId: row.itemId, sessionId: row.sessionId, title: sessionTitleFor(row.sessionId) });
+  const confirmForce = () => {
+    if (!forceConfirm || !directory) return;
+    const body: WorkBoardQueueWrite = { directory, sessionId: forceConfirm.sessionId, itemId: forceConfirm.itemId };
+    setForceConfirm(null);
+    void queueMutate('/api/build-queue/force', 'POST', body);
   };
 
   return <div className="absolute inset-0 z-10 flex flex-col bg-background" aria-label={t('workBoard.title')}>
@@ -816,7 +844,8 @@ export function WorkBoardView() {
             }
           }
         }
-        const count = lane === 'queue' ? queueRows.length + (activeBuild ? 1 : 0) + liveBuilds.size : inLane.length;
+        const activeEntries = lane === 'queue' ? workBoardActiveEntries(forcedBuilds, [...liveBuilds.values()]) : [];
+        const count = lane === 'queue' ? queueRows.length + (activeBuild ? 1 : 0) + activeEntries.length : inLane.length;
         if (lane === 'done') inLane.sort((a, b) => completionTimeFor(b) - completionTimeFor(a) || a.id.localeCompare(b.id));
         return <section key={lane} className="flex min-w-[240px] flex-1 flex-col rounded-lg bg-surface-muted" aria-label={t(`workBoard.${lane}`)}>
           <div className="flex items-center gap-2 px-3 py-3">
@@ -834,13 +863,14 @@ export function WorkBoardView() {
             rows={queueRows}
             active={activeBuild}
             activeTitle={activeBuild ? sessionTitleFor(activeBuild.sessionId) : ''}
-            liveBuilds={[...liveBuilds.values()]}
+            entries={activeEntries}
             order={queueOrder}
             busy={queueBusy}
             error={queueActionError}
             onOpen={sessionId => open(sessionId, directory)}
             onMove={moveQueued}
             onTogglePause={toggleQueuedPause}
+            onForce={forceQueued}
             onCancel={cancelQueued}
             onNewBuild={() => newCard('queue')}
           /> : <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">
@@ -957,6 +987,17 @@ export function WorkBoardView() {
         <DialogFooter>
           <Button variant="outline" disabled={queueBusy} onClick={() => setResolveConfirm(null)}>{t('workBoard.cancel')}</Button>
           <Button disabled={queueBusy} onClick={confirmResolve}>{t('workBoard.resume')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={forceConfirm !== null} onOpenChange={open => { if (!open && !queueBusy) setForceConfirm(null); }}>
+      <DialogContent showCloseButton={!queueBusy}>
+        <DialogTitle>{t('buildQueue.force.title')}</DialogTitle>
+        <DialogDescription>{t('buildQueue.force.description')}</DialogDescription>
+        {forceConfirm && <p className="text-sm text-muted-foreground" dir="auto">{forceConfirm.title}</p>}
+        <DialogFooter>
+          <Button variant="outline" disabled={queueBusy} onClick={() => setForceConfirm(null)}>{t('workBoard.cancel')}</Button>
+          <Button disabled={queueBusy} onClick={confirmForce}>{t('buildQueue.force.confirm')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -32,6 +32,7 @@ export type WorkBoardActivity = {
 export type WorkBoardQueueWrite =
   | { directory: string; ids: string[] }
   | { paused: boolean }
+  | { directory: string; sessionId: string; itemId: string }
   | { directory: string; itemId?: string; action: 'skip' | 'retry' };
 
 export function workBoardFeedback(activity: WorkBoardActivity | undefined, unavailable: boolean, needsReview: boolean, hasUnseenTurn: boolean): 'unknown' | 'blocked' | undefined {
@@ -105,6 +106,35 @@ export type WorkBoardQueueRow = {
   paused: boolean;
   position: number;
 };
+
+/**
+ * A build the queue column shows above the gap without a lease: a build the
+ * user forced to start outside the queue, or one the board knows is running
+ * from card activity alone. `forced` carries the marker for the first kind.
+ */
+export type WorkBoardActiveEntry = {
+  sessionId: string;
+  title: string;
+  checking: boolean;
+  unavailable: boolean;
+  forced: boolean;
+};
+
+/**
+ * The queue column's non-lease active rows: forced builds from the server
+ * snapshot above live builds the board knows from card activity, one row per
+ * session. A forced build has a server entry, so it wins over the card-derived
+ * row and carries the marker; the dedupe stops the same session showing twice.
+ */
+export function workBoardActiveEntries(
+  forced: readonly { sessionId: string; title: string }[],
+  live: readonly { sessionId: string; title: string; checking: boolean; unavailable: boolean }[],
+): WorkBoardActiveEntry[] {
+  const entries = new Map<string, WorkBoardActiveEntry>();
+  for (const entry of forced) entries.set(entry.sessionId, { ...entry, checking: false, unavailable: false, forced: true });
+  for (const entry of live) if (!entries.has(entry.sessionId)) entries.set(entry.sessionId, { ...entry, forced: false });
+  return [...entries.values()];
+}
 
 export function workBoardQueueRows(
   queued: readonly { id: string; sessionId: string; content: string; paused: boolean }[],

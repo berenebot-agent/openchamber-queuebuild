@@ -26,10 +26,18 @@ interface BuildQueueLease {
 export interface BuildQueueSnapshot {
   revision: number;
   active: BuildQueueLease[];
+  forced?: BuildQueueForced[];
   queued: BuildQueueEntry[];
   issues: Array<{ directory: string; issue: string }>;
   preparation?: Array<{ directory: string; phase: 'initializing' | 'staging' | 'generating' | 'committing' }>;
   commits?: Array<{ directory: string; hash: string; subject: string }>;
+}
+
+/** A build a user forced to start outside the queue lane. Display only. */
+interface BuildQueueForced {
+  directory: string;
+  sessionId: string;
+  startedAt: number;
 }
 
 export function useBuildQueueSnapshot(enabled = true) {

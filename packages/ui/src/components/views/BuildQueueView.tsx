@@ -14,9 +14,11 @@ import { useUIStore } from '@/stores/useUIStore';
 import { SettingsSection, SettingsStackedField, SETTINGS_SELECT_TRIGGER_CLASS } from '@/components/sections/shared/SettingsSection';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { z } from 'zod';
 
 const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
 const snippet = (value: string) => value.trim().split('\n').find(line => line.trim())?.trim() || 'Queued build';
+const forceResponseSchema = z.object({ error: z.string().optional(), warning: z.string().optional() });
 
 export const BuildQueueView: React.FC = () => {
   const directory = useBuildQueueDirectory() ?? '';
@@ -27,6 +29,8 @@ export const BuildQueueView: React.FC = () => {
   const [busy, setBusy] = React.useState(false);
   const [confirmation, setConfirmation] = React.useState<{ directory: string; itemId: string; issue: string } | null>(null);
   const [resolveError, setResolveError] = React.useState<string | null>(null);
+  const [forceTarget, setForceTarget] = React.useState<BuildQueueEntry | null>(null);
+  const [forceError, setForceError] = React.useState<string | null>(null);
   const { t } = useI18n();
   const policy = useUIStore(state => state.buildQueueGitPolicy ?? (state.buildQueueRequireCleanGit ? 'pause' : 'continue'));
   const setPolicy = useUIStore(state => state.setBuildQueueGitPolicy);
@@ -35,6 +39,7 @@ export const BuildQueueView: React.FC = () => {
 
   const items = snapshot?.queued.filter(item => projectKey(item.directory) === key) ?? [];
   const active = snapshot?.active.find(item => projectKey(item.directory) === key);
+  const forced = snapshot?.forced?.filter(item => projectKey(item.directory) === key) ?? [];
   const issue = snapshot?.issues.find(item => projectKey(item.directory) === key)?.issue;
   const paused = Boolean(issue || active?.needsReview);
   // Subscribed to the directory's own sync slice, not read imperatively: the
@@ -98,6 +103,27 @@ export const BuildQueueView: React.FC = () => {
       await refresh();
     } catch (cause) {
       setResolveError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setBusy(false); }
+  };
+
+  const forceBuild = async () => {
+    if (!forceTarget) return;
+    setBusy(true);
+    setForceError(null);
+    try {
+      const response = await runtimeFetch('/api/build-queue/force', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory, sessionId: forceTarget.sessionId, itemId: forceTarget.id }),
+      });
+      const detail = forceResponseSchema.safeParse(await response.json().catch(() => null));
+      if (!response.ok) throw new Error((detail.success && detail.data.error) || `HTTP ${response.status}`);
+      setForceTarget(null);
+      await refresh();
+      // The prompt may have been accepted despite the lost response; the item
+      // stays queued, so say so rather than let a resend run it twice.
+      if (detail.success && detail.data.warning) toast.error(detail.data.warning);
+    } catch (cause) {
+      setForceError(cause instanceof Error ? cause.message : String(cause));
     } finally { setBusy(false); }
   };
 
@@ -204,6 +230,30 @@ export const BuildQueueView: React.FC = () => {
           </div>}
         </section>
 
+        {forced.length > 0 && <section aria-label={t('buildQueue.force.outsideQueue')}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-sm">{t('buildQueue.force.outsideQueue')}</h3>
+            <span className="flex items-center gap-1.5 text-[11px] text-[var(--status-warning-text)]">
+              <span className="size-1.5 rounded-full bg-[var(--status-warning)] animate-pulse" />{t('workBoard.active')}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {forced.map(entry => <button key={entry.sessionId} type="button" onClick={() => openSession(entry.sessionId)}
+              className="group w-full rounded-lg border border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_8%,transparent)] px-4 py-3.5 text-start transition-colors hover:bg-[color-mix(in_srgb,var(--status-warning)_14%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <div className="flex items-center gap-2">
+                <span className="flex size-8 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--status-warning)_20%,transparent)] text-[var(--status-warning-text)]">
+                  <Icon name="rocket" className="size-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{sessionTitle(entry.sessionId)}</div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">{t('buildQueue.force.outsideQueue')}</div>
+                </div>
+                <Icon name="arrow-right-s" className="size-4 text-muted-foreground group-hover:text-foreground" />
+              </div>
+            </button>)}
+          </div>
+        </section>}
+
         <section aria-label="Waiting builds">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-sm">Up next</h3>
@@ -229,6 +279,11 @@ export const BuildQueueView: React.FC = () => {
                     title={item.paused ? t('settings.openchamber.buildQueue.item.resume') : t('settings.openchamber.buildQueue.item.pause')}
                     onClick={() => togglePause(item)}>
                     <Icon name={item.paused ? 'play' : 'time'} className="size-4" />
+                  </Button>
+                  <Button size="icon" variant="ghost" disabled={busy}
+                    aria-label={t('buildQueue.force.action')} title={t('buildQueue.force.action')}
+                    onClick={() => { setForceError(null); setForceTarget(item); }}>
+                    <Icon name="rocket" className="size-4" />
                   </Button>
                   <button type="button" aria-label={`Move build ${index + 1} up`} title="Move up" disabled={busy || index === 0}
                     onClick={() => move(index, -1)} className="size-7 rounded-md inline-flex items-center justify-center hover:bg-surface-muted disabled:opacity-25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -261,6 +316,20 @@ export const BuildQueueView: React.FC = () => {
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={() => setConfirmation(null)}>{t('dialog.common.actions.cancel')}</Button>
             <Button disabled={busy} onClick={() => void continueQueue()}>{t('buildQueue.recovery.confirm')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={forceTarget !== null} onOpenChange={open => { if (!open && !busy) setForceTarget(null); }}>
+        <DialogContent showCloseButton={!busy}>
+          <DialogHeader>
+            <DialogTitle>{t('buildQueue.force.title')}</DialogTitle>
+            <DialogDescription>{t('buildQueue.force.description')}</DialogDescription>
+          </DialogHeader>
+          {forceTarget && <p className="text-sm text-muted-foreground" dir="auto">{sessionTitle(forceTarget.sessionId)}</p>}
+          {forceError && <p role="alert" className="text-sm text-[var(--error-text)]">{forceError}</p>}
+          <DialogFooter>
+            <Button variant="outline" disabled={busy} onClick={() => setForceTarget(null)}>{t('dialog.common.actions.cancel')}</Button>
+            <Button disabled={busy} onClick={() => void forceBuild()}>{t('buildQueue.force.confirm')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

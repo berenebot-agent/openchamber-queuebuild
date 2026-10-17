@@ -299,6 +299,11 @@ export function createMessageQueueRuntime({
   const preparationFailures = new Map();
   const buildCommits = new Map();
   const buildMonitors = new Map();
+  // Sessions a user forced into build outside the queue lane. Display and
+  // tracking only: they hold no lease, wait for no order, and never gate
+  // dispatch. Cleared once the session's own turn is done.
+  const forcedBuilds = new Map(); // sessionId → { directory, startedAt }
+  const forcedMonitors = new Map(); // sessionId → timeout
   let nextBuildOrder = 1;
   let revision = 0;
   let loadPromise = null;
@@ -467,6 +472,7 @@ export function createMessageQueueRuntime({
     preparation: Array.from(preparingBuilds, ([directory, value]) => ({ directory, phase: value.phase })),
     commits: Array.from(buildCommits, ([directory, value]) => ({ directory, ...value })),
     active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease, retryAvailable: queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId) === true })),
+    forced: Array.from(forcedBuilds, ([sessionId, value]) => ({ sessionId, directory: value.directory, startedAt: value.startedAt })),
     queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index, paused: item.buildPaused === true })),
     issues: [
       ...Array.from(buildProblems.entries()).filter(([directory]) => pendingBuilds(directory).length > 0).map(([directory, issue]) => ({ directory, issue })),
@@ -617,7 +623,7 @@ export function createMessageQueueRuntime({
       : [withMetadata];
   };
 
-  const sendItem = async (sessionId, directory, item, buildSelection) => {
+  const sendItem = async (sessionId, directory, item, buildSelection, { forced = false } = {}) => {
     const { providerID, modelID, variant } = item.sendConfig;
     let agent = item.sendConfig.agent;
     let model = { id: modelID, providerID, ...(variant ? { variant } : {}) };
@@ -669,7 +675,7 @@ export function createMessageQueueRuntime({
     // holds for a command too: its route takes file attachments only, and
     // sending "/name args" as a prompt instead would skip the template
     // OpenCode 2.x expands only on the command route.
-    const preamble = [...(isBuildItem(item) ? [{ text: BUILD_INSTRUCTION, resume: false }] : []), ...contextMessages];
+    const preamble = [...(isBuildItem(item) && !forced ? [{ text: BUILD_INSTRUCTION, resume: false }] : []), ...contextMessages];
     if (knowledge.text) preamble.push({ text: knowledge.text, resume: false });
     for (const synthetic of preamble) {
       await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/synthetic`, {
@@ -799,6 +805,41 @@ export function createMessageQueueRuntime({
   }
 
   /**
+   * Clears a forced build once its session's own turn is done. A forced build
+   * is not queue work, so it never parks for review: a confirmed idle turn
+   * clears it at once, and an idle session with no completed reply clears it
+   * after the same grace the lease monitor uses. The marker stays on the board
+   * for exactly as long as the session is working.
+   */
+  const scheduleForcedMonitor = (sessionId, delay = buildMonitorDelayMs) => {
+    if (stopped || !forcedBuilds.has(sessionId)) return;
+    clearTimeout(forcedMonitors.get(sessionId));
+    const timer = setTimeout(() => { forcedMonitors.delete(sessionId); void monitorForcedBuild(sessionId); }, delay);
+    timer.unref?.();
+    forcedMonitors.set(sessionId, timer);
+  };
+  async function monitorForcedBuild(sessionId) {
+    const forced = forcedBuilds.get(sessionId);
+    if (stopped || !forced) return;
+    if (now() - forced.startedAt < buildMonitorDelayMs) { scheduleForcedMonitor(sessionId); return; }
+    const idle = await isSessionIdle(sessionId, forced.directory);
+    const children = idle === true ? await hasWorkingSubagents(sessionId) : null;
+    if (idle !== true || children !== false) {
+      delete forced.unconfirmedIdleAt;
+      scheduleForcedMonitor(sessionId, buildRecheckMs);
+      return;
+    }
+    const completed = await leaseTurnCompleted({ sessionId, startedAt: forced.startedAt }, forced.directory);
+    if (completed !== true) {
+      forced.unconfirmedIdleAt ??= now();
+      if (now() - forced.unconfirmedIdleAt < buildCompletionGraceMs) { scheduleForcedMonitor(sessionId, buildRecheckMs); return; }
+    }
+    forcedBuilds.delete(sessionId);
+    commit(sessionId);
+    wakeProject(forced.directory);
+  }
+
+  /**
    * Whether this lease's own turn already produced a completed assistant reply.
    * `null` means it could not be established (OpenCode unreachable): an
    * interrupted build must not be released on unknown evidence.
@@ -889,6 +930,59 @@ export function createMessageQueueRuntime({
     buildProblems.delete(directory);
     commit(lease.sessionId);
     wakeProject(directory);
+    return buildSnapshot();
+  };
+
+  /**
+   * Starts one waiting build now, outside the queue lane. The project's lease,
+   * its dispatch order and the Git policy are all skipped: the item is sent to
+   * its own idle session, removed from the queue, and tracked separately so the
+   * gate stays free and the rest of the queue keeps flowing. It never gates
+   * dispatch and is never parked for review, because the queue does not own it.
+   */
+  const forceDispatch = async (directoryInput, sessionIdInput, itemIdInput) => {
+    const directory = asNonEmptyString(directoryInput);
+    const sessionId = requireSessionId(sessionIdInput);
+    const itemId = asNonEmptyString(itemIdInput);
+    if (!directory || !itemId) throw new TypeError('directory and itemId are required');
+    await load();
+    const queue = queues.get(sessionId);
+    if (!queue || queue.directory !== directory) throw httpError('Build not found in this project', 404);
+    const item = queue.items.find(entry => entry.id === itemId);
+    if (!item) throw httpError('Build is no longer queued', 404);
+    if (!isBuildItem(item)) throw httpError('Only a queued build can be forced', 409);
+    if (sending.has(sessionId) || forcedBuilds.has(sessionId)) throw httpError('This build is already being sent', 409);
+    const idle = await isSessionIdle(sessionId, directory);
+    if (idle === null) throw httpError('The session status is unavailable; try again before forcing this build', 409);
+    if (idle !== true) throw httpError('The session is busy; wait for its turn to finish before forcing this build', 409);
+    const subagents = await hasWorkingSubagents(sessionId);
+    if (subagents === null) throw httpError('The session status is unavailable; try again before forcing this build', 409);
+    if (subagents !== false) throw httpError('The session has running subagents; wait before forcing this build', 409);
+    // Re-read after the probes: the queue may have changed while they ran.
+    const current = queues.get(sessionId)?.items.find(entry => entry.id === itemId);
+    if (!current || current.id !== item.id) throw httpError('The build queue changed. Refresh it and try again.', 409);
+
+    // Mark in flight so the tick cannot take the same item while it is admitted.
+    sending.set(sessionId, item.id);
+    broadcast(sessionId);
+    try {
+      // `sendItem` resolves the Auto sentinel itself, so a forced send switches
+      // the session's model and agent the same way a queued one does.
+      await sendItem(sessionId, directory, current, undefined, { forced: true });
+    } catch (error) {
+      sending.delete(sessionId);
+      commit(sessionId);
+      // A timed-out or rejected prompt may still have started. There is no
+      // lease to park, so the item stays queued and the caller is warned.
+      return { revision, warning: 'The prompt was not confirmed. It may have started; open the session before forcing it again.' };
+    }
+    sending.delete(sessionId);
+    const after = queues.get(sessionId);
+    if (after) setQueueItems(sessionId, after.directory, after.items.filter(entry => entry.id !== item.id), 'sent');
+    forcedBuilds.set(sessionId, { directory, startedAt: now() });
+    commit(sessionId);
+    wakeProject(directory);
+    scheduleForcedMonitor(sessionId);
     return buildSnapshot();
   };
 
@@ -1460,6 +1554,11 @@ export function createMessageQueueRuntime({
         commit(deletedSessionId);
         wakeProject(directory);
       }
+      if (forcedBuilds.has(deletedSessionId)) {
+        forcedBuilds.delete(deletedSessionId);
+        clearTimeout(forcedMonitors.get(deletedSessionId));
+        forcedMonitors.delete(deletedSessionId);
+      }
       if (!queues.has(deletedSessionId)) return;
       setQueueItems(deletedSessionId, directories.get(deletedSessionId), []);
       clearTimer(deletedSessionId);
@@ -1523,6 +1622,9 @@ export function createMessageQueueRuntime({
     stopped = true;
     for (const timer of buildMonitors.values()) clearTimeout(timer);
     buildMonitors.clear();
+    for (const timer of forcedMonitors.values()) clearTimeout(timer);
+    forcedMonitors.clear();
+    forcedBuilds.clear();
     for (const timer of timers.values()) clearTimeout(timer);
     timers.clear();
     for (const timer of holdTimers.values()) clearTimeout(timer);
@@ -1581,6 +1683,7 @@ export function createMessageQueueRuntime({
     reorderBuilds,
     setBuildPaused,
     resolveBuild,
+    forceDispatch,
     sessionSnapshot,
     enqueue,
     cancelScheduledTask,
@@ -1612,6 +1715,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.post('/api/build-queue/resolve', async (req, res) => {
     try { res.json(await runtime.resolveBuild(req.body?.directory, req.body?.action, req.body?.itemId)); }
     catch (error) { respondError(res, error, 'Failed to resolve build queue'); }
+  });
+  app.post('/api/build-queue/force', async (req, res) => {
+    try { res.json(await runtime.forceDispatch(req.body?.directory, req.body?.sessionId, req.body?.itemId)); }
+    catch (error) { respondError(res, error, 'Failed to force build'); }
   });
   app.put('/api/build-queue/order', async (req, res) => {
     try { res.json(await runtime.reorderBuilds(req.body?.directory, req.body?.ids)); }

@@ -1113,6 +1113,75 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('starts a forced build outside the lease and skips the serialized instruction', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 40, buildRecheckMs: 20 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(60);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+    // The second build waits behind the lease and must not run yet.
+    const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await settle(30);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+    await runtime.forceDispatch(DIRECTORY, SECOND, waiting.itemId);
+
+    // It ran now, left the queue, and did not touch the running lease.
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+    expect(runtime.buildSnapshot().queued).toHaveLength(0);
+    expect(runtime.buildSnapshot().forced.map(entry => entry.sessionId)).toEqual([SECOND]);
+    // The forced prompt is outside the queue, so it carries no serialized-build
+    // instruction; the leased build that does stays untouched.
+    const forcedSynthetics = openCode.state.sent.filter(entry => entry.path.includes(SECOND) && entry.path.endsWith('/synthetic'));
+    expect(forcedSynthetics.some(entry => entry.body.text.includes('serialized with other builds'))).toBe(false);
+    const leaseSynthetics = openCode.state.sent.filter(entry => entry.path.includes(SESSION) && entry.path.endsWith('/synthetic'));
+    expect(leaseSynthetics.some(entry => entry.body.text.includes('serialized with other builds'))).toBe(true);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('clears a forced build once its own turn completes', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(40);
+    const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await runtime.forceDispatch(DIRECTORY, SECOND, waiting.itemId);
+    expect(runtime.buildSnapshot().forced.map(entry => entry.sessionId)).toEqual([SECOND]);
+
+    // The forced session's own turn finishes, so the marker goes away.
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(80);
+    expect(runtime.buildSnapshot().forced).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('refuses to force a build whose session is busy and keeps it queued', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    openCode.state.active[SECOND] = { type: 'running' };
+    const queued = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'waiting', text: 'waiting', buildQueue: true }));
+    await expect(runtime.forceDispatch(DIRECTORY, SECOND, queued.itemId)).rejects.toThrow(/busy/);
+    expect(runtime.buildSnapshot().queued.map(entry => entry.sessionId)).toEqual([SECOND]);
+    expect(runtime.buildSnapshot().forced).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('rejects force for an unknown build and for a non-build item', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    // Keep both sessions busy so the tick cannot dispatch and remove an item
+    // out from under the assertions below.
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'build', text: 'build', buildQueue: true }));
+    await expect(runtime.forceDispatch(DIRECTORY, SESSION, 'queued-missing')).rejects.toThrow(/no longer queued/);
+    await expect(runtime.forceDispatch(DIRECTORY, 'ses_queue_test_other', 'queued-missing')).rejects.toThrow(/not found in this project/);
+    const plain = await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'plain', text: 'plain' }));
+    await expect(runtime.forceDispatch(DIRECTORY, SESSION, plain.itemId)).rejects.toThrow(/Only a queued build/);
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('appends a further build prompt into the session\'s single lane slot', async () => {
     const harness = createRuntime();
     const { runtime, openCode } = harness;

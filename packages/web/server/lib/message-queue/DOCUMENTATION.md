@@ -297,6 +297,27 @@ A Build prompt from the lease-holding session is rejected with a storage error
 while this review is active. The frozen item stays unchanged, so Continue cannot
 discard the newly submitted prompt; retry the prompt after repairing storage.
 
+### Forcing a build outside the queue
+
+A waiting build can be started now, outside the queue lane, with
+`POST /api/build-queue/force` (`{ directory, sessionId, itemId }`). The project's
+lease, its dispatch order and the Git policy are all skipped: the item is sent to
+its own idle session through the same `sendItem` path and then removed from the
+queue. It takes no lease, so the gate stays free and the rest of the queue keeps
+dispatching. It is never parked for review, because the queue does not own it.
+
+The forced prompt carries no serialized-build instruction: `sendItem` skips
+`BUILD_INSTRUCTION` for it, since the model is not running inside the queue. The
+queue pane and the work board show it above the waiting rows, marked as outside
+the queue, until its session's own turn is done.
+
+`GET /api/build-queue` reports these in `forced` (`sessionId`, `directory`,
+`startedAt`), separate from the lease in `active`. They are in-memory only, are
+never persisted, and clear when the session's turn completes or the session is
+deleted. A force whose prompt cannot be confirmed keeps the item queued and
+answers with `warning`, because the prompt may have started and there is no lease
+to park.
+
 The saved setting applies without a restart. `createMessageQueueRuntime` takes
 `settingsFilePath` to point at another instance's file (tests, embedders).
 
@@ -331,6 +352,7 @@ allowlists.
 | `POST .../sessions/:id/take` | Remove and return every item not in flight, in order |
 | `PUT .../sessions/:id/order` | `{ itemIds }` must be a complete permutation |
 | `PUT /api/build-queue/sessions/:id/items/:itemId/pause` | `{ paused: boolean }`; pending managed builds only |
+| `POST /api/build-queue/force` | `{ directory, sessionId, itemId }`; start a waiting build now, outside the lease and Git policy, and remove it from the queue |
 | `DELETE .../sessions/:id` | Clear; the in-flight item stays |
 | `PUT .../sessions/:id/hold` | `{ held, ttlMs? }` |
 

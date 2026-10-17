@@ -57,6 +57,14 @@ that gains a queue entry uses that entry's row without a duplicate live card.
 The column count includes the running lease, waiting entries, and these live
 builds. Project-tab badges continue to count server-managed queue work only.
 
+A waiting build can be forced to start now, outside the queue. Its row in the
+Build queue pane and on the board carries a **Force** control that confirms
+first, because the build starts in parallel with whatever the project is already
+running. A forced build is not part of the queue: it takes no lease, waits for no
+project order, skips the Git policy, and the queue does not wait for it. It
+leaves the queue and appears above the waiting rows marked **Outside queue**
+while it runs, then settles like any other finished build.
+
 While the board is open it owns the top of the window: the header shows
 **Work board** with a back button, instead of the last opened session's title.
 Sessions live inside a board, not the other way around.

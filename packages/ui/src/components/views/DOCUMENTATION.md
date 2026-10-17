@@ -63,6 +63,12 @@ retries a Git/model preparation failure; uncertain build dispatch keeps its
 existing review confirmation. Web, Electron, hosted mobile and Capacitor use
 the server queue. VS Code does not offer this queue.
 
+A waiting row also offers a **Force** control. It confirms first, then asks the
+server to start that build now, outside the lease and the Git policy. A forced
+build leaves the queue and appears in its own **Outside queue** block above the
+waiting rows, marked active, until its session's turn finishes. The work board's
+Build queue column shows the same builds with an **Outside queue** label.
+
 Build-queue membership belongs to the session's own agent, not to the composer's
 selection: the composer's agent is global fallback state, so gating on it put
 Plan sessions on the default Build agent into the project queue. `pendingBuilds`

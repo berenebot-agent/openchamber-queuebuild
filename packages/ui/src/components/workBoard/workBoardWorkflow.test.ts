@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardDirectoryKey } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -129,6 +129,21 @@ describe('build queue column', () => {
     const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
     const paused = { ...waiting(), paused: true };
     expect(workBoardLane(linked, { messages: [user(2), assistant('build', 3), idle], busy: false }, paused)).toBe('queue');
+  });
+  test('forced builds and card-derived live builds merge into one row per session', () => {
+    const entries = workBoardActiveEntries(
+      [{ sessionId: 's1', title: 'Forced build' }],
+      [
+        { sessionId: 's1', title: 'Card title', checking: true, unavailable: false },
+        { sessionId: 's2', title: 'Live build', checking: false, unavailable: true },
+      ],
+    );
+    // The server-named forced row wins over the same session's card row and
+    // carries the marker; the plain live build keeps its own state.
+    expect(entries).toEqual([
+      { sessionId: 's1', title: 'Forced build', checking: false, unavailable: false, forced: true },
+      { sessionId: 's2', title: 'Live build', checking: false, unavailable: true, forced: false },
+    ]);
   });
 });
 
