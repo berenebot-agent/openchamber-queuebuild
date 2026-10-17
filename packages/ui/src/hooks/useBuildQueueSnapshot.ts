@@ -2,6 +2,7 @@ import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
+import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
 
 export interface BuildQueueEntry {
   id: string;
@@ -25,6 +26,7 @@ interface BuildQueueLease {
 
 export interface BuildQueueSnapshot {
   revision: number;
+  projectQueueEnabled?: Record<string, boolean>;
   active: BuildQueueLease[];
   forced?: BuildQueueForced[];
   queued: BuildQueueEntry[];
@@ -58,6 +60,11 @@ export function useBuildQueueSnapshot(enabled = true) {
       }
       if (request !== sequence.current || runtime !== getRuntimeKey()) return;
       setSnapshot(data);
+      // Only apply live snapshot settings once the initial legacy migration has
+      // completed through the preference store's authoritative refresh.
+      if (data.projectQueueEnabled && useBuildQueuePreferences.getState().syncedRuntimeKey === runtime) {
+        useBuildQueuePreferences.getState().syncFromServer(data.projectQueueEnabled);
+      }
       setError(null);
     } catch (cause) {
       if (request !== sequence.current || runtime !== getRuntimeKey()) return;
