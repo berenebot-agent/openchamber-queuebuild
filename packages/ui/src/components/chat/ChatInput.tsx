@@ -1358,6 +1358,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
     }, [attachedFiles.length, hasDrafts, hasLinkedReferences, isBtwActive]);
 
+    // Initialise shared queue enablement in every server-backed shell, even
+    // when the right-hand queue pane has never been opened on this device.
+    React.useEffect(() => {
+        if (!isServerOwnedMessageQueue()) return;
+        void useBuildQueuePreferences.getState().refresh().catch(() => undefined);
+    }, []);
     const [todoMode, setTodoMode] = React.useState(false);
     // All server-backed clients, including PWA and Capacitor, can park drafts and
     // sessions on the same Work Board. VS Code has no board server.
@@ -1781,15 +1787,28 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // turns are never intercepted, and an explicit steer into a running
         // turn stays with that session's own inbox (`hasDelivery`).
         const buildQueueDirectory = messageQueueTarget?.directory ?? currentSessionDirectoryForSync ?? currentDirectory ?? null;
+        const buildAgent = currentSessionId
+            ? useSelectionStore.getState().getSessionAgentSelection(currentSessionId) ?? undefined
+            : currentAgentName;
+        // A device can have an old cache: refresh the server-owned project
+        // switch before any Build send, and refuse to bypass it when offline.
+        if (isServerOwnedMessageQueue() && inputMode === 'normal' && !isBtwActive
+            && buildAgent?.toLowerCase() === 'build') {
+            try {
+                await useBuildQueuePreferences.getState().refresh();
+            } catch (error) {
+                toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.messageSendFailed'));
+                return;
+            }
+            if (submitRuntimeKey !== getRuntimeKey()) return;
+        }
         if (shouldQueueBuildPrompt({
             serverOwnedQueue: isServerOwnedMessageQueue(),
             inputMode,
             isBtwActive,
             // The selected composer agent may be the global fallback Build agent
             // even while this session is Plan. The session owns its queue mode.
-            agentName: currentSessionId
-                ? useSelectionStore.getState().getSessionAgentSelection(currentSessionId) ?? undefined
-                : currentAgentName,
+            agentName: buildAgent,
             directoryEnabled: useBuildQueuePreferences.getState().isEnabled(buildQueueDirectory ?? ''),
             hasContent: inputSnapshot.hasContent,
             message: inputSnapshot.message,
