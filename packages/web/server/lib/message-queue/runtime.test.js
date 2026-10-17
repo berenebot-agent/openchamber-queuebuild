@@ -2001,6 +2001,7 @@ describe('project-wide build queue', () => {
       const saved = JSON.parse(fs.readFileSync(path.join(first.dataDir, 'message-queue.json'), 'utf8'));
       expect(saved.projectQueueEnabled[DIRECTORY]).toBe(true);
       const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null });
+      second.openCode.state.active[SESSION] = { type: 'running' };
       await second.runtime.load();
       expect(second.runtime.buildSnapshot().projectQueueEnabled[DIRECTORY]).toBe(true);
       expect(second.runtime.buildSnapshot().queued).toHaveLength(1);
