@@ -508,13 +508,13 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
       } finally { refreshing = false; }
     };
     void readActivity();
-    const timer = setInterval(() => void readActivity(), 5000);
+    const timer = setInterval(() => void readActivity(), mobile ? 15000 : 5000);
     return () => { cancelled = true; clearInterval(timer); };
     // The linked card set, not just its size: the history cache is keyed by card
     // id, so a same-length replacement would otherwise keep serving the previous
     // card's read. A card entering or leaving the queue changes what its turn
     // means, and the read must follow that.
-  }, [directory, visibleCardIds]);
+  }, [directory, visibleCardIds, mobile]);
 
   const mutate = async (action: () => Promise<void>) => {
     const token = generation.current;
@@ -819,9 +819,12 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
   };
 
   const visibleLanes = mobile ? lanes.filter(lane => lane === mobileLane) : lanes;
-  const mobileLaneCount = (lane: WorkBoardLane): number => lane === 'queue'
-    ? queueRows.length + (activeBuild ? 1 : 0) + workBoardActiveEntries(forcedBuilds, []).length
-    : visibleCards.filter(card => laneFor(card) === lane).length;
+  const mobileLaneCount = (lane: WorkBoardLane): number => {
+    if (lane !== 'queue') return visibleCards.filter(card => laneFor(card) === lane).length;
+    const live = visibleCards.filter(card => laneFor(card) === 'queue' && card.sessionId && !queueStateFor(card))
+      .map(card => ({ sessionId: card.sessionId!, title: '', checking: false, unavailable: false }));
+    return queueRows.length + (activeBuild ? 1 : 0) + workBoardActiveEntries(forcedBuilds, live).length;
+  };
   return <div className={mobile ? 'flex h-full min-h-0 flex-col bg-background' : 'absolute inset-0 z-10 flex flex-col bg-background'} aria-label={t('workBoard.title')}>
     {/* items-end + pt-3-only puts the project tabs on the header's lower edge, so
         a selected tab can flow into the board; the title and controls carry their
