@@ -128,6 +128,21 @@ describe('work board persistence', () => {
     } finally { await remove(dataDir); }
   });
 
+  it('refuses a stale editor overwriting a brief another client removed', async () => {
+    const { dataDir } = await setup();
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const parked = await store.parkSession({ directory: '/project', sessionId: 'session1', text: 'Original brief', attachments: [] });
+      const openedAt = (await store.list('/project')).find(card => card.id === parked.id).updatedAt;
+      const removed = await store.update(parked.id, { removeBrief: true, expectedUpdatedAt: openedAt });
+      expect(removed.briefRemoved).toBe(true);
+      await expect(store.update(parked.id, {
+        text: 'Stale editor text', expectedUpdatedAt: removed.updatedAt,
+      })).rejects.toMatchObject({ status: 409 });
+      expect((await store.list('/project')).find(card => card.id === parked.id)).toMatchObject({ briefRemoved: true, text: '' });
+    } finally { await remove(dataDir); }
+  });
+
   it('serializes concurrent writes and enforces durable session linking and promotion order', async () => {
     const { dataDir, store } = await setup();
     try {

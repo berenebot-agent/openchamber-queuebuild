@@ -845,9 +845,10 @@ export function WorkBoardView() {
           {editConflict?.text && <p dir="auto" className="whitespace-pre-wrap break-words text-sm">{editConflict.text}</p>}
           {editConflict?.attachments.map(file => <p key={file.id} className="break-all text-xs text-muted-foreground">{file.filename}</p>)}
         </div>
+        {editConflict?.briefRemoved && <p className="text-sm text-muted-foreground">{t('workBoard.editConflictBriefRemoved')}</p>}
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={useSavedEditVersion}>{t('workBoard.useSavedVersion')}</Button>
-          {!editConflict?.sessionId && <Button disabled={busy || !editConflict} onClick={() => { if (editConflict) void saveEditedCard(editConflict.updatedAt); }}>{t('workBoard.keepMyEdits')}</Button>}
+          {!editConflict?.sessionId && !editConflict?.briefRemoved && <Button disabled={busy || !editConflict} onClick={() => { if (editConflict) void saveEditedCard(editConflict.updatedAt); }}>{t('workBoard.keepMyEdits')}</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>
