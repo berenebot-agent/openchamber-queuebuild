@@ -3,14 +3,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 
-export function BuildQueueSettings() {
+export function BuildQueueSettings({ divider = true }: { divider?: boolean }) {
     const { t } = useI18n();
     const policy = useUIStore(state => state.buildQueueGitPolicy ?? (state.buildQueueRequireCleanGit ? 'pause' : 'continue'));
     const setPolicy = useUIStore(state => state.setBuildQueueGitPolicy);
 
     return (
-        <SettingsSection title={t('settings.openchamber.buildQueue.title')} info={t('settings.openchamber.buildQueue.policy.scope')}>
-            <SettingsFieldRow label={t('settings.openchamber.buildQueue.policy.title')} settingsItem="chat.build-queue-policy">
+        <SettingsSection title={t('settings.openchamber.buildQueue.title')} info={t('settings.openchamber.buildQueue.policy.scope')} divider={divider}>
+            <SettingsFieldRow label={t('settings.openchamber.buildQueue.policy.title')} settingsItem="work-board.policy">
                 <Select value={policy} onValueChange={value => {
                     if (value === 'continue' || value === 'commit' || value === 'pause') setPolicy(value);
                 }}>

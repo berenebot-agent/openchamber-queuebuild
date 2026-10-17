@@ -32,11 +32,19 @@ interface SettingsSearchAvailabilityContext extends SettingsRuntimeContext {
 
 const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
-    id: 'chat.build-queue-policy',
-    page: 'chat',
+    id: 'work-board.policy',
+    page: 'work-board',
     titleKey: 'settings.openchamber.buildQueue.policy.title',
     descriptionKey: 'settings.openchamber.buildQueue.policy.scope',
     keywords: ['build', 'queue', 'git', 'commit', 'staged', 'pause'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'work-board.include-older-sessions',
+    page: 'work-board',
+    titleKey: 'workBoard.includeOlderSessions',
+    descriptionKey: 'settings.page.workBoard.includeOlderInfo',
+    keywords: ['older', 'sessions', 'board', 'cards', 'history', '30 days'],
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {

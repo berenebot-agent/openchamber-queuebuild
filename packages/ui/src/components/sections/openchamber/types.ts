@@ -4,6 +4,7 @@ export type OpenChamberSection =
   | 'chat'
   | 'shortcuts'
   | 'sessions'
+  | 'work-board'
   | 'git'
   | 'github'
   | 'notifications'

@@ -18,7 +18,7 @@ const render = () => renderToStaticMarkup(<I18nProvider><BuildQueueSettings /></
 test('queue policy is searchable and preserves the legacy clean Git fallback', () => {
     state.buildQueueGitPolicy = null;
     state.buildQueueRequireCleanGit = true;
-    expect(render()).toContain('chat.build-queue-policy');
+    expect(render()).toContain('work-board.policy');
     expect(render()).toContain('Waits for a clean Git working tree');
     state.buildQueueRequireCleanGit = false;
     expect(render()).toContain('Starts builds without checking Git');

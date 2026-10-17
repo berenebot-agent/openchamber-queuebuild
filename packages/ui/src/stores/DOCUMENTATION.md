@@ -18,7 +18,7 @@ reorders that list while leaving the selected project unchanged.
 UI state version 26 adds `workBoardOlderSessions`, which persists the Include
 older sessions preference by the
 JSON-encoded runtime and directory pair. Missing or malformed preferences default
-to off. The board filters inherited cards to the last 30 days before requesting
+to on. The board filters inherited cards to the last 30 days before requesting
 their histories, with exceptions for live and queued work. Saved cards are
 unaffected.
 `workBoardProjectId` remembers the last visited board for the chat's return

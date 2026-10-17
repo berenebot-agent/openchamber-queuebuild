@@ -111,6 +111,7 @@ const pageOrder: SettingsPageSlug[] = [
   'chat',
   'notifications',
   'sessions',
+  'work-board',
   'routing',
   'shortcuts',
   'voice',
@@ -321,6 +322,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
     chat: 'chat',
     shortcuts: 'shortcuts',
     sessions: 'sessions',
+    'work-board': 'work-board',
     notifications: 'notifications',
     voice: 'voice',
     tunnel: 'tunnel',
@@ -369,6 +371,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return t('settings.page.shortcuts.title');
       case 'sessions':
         return t('settings.page.sessions.title');
+      case 'work-board':
+        return t('settings.page.workBoard.title');
       case 'routing':
         return t('settings.page.routing.title');
       case 'magic-prompts':

@@ -494,7 +494,7 @@ export function WorkBoardView() {
     });
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
-  const includeOlder = useUIStore(state => state.workBoardOlderSessions[JSON.stringify([runtimeKey, directory])] ?? false);
+  const includeOlder = useUIStore(state => state.workBoardOlderSessions[JSON.stringify([runtimeKey, directory])] ?? true);
   const savedCard = confirmation?.runtimeKey === runtimeKey && confirmation.card.directory === directory ? confirmation.card : null;
   // Remember which board the user is on so any chat can return to it, and so a
   // New to-do draft is rooted in this project rather than the sidebar's.
@@ -831,6 +831,13 @@ export function WorkBoardView() {
         setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
       });
   };
+  // The board's settings live on their own Settings page. Closing the board
+  // first keeps the two full-window surfaces from stacking.
+  const openBoardSettings = () => {
+    useUIStore.getState().setWorkBoardOpen(false);
+    useUIStore.getState().requestSettingsJump('work-board', 'work-board.policy');
+    useUIStore.getState().setSettingsDialogOpen(true);
+  };
   const moveQueued = (itemId: string, delta: number) => {
     const index = queueOrder.indexOf(itemId);
     const order = workBoardReordered(queueOrder, index, delta);
@@ -979,19 +986,24 @@ export function WorkBoardView() {
         onClose={closeProjectTab}
         onReorder={reorderProjectTab}
       />
-      <label className="flex items-center gap-2 pb-3 text-xs text-muted-foreground">
-        <input type="checkbox" checked={includeOlder} disabled={!directory || busy}
-          onChange={event => useUIStore.getState().setWorkBoardOlderSessions(runtimeKey, directory, event.target.checked)} />
-        {t('workBoard.includeOlderSessions')}
-      </label>
-      {/* The queue's own on/off switch lives on the board, the surface that
-          manages the project's queue. It shows the server's saved value. */}
-      <div className="mb-2 flex items-center gap-2 rounded-md border border-border px-2.5 py-1">
-        <span className="text-xs font-medium">{t(queueEnabled ? 'workBoard.queueOn' : 'workBoard.queueOff')}</span>
-        <Switch aria-label={t('workBoard.queueEnabledLabel')} checked={queueEnabled === true}
-          disabled={!directory || busy} onCheckedChange={toggleQueueEnabled} />
+      {/* The board's own controls sit in one right-aligned cluster: the project
+          queue's on/off switch, the way into its Settings page, and Close. The
+          header keeps items-end so a selected project tab still flows into the
+          board; the cluster centres its own children against that baseline. */}
+      <div className="mb-2 ms-auto flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1">
+          <span className="text-xs font-medium">{t(queueEnabled ? 'workBoard.queueOn' : 'workBoard.queueOff')}</span>
+          <Switch aria-label={t('workBoard.queueEnabledLabel')} checked={queueEnabled === true}
+            disabled={!directory || busy} onCheckedChange={toggleQueueEnabled} />
+        </div>
+        <Button size="icon" variant="ghost" aria-label={t('workBoard.settings')} title={t('workBoard.settings')}
+          onClick={() => openBoardSettings()}>
+          <Icon name="settings-3" className="size-4" />
+        </Button>
+        <Button size="icon" variant="ghost" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')} title={t('workBoard.cancel')}>
+          <Icon name="close" className="size-4" />
+        </Button>
       </div>
-      <Button size="sm" variant="ghost" className="mb-2" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
     </header>
     {(needsReview || queueIssue) && <section role="alert" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3 py-2">
       <Icon name="alert" className="size-4 shrink-0 text-status-warning" />

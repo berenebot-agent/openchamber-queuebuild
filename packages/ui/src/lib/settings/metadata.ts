@@ -22,6 +22,7 @@ export type SettingsPageSlug =
   | 'chat'
   | 'shortcuts'
   | 'sessions'
+  | 'work-board'
   | 'routing'
   | 'magic-prompts'
   | 'snippets'
@@ -201,6 +202,15 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     keywords: ['defaults', 'default agent', 'default model', 'retention', 'memory', 'limits', 'zen'],
   },
   {
+    slug: 'work-board',
+    title: 'Work board',
+    group: 'general',
+    kind: 'single',
+    keywords: ['work board', 'board', 'build queue', 'queue', 'git', 'commit', 'staged', 'pause', 'policy', 'include older sessions'],
+    // The board and its queue are unavailable in VS Code, so the page has nothing to describe there.
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     slug: 'routing',
     title: 'Routing',
     group: 'general',
@@ -310,6 +320,8 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
       return 'command';
     case 'sessions':
       return 'chat-history';
+    case 'work-board':
+      return 'route';
     case 'routing':
       return 'signpost';
 

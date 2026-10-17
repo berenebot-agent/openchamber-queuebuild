@@ -70,4 +70,4 @@ to resolve it. A plain forced build stays display-only.
 The board owns the project's queue enablement (`Queue on` / `Queue off`), read
 from and written to `GET`/`PUT /api/build-queue/settings`. The toggle is
 optimistic and reverts on a failed write. Default is enabled. The Git policy
-selector is not here: it lives in Settings → Chat → Build queue.
+selector is not here: it lives in Settings → Work board.

@@ -5,6 +5,7 @@ import { SessionRetentionSettings } from './SessionRetentionSettings';
 import { MergedWorktreeCleanupSettings } from './MergedWorktreeCleanupSettings';
 import { SessionWorkSettings } from './SessionWorkSettings';
 import { BuildQueueSettings } from './BuildQueueSettings';
+import { WorkBoardViewSettings } from './WorkBoardViewSettings';
 import { PasskeySettings } from './PasskeySettings';
 import { AppLinkSecuritySettings } from './AppLinkSecuritySettings';
 import { DefaultsSettings } from './DefaultsSettings';
@@ -82,6 +83,8 @@ export const OpenChamberPage: React.FC<OpenChamberPageProps> = ({ section }) => 
                 return <ChatSectionContent />;
             case 'sessions':
                 return <SessionsSectionContent runtimeEndpointEpoch={runtimeEndpointEpoch} />;
+            case 'work-board':
+                return isVSCode ? null : <WorkBoardSectionContent />;
             case 'shortcuts':
                 return <ShortcutsSectionContent />;
             case 'git':
@@ -104,6 +107,7 @@ export const OpenChamberPage: React.FC<OpenChamberPageProps> = ({ section }) => 
         visual: t('settings.page.appearance.title'),
         chat: t('settings.page.chat.title'),
         sessions: t('settings.page.sessions.title'),
+        'work-board': t('settings.page.workBoard.title'),
         shortcuts: t('settings.page.shortcuts.title'),
         git: t('settings.page.git.title'),
         github: t('settings.page.git.title'),
@@ -118,6 +122,7 @@ export const OpenChamberPage: React.FC<OpenChamberPageProps> = ({ section }) => 
         visual: t('settings.page.appearance.description'),
         chat: t('settings.page.chat.description'),
         sessions: t('settings.page.sessions.description'),
+        'work-board': t('settings.page.workBoard.description'),
         shortcuts: t('settings.page.shortcuts.description'),
         git: undefined,
         github: undefined,
@@ -235,7 +240,6 @@ const ChatSectionContent: React.FC = () => {
                     'enterToSend',
                 ]}
             />
-            {!isVSCodeRuntime() && <BuildQueueSettings />}
         </>
     );
 };
@@ -248,6 +252,16 @@ const SessionsSectionContent: React.FC<{ runtimeEndpointEpoch: number }> = ({ ru
             <SessionWorkSettings />
             <SessionRetentionSettings />
             {!isVSCodeRuntime() && <MergedWorktreeCleanupSettings />}
+        </>
+    );
+};
+
+// Work board section: the project's Build queue policy, then the board's own display.
+const WorkBoardSectionContent: React.FC = () => {
+    return (
+        <>
+            <BuildQueueSettings />
+            <WorkBoardViewSettings />
         </>
     );
 };
