@@ -12,6 +12,27 @@ import { createWorkBoardActivity } from './activity.js';
 const LANES = ['todo', 'plan', 'queue', 'build', 'done'];
 const CARD_LANES = ['todo', 'plan', 'build', 'done'];
 const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_PAGES = 4;
+
+export async function readWorkBoardSessions(client, directory, { includeOlder = false, recentWindowMs = RECENT_WINDOW_MS } = {}) {
+  const sessions = [];
+  const seenCursors = new Set();
+  let cursor;
+  for (let pageNumber = 0; pageNumber < SESSION_PAGES; pageNumber += 1) {
+    const page = await client.session.list({ directory, ...(cursor ? { cursor } : { order: 'desc', limit: 100 }) });
+    if (!Array.isArray(page?.data)) throw new Error('OpenCode session list is unavailable');
+    sessions.push(...page.data);
+    const next = page.cursor?.next;
+    if (!next || seenCursors.has(next)) break;
+    if (!includeOlder && (page.data.at(-1)?.time?.updated ?? 0) < Date.now() - recentWindowMs) break;
+    seenCursors.add(next);
+    cursor = next;
+  }
+  const cutoff = includeOlder ? 0 : Date.now() - recentWindowMs;
+  return sessions.filter(session => session?.id && !session.parentID
+    && normaliseDirectory(session.location?.directory) === normaliseDirectory(directory)
+    && (session.time?.updated ?? 0) >= cutoff);
+}
 
 const directoryValueSchema = z.string();
 const normaliseDirectory = (value) => {
@@ -132,7 +153,12 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
     const cards = [...stored, ...sessions.cards.filter(card => !linked.has(card.sessionId))];
     const requests = cards.filter(card => card.sessionId).map(card => ({ sessionId: card.sessionId, directory: card.directory, updatedAt: card.updatedAt }));
     const { activity: live, unavailable } = await activity.read(requests).catch(() => ({ activity: new Map(), unavailable: new Set() }));
-    const queueSnapshot = await readQueueSnapshot().catch(() => null);
+    let queueSnapshot = null;
+    try {
+      queueSnapshot = await readQueueSnapshot();
+    } catch {
+      // A failed queue read leaves the board available with unknown queue state.
+    }
     const queueState = queueSnapshot ? queueForDirectory(queueSnapshot, directory) : null;
     // Enablement is its own setting, readable even when the queue snapshot
     // failed: the toggle must still show the saved choice.

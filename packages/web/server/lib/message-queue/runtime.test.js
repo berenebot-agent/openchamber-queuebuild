@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMessageQueueRuntime, parseQueuedItemInput } from './runtime.js';
+import { admitPrompt, createAdmissionFacts } from './admission.js';
 
 const SESSION = 'ses_queue_test_1';
 const DIRECTORY = '/repo';
@@ -41,6 +42,7 @@ const createOpenCode = () => {
     commands: [],
     sent: [],
     switched: [],
+    selection: { agent: 'build', model: { providerID: 'anthropic', id: 'claude' } },
     failNext: null,
     failMessages: false,
     failStatus: 500,
@@ -69,7 +71,7 @@ const createOpenCode = () => {
     if (/^\/api\/session\/[^/]+$/.test(pathname) && method === 'GET') {
       const id = decodeURIComponent(pathname.split('/').at(-1));
       const parentID = Object.keys(state.children).find((parent) => state.children[parent].includes(id));
-      return wrapped({ id, parentID });
+      return wrapped({ id, parentID, ...state.selection });
     }
     if (pathname.endsWith('/message')) return state.failMessages
       ? new Response('unavailable', { status: 503 }) : Response.json({ data: state.tail, cursor: {} });
@@ -77,6 +79,7 @@ const createOpenCode = () => {
     if (method === 'POST' && (pathname.endsWith('/model') || pathname.endsWith('/agent'))) {
       // Kept apart from `sent`: switching the session is not a message.
       state.switched.push({ path: pathname, body: JSON.parse(init.body) });
+      Object.assign(state.selection, JSON.parse(init.body));
       return new Response(null, { status: 204 });
     }
     if (method === 'POST' && (pathname.endsWith('/prompt') || pathname.endsWith('/command') || pathname.endsWith('/synthetic'))) {
@@ -2114,6 +2117,70 @@ describe('queue settings', () => {
 });
 
 describe('prompt admission', () => {
+  const admitWire = (runtime, openCode, body, kind = 'prompt') => admitPrompt({
+    req: { get: () => 'admit' }, body, kind, sessionId: SESSION, directory: DIRECTORY,
+    facts: createAdmissionFacts({
+      buildOpenCodeUrl: route => `http://opencode.test${route}`,
+      getOpenCodeAuthHeaders: () => ({}), fetchImpl: openCode.fetchImpl,
+    }),
+    readEnabled: runtime.queueEnabledStateFor,
+    resolveIdentity: runtime.resolveProjectIdentity,
+    enqueue: (sessionId, directory, item) => runtime.admitSubmission({ sessionId, directory, item }),
+  });
+
+  it.each([
+    { kind: 'command', text: '', args: '' },
+    { kind: 'command', text: 'src now', args: 'src now' },
+    { kind: 'prompt', text: '/ship src now', args: 'src now' },
+  ])('admits and dispatches $kind with text $text through the command route', async ({ kind, text, args }) => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    openCode.state.commands = [{ name: 'ship', agent: 'build' }];
+    const body = kind === 'command' ? { name: 'ship', text } : { id: 'msg_command', text };
+    const result = await admitWire(runtime, openCode, body, kind);
+    expect(result.action).toBe('queued');
+    await settle(100);
+    expect(openCode.state.sent.filter(entry => entry.path.endsWith('/command')).map(entry => entry.body))
+      .toEqual([{ name: 'ship', text: args, delivery: 'queue' }]);
+    expect(openCode.state.sent.filter(entry => entry.path.endsWith('/prompt'))).toEqual([]);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('restores the admitted model, variant and agent after the session selection changes', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    openCode.state.active[SESSION] = { type: 'running' };
+    openCode.state.selection.model.variant = 'high';
+    await admitWire(runtime, openCode, { id: 'msg_selection', text: 'build it' });
+    openCode.state.selection = { agent: 'plan', model: { providerID: 'different', id: 'other' } };
+    delete openCode.state.active[SESSION];
+    await runtime.setHold(SESSION, true);
+    await runtime.setHold(SESSION, false);
+    await settle(100);
+    expect(openCode.state.selection).toEqual({ agent: 'build', model: { providerID: 'anthropic', id: 'claude', variant: 'high' } });
+    expect(openCode.state.sent.some(entry => entry.body.id === 'msg_selection')).toBe(true);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('keeps each merged prompt\'s own files, including an attachment-free prompt, across restart', async () => {
+    const first = createRuntime();
+    first.openCode.state.active[SESSION] = { type: 'running' };
+    const files = [{ uri: 'file:///a.png', name: 'a.png' }, { uri: 'file:///b.png', name: 'b.png' }];
+    for (const [index, file] of [...files, null].entries()) {
+      await admitWire(first.runtime, first.openCode, { id: `msg_file_${index}`, text: `prompt ${index}`, ...(file ? { files: [file] } : {}) });
+    }
+    first.runtime.stop();
+    await first.runtime.flush();
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null });
+    second.runtime.start();
+    await settle(120);
+    const prompts = second.openCode.state.sent.filter(entry => entry.path.endsWith('/prompt'));
+    expect(prompts.map(entry => entry.body.files ?? [])).toEqual([[files[0]], [files[1]], []]);
+    expect(prompts.map(entry => entry.body.id)).toEqual(['msg_file_0', 'msg_file_1', 'msg_file_2']);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
   // A prompt as the admission module builds it: the accepted entry carries the
   // text that arrived with that prompt, so a merged slot dispatches each one
   // with its own words.

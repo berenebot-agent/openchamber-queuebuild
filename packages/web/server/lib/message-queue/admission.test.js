@@ -9,7 +9,7 @@ import {
 import {
   admitPrompt,
   buildQueuedItemFromPrompt,
-  createAdmissionFacts,
+  createAdmissionFacts as createWireAdmissionFacts,
   escapesManagedOwnership,
   guardExecutionStart,
   isAdmitRequest,
@@ -20,11 +20,20 @@ import { ADMIT_HEADER } from './admission.js';
 
 const SESSION = 'ses_admit_test_1';
 const DIRECTORY = '/repo';
+const MODEL = { providerID: 'provider-1', id: 'model-1', variant: 'high' };
+const createAdmissionFacts = ({ openCodeFetch }) => createWireAdmissionFacts({
+  buildOpenCodeUrl: route => `http://opencode.test${route}`,
+  getOpenCodeAuthHeaders: () => ({}),
+  fetchImpl: async (url, init) => Response.json(await openCodeFetch(new URL(url).pathname, {
+    directory: decodeURIComponent(init.headers['x-opencode-directory'] ?? ''),
+  })),
+});
 
 const sessionRecord = (overrides = {}) => ({
   id: SESSION,
   projectID: 'project-1',
   location: { directory: DIRECTORY },
+  model: MODEL,
   ...overrides,
 });
 
@@ -61,12 +70,12 @@ describe('build classification', () => {
     const build = sessionRecord({ agent: 'build' });
     expect(classifySubmission({ session: build, kind: 'shell', text: 'ls' }))
       .toEqual({ build: false, reason: 'shell' });
-    expect(classifySubmission({ session: build, text: 'x', delivery: 'steer' }))
+    expect(classifySubmission({ session: build, text: 'x', delivery: 'steer', running: true }))
       .toEqual({ build: false, reason: 'steer' });
-    // An idle session's forged steer is refused the same way: the queue never
-    // takes a steer, so the session's own inbox stays the only owner of one.
     expect(classifySubmission({ session: build, text: 'x', delivery: 'queue' }))
-      .toEqual({ build: false, reason: 'steer' });
+      .toEqual({ build: true, reason: 'agent' });
+    expect(classifySubmission({ session: build, text: 'x', delivery: 'steer' }))
+      .toEqual({ build: true, reason: 'agent' });
     expect(classifySubmission({ session: sessionRecord({ agent: 'build', parentID: 'ses_parent_1' }), text: 'x' }))
       .toEqual({ build: false, reason: 'child-session' });
   });
@@ -94,6 +103,28 @@ describe('build classification', () => {
 });
 
 describe('admission facts', () => {
+  it('scopes catalogs and model defaults with the supported encoded directory header', async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ data: [] }));
+    const facts = createWireAdmissionFacts({
+      buildOpenCodeUrl: route => `http://opencode.test${route}`,
+      getOpenCodeAuthHeaders: () => ({ Authorization: 'test-only' }),
+      fetchImpl,
+    });
+    const directory = '/repo with spaces/日本語';
+    await facts.commandList(directory);
+    await facts.defaultAgent(directory);
+    await facts.defaultModel(directory);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    for (const [url, init] of fetchImpl.mock.calls) {
+      expect(new URL(url).search).toBe('');
+      expect(init.headers).toMatchObject({
+        Authorization: 'test-only',
+        'x-opencode-directory': encodeURIComponent(directory),
+        'x-opencode-directory-encoding': 'uri',
+      });
+    }
+  });
+
   const openCodeFetch = async (fetchPath) => {
     if (fetchPath === '/api/agent') return [{ id: 'plan' }, { id: 'build', default: true }];
     if (fetchPath === '/api/command') return [{ name: 'ship', agent: 'build' }];
@@ -144,6 +175,37 @@ describe('admitPrompt', () => {
 
   it('queues a Build prompt that was explicitly marked', async () => {
     expect(await admit()).toEqual({ action: 'queued', itemId: 'queued-1' });
+  });
+
+  it('captures the session model, variant and agent at admission', async () => {
+    const enqueue = vi.fn(async () => ({ itemId: 'queued-1' }));
+    await admit({ enqueue });
+    expect(enqueue.mock.calls[0][2].sendConfig).toEqual({ providerID: MODEL.providerID, modelID: MODEL.id, variant: MODEL.variant, agent: 'build' });
+  });
+
+  it('uses the directory default model only when the session has no selection', async () => {
+    const enqueue = vi.fn(async () => ({ itemId: 'queued-1' }));
+    const facts = createAdmissionFacts({ openCodeFetch: async route => {
+      if (route === '/api/model/default') return MODEL;
+      if (route === '/api/agent') return [{ id: 'build' }];
+      return sessionRecord({ agent: 'build', model: undefined });
+    } });
+    await admitPrompt({ req: request(), body: { id: 'msg_default', text: 'ship' }, sessionId: SESSION,
+      directory: DIRECTORY, facts, readEnabled: async () => true, resolveIdentity: identity, enqueue });
+    expect(enqueue.mock.calls[0][2].sendConfig.modelID).toBe(MODEL.id);
+  });
+
+  it('refuses a Build prompt when neither the session nor default model can be read', async () => {
+    const enqueue = vi.fn();
+    const facts = createAdmissionFacts({ openCodeFetch: async route => {
+      if (route === '/api/model/default') throw new Error('unavailable');
+      if (route === '/api/agent') return [{ id: 'build' }];
+      return sessionRecord({ agent: 'build', model: undefined });
+    } });
+    await expect(admitPrompt({ req: request(), body: { id: 'msg_no_model', text: 'ship' }, sessionId: SESSION,
+      directory: DIRECTORY, facts, readEnabled: async () => true, resolveIdentity: identity, enqueue }))
+      .rejects.toMatchObject({ status: 409 });
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('passes an unmarked prompt straight through without reading anything', async () => {

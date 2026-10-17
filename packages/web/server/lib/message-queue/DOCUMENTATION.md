@@ -70,7 +70,14 @@ marker states "route this submission", and the classification above still decide
 whether it is Build work. The item keeps the wire identity the
 prompt arrived with — its message id, files, agents, skills and metadata — and
 dispatch replays exactly that, so the client's optimistic row reconciles when
-the real admission lands. The prompt route answers the full `SessionInbox.User`
+the real admission lands. Each newly admitted slot also captures the session's
+model, variant and effective agent on the server, and restores that selection
+at dispatch. A session without a model uses the directory's default model;
+an unreadable selection refuses admission. As with ordinary merged Build slots,
+later submissions keep the first slot's captured selection. Older persisted
+admissions without a selection retain their existing session-based behavior.
+Catalog and default-model reads use the encoded `x-opencode-directory` header.
+The prompt route answers the full `SessionInbox.User`
 record the SDK decodes, plus a top-level `queued: true` and the headers
 `x-openchamber-queued` / `x-openchamber-queued-id`, which is how a sender learns
 its prompt was queued and which optimistic record can settle (a queued prompt is
@@ -82,7 +89,11 @@ waiting, in flight, or already dispatched answers without admitting it twice.
 `item.messageId` and `item.messageIds` carry those ids in public snapshots, so a
 client that lost the response can confirm admission from the queue.
 Prompts merged into one lane slot each keep their own id and payload in
-`item.acceptedPrompts`, and dispatch sends them in order.
+`item.acceptedPrompts`, and dispatch sends them in order with their own files.
+Older persisted admissions that lack per-prompt files use the slot's combined
+attachments until those items drain. An admitted command gets a server-generated
+queue identity when the client supplies none, retains its command name and
+arguments, and dispatches through OpenCode's command route even with no arguments.
 
 **Guard.** A request that would start execution on a Build session of an
 enabled project, and was not captured, is refused with 409 instead of running
@@ -107,6 +118,9 @@ as a steer. Every prompt the queue dispatches for a build item therefore states
 to a forced build: it should start its own turn rather than steer into the
 project's running one. An admitted prompt's own delivery is not replayed — a
 steer was already refused a queue entry — so the stated value is always `queue`.
+An explicit `queue` delivery is eligible for Build admission. An explicit `steer`
+bypasses admission only when live status confirms that session is running;
+otherwise a marked Build prompt is admitted as a new queued turn.
 Ordinary queued messages are left as they were, since a steer into a running
 turn is a legitimate thing for the user to have asked for.
 
@@ -141,7 +155,7 @@ send never re-resolves mutable UI state:
   sendConfig: { providerID, modelID, agent?, variant? }   // required
   messageId?,     // the client's own prompt id, for a prompt admitted from the wire
   acceptedPrompts?, // [{ messageId, admission }]: every prompt this slot owes, in order
-  admission?      // { kind, delivery, agents, skills, metadata, resume, leading }: how to replay it
+  admission?      // { kind, name?, text, files?, delivery, agents, skills, metadata, resume, leading }: how to replay it
 }
 ```
 

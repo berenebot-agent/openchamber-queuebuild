@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { registerQueuePromptAdmission } from './prompt-admission-routes.js';
 import { createAdmissionFacts } from './admission.js';
+import { parseQueuedItemInput } from './runtime.js';
 
 const SESSION = 'ses_route_admit_1';
 const DIRECTORY = '/repo';
@@ -13,11 +14,13 @@ const DIRECTORY = '/repo';
  * tests mount it ahead of a stand-in proxy that records what it would forward,
  * so both halves are observable: what was queued, and what reached OpenCode.
  */
-const createApp = ({ session = { id: SESSION, agent: 'build' }, enabled = true, agents = [{ id: 'build', default: true }], commands = [] } = {}) => {
+const createApp = ({ session = { id: SESSION, agent: 'build' }, enabled = true, agents = [{ id: 'build', default: true }], commands = [], active = {} } = {}) => {
   const forwarded = [];
   const admitted = [];
   const messageQueueRuntime = {
     admitSubmission: vi.fn(async ({ sessionId, directory, item }) => {
+      const parsed = parseQueuedItemInput(item);
+      if (!parsed.messageId) throw new TypeError('an admitted prompt needs its messageId');
       admitted.push({ sessionId, directory, item });
       return { admitted: true, itemId: 'queued-1' };
     }),
@@ -27,11 +30,16 @@ const createApp = ({ session = { id: SESSION, agent: 'build' }, enabled = true, 
     ),
   };
   const facts = createAdmissionFacts({
-    openCodeFetch: async (fetchPath) => {
-      if (fetchPath === `/api/session/${SESSION}`) return session;
-      if (fetchPath === '/api/agent') return agents;
-      if (fetchPath === '/api/command') return commands;
-      return null;
+    buildOpenCodeUrl: route => `http://opencode.test${route}`,
+    getOpenCodeAuthHeaders: () => ({}),
+    fetchImpl: async (url) => {
+      const fetchPath = new URL(url).pathname;
+      if (fetchPath === `/api/session/${SESSION}`) return Response.json(session);
+      if (fetchPath === '/api/agent') return Response.json(agents);
+      if (fetchPath === '/api/command') return Response.json(commands);
+      if (fetchPath === '/api/model/default') return Response.json({ providerID: 'p', id: 'm' });
+      if (fetchPath === '/api/session/active') return Response.json(active);
+      return Response.json(null);
     },
   });
   const app = express();
@@ -140,6 +148,33 @@ describe('queue admission routes', () => {
     expect(response.status).toBe(204);
     expect(forwarded).toEqual([]);
     expect(admitted).toHaveLength(1);
+    expect(admitted[0].item.messageId).toMatch(/^command-/);
+    expect(admitted[0].item.admission).toMatchObject({ kind: 'command', name: 'ship', text: '' });
+    expect(admitted[0].item.acceptedPrompts[0].messageId).toBe(admitted[0].item.messageId);
+  });
+
+  it.each(['queue', 'steer'])('queues a marked idle Build prompt with delivery=%s', async delivery => {
+    const { app, forwarded, admitted } = createApp();
+    const response = await post(app, `/api/session/${SESSION}/prompt`, { id: 'msg_delivery', text: 'ship', delivery }, { admit: true });
+    expect(response.status).toBe(200);
+    expect(admitted).toHaveLength(1);
+    expect(forwarded).toEqual([]);
+  });
+
+  it('allows an explicit steer only into a running session', async () => {
+    const { app, forwarded, admitted } = createApp({ active: { [SESSION]: { type: 'running' } } });
+    const response = await post(app, `/api/session/${SESSION}/prompt`, { id: 'msg_steer', text: 'adjust', delivery: 'steer' }, { admit: true });
+    expect(response.status).toBe(200);
+    expect(admitted).toEqual([]);
+    expect(forwarded).toHaveLength(1);
+  });
+
+  it('refuses a malformed marked Build prompt instead of forwarding it', async () => {
+    const { app, forwarded, admitted } = createApp();
+    const response = await post(app, `/api/session/${SESSION}/prompt`, { id: 'msg_invalid', text: 'ship', files: [{}] }, { admit: true });
+    expect(response.status).toBe(400);
+    expect(admitted).toEqual([]);
+    expect(forwarded).toEqual([]);
   });
 
   it('forwards everything when the project turned the queue off', async () => {

@@ -17,10 +17,17 @@ import { z } from 'zod';
 const BUILD_AGENT = 'build';
 
 /** The fields of a session record the classification reads. */
+export const modelFactSchema = z.object({
+  id: z.string().min(1),
+  providerID: z.string().min(1),
+  variant: z.string().min(1).optional(),
+});
+
 const sessionFactSchema = z.object({
   id: z.string().min(1),
   agent: z.string().min(1).nullish(),
   parentID: z.string().min(1).nullish(),
+  model: modelFactSchema.nullish(),
 });
 
 /** `/api/agent`: the id and default mark of each agent. */
@@ -67,6 +74,7 @@ export const classifySubmission = ({
   kind = 'prompt',
   text = '',
   delivery = null,
+  running = false,
   commandAgent = null,
   commandResolved = false,
 }) => {
@@ -75,7 +83,7 @@ export const classifySubmission = ({
   if (kind === 'shell') return { build: false, reason: 'shell' };
   // A steer exists only for a session that is not idle; queueing it would
   // change what the user asked for.
-  if (delivery) return { build: false, reason: 'steer' };
+  if (delivery === 'steer' && running) return { build: false, reason: 'steer' };
 
   const trimmed = text.trimStart();
   if (kind === 'command' || trimmed.startsWith('/')) {

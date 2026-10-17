@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createWorkBoardProjection, createWorkBoardProjectionRuntime } from './projection.js';
+import { createWorkBoardProjection, createWorkBoardProjectionRuntime, readWorkBoardSessions } from './projection.js';
 
 const baseCard = (over = {}) => ({
   id: 'card-1', directory: '/repo', text: 'Brief', attachments: [],
@@ -9,10 +9,40 @@ const baseCard = (over = {}) => ({
 const makeProjection = ({ cards = [], queue = null, sessions = [], listSessions, activity = new Map(), unavailable = [], enabled = true } = {}) => createWorkBoardProjection({
   store: { list: async () => cards },
   listSessions: listSessions ?? (async () => sessions),
-  readQueueSnapshot: async () => queue,
+  readQueueSnapshot: () => queue,
   readQueueEnabled: async () => enabled,
   activity: { read: async requests => ({ activity, unavailable: new Set(unavailable), requests }) },
   now: () => 1000,
+});
+
+describe('work board session listing', () => {
+  it('scopes every page and never inherits sessions from another directory', async () => {
+    const calls = [];
+    const session = (id, directory) => ({ id, location: { directory }, time: { updated: Date.now() } });
+    const client = { session: { list: async input => {
+      calls.push(input);
+      return input.cursor
+        ? { data: [session('second', '/repo')], cursor: {} }
+        : { data: [session('first', '/repo'), session('other', '/other')], cursor: { next: 'page-2' } };
+    } } };
+    const sessions = await readWorkBoardSessions(client, '/repo');
+    expect(calls).toEqual([
+      { directory: '/repo', limit: 100, order: 'desc' },
+      { directory: '/repo', cursor: 'page-2' },
+    ]);
+    expect(sessions.map(session => session.id)).toEqual(['first', 'second']);
+    const projection = makeProjection({ listSessions: directory => readWorkBoardSessions(client, directory) });
+    expect((await projection.snapshot('/repo')).cards.map(card => card.sessionId)).toEqual(['first', 'second']);
+  });
+
+  it('keeps the recency limit, includes older sessions on request, and rejects failed pages', async () => {
+    const client = { session: { list: async () => ({ data: [
+      { id: 'old', location: { directory: '/repo' }, time: { updated: 1 } },
+    ] }) } };
+    expect(await readWorkBoardSessions(client, '/repo')).toEqual([]);
+    expect((await readWorkBoardSessions(client, '/repo', { includeOlder: true })).map(session => session.id)).toEqual(['old']);
+    await expect(readWorkBoardSessions({ session: { list: async () => ({}) } }, '/repo')).rejects.toThrow('unavailable');
+  });
 });
 
 describe('work board projection', () => {
@@ -130,11 +160,14 @@ describe('work board projection', () => {
     expect(snapshot.inheritedAvailable).toBe(false);
   });
 
-  it('degrades the queue section without hiding the board when the queue read fails', async () => {
+  it.each([
+    ['throws synchronously', () => { throw new Error('queue offline'); }],
+    ['rejects asynchronously', async () => { throw new Error('queue offline'); }],
+  ])('degrades the queue section without hiding the board when the queue read %s', async (_label, readQueueSnapshot) => {
     const projection = createWorkBoardProjection({
       store: { list: async () => [baseCard({ id: 'todo', stage: 'todo' })] },
       listSessions: async () => [],
-      readQueueSnapshot: async () => { throw new Error('queue offline'); },
+      readQueueSnapshot,
       readQueueEnabled: async () => false,
       activity: { read: async () => ({ activity: new Map(), unavailable: new Set() }) },
       now: () => 1000,
@@ -181,7 +214,7 @@ describe('work board projection runtime', () => {
       readPage: async (sessionId) => { reads.push(sessionId); return page(...buildTurn(sessionId, 2)); },
       readSessions: async directory => sessions.filter(entry => entry.location?.directory === directory),
       readActiveSessionIds: async () => active,
-      readQueueSnapshot: async () => queue,
+      readQueueSnapshot: () => queue,
       readQueueEnabled: async () => true,
       now,
     });

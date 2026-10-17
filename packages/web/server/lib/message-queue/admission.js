@@ -17,10 +17,13 @@
 // reads them; the classification below works on the parsed values.
 
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
+import { unwrapOpenCodeResponse } from '../opencode/response-envelope.js';
 import {
   classifySubmission,
   commandAgentOf,
   isBuildAgentName,
+  modelFactSchema,
   parseAgentFacts,
   parseCommandFacts,
   parseSessionFact,
@@ -38,7 +41,7 @@ export const promptBodySchema = z.object({
   id: z.string().min(1).optional(),
   text: z.string().optional(),
   name: z.string().min(1).optional(),
-  delivery: z.string().min(1).optional(),
+  delivery: z.enum(['steer', 'queue']).optional(),
   resume: z.boolean().optional(),
   files: z.array(z.object({ uri: z.string().min(1), name: z.string().optional() })).optional(),
   agents: z.array(z.unknown()).optional(),
@@ -49,9 +52,9 @@ export const promptBodySchema = z.object({
 /**
  * The item a queued prompt becomes. It keeps the wire fields the dispatch must
  * reproduce, so nothing about the turn changes between admission and send.
- * A body whose files do not parse is not carried: the prompt runs as it came.
+ * A body whose files do not parse is refused by admission.
  */
-export const buildQueuedItemFromPrompt = ({ body, directory, sessionId, kind, leading = [] }) => {
+export const buildQueuedItemFromPrompt = ({ body, directory, sessionId, kind, sendConfig = {}, leading = [] }) => {
   const parsed = promptBodySchema.safeParse(body);
   if (!parsed.success) return null;
   const request = parsed.data;
@@ -68,7 +71,9 @@ export const buildQueuedItemFromPrompt = ({ body, directory, sessionId, kind, le
     sessionId,
     directory,
     kind,
+    name: request.name,
     text,
+    files: request.files ?? [],
     delivery: request.delivery,
     agents: request.agents ?? [],
     skills: request.skills ?? [],
@@ -76,24 +81,36 @@ export const buildQueuedItemFromPrompt = ({ body, directory, sessionId, kind, le
     resume: request.resume === undefined ? undefined : request.resume === true,
     leading,
   };
+  const messageId = request.id ?? (kind === 'command' ? `command-${randomUUID()}` : undefined);
   return {
-    content: text,
+    content: kind === 'command' ? `/${request.name}${text ? ` ${text}` : ''}` : text,
     text,
     attachments: files,
     context: [],
-    sendConfig: {},
-    messageId: request.id,
+    sendConfig,
+    messageId,
     admission,
-    acceptedPrompts: [{ messageId: request.id, admission }],
+    acceptedPrompts: [{ messageId, admission }],
   };
 };
 
 /**
- * Reads the live facts a classification needs. Every read is allowed to fail;
- * a failure answers `null`, and the caller forwards the prompt rather than
- * guessing that a turn the user did not ask to queue is Build work.
+ * Reads live classification and selection facts. A failed read answers `null`
+ * so admission can refuse unverifiable Build work.
  */
-export const createAdmissionFacts = ({ openCodeFetch }) => {
+export const createAdmissionFacts = ({ buildOpenCodeUrl, getOpenCodeAuthHeaders, fetchImpl = fetch }) => {
+  const openCodeFetch = async (fetchPath, { directory } = {}) => {
+    const response = await fetchImpl(buildOpenCodeUrl(fetchPath, ''), {
+      headers: {
+        Accept: 'application/json',
+        ...getOpenCodeAuthHeaders(),
+        ...(directory ? { 'x-opencode-directory': encodeURIComponent(directory), 'x-opencode-directory-encoding': 'uri' } : {}),
+      },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`OpenCode ${fetchPath} failed with ${response.status}`);
+    return unwrapOpenCodeResponse(await response.json());
+  };
   const sessionSummary = async (sessionId, directory) => {
     const body = await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}`, { directory }).catch(() => null);
     const parsed = parseSessionFact(body);
@@ -113,7 +130,17 @@ export const createAdmissionFacts = ({ openCodeFetch }) => {
     const parsed = parseCommandFacts(body);
     return parsed.success ? parsed.data : null;
   };
-  return { sessionSummary, defaultAgent, commandList };
+  const defaultModel = async (directory) => {
+    const parsed = modelFactSchema.safeParse(await openCodeFetch('/api/model/default', { directory }).catch(() => null));
+    return parsed.success ? parsed.data : null;
+  };
+  const isSessionRunning = async (sessionId) => {
+    const parsed = z.record(z.string(), z.object({ type: z.string() })).safeParse(
+      await openCodeFetch('/api/session/active').catch(() => null),
+    );
+    return parsed.success ? Boolean(parsed.data[sessionId]) : null;
+  };
+  return { sessionSummary, defaultAgent, commandList, defaultModel, isSessionRunning };
 };
 
 /**
@@ -168,6 +195,7 @@ export const admitPrompt = async ({
     }
   }
   const fallbackAgent = await facts.defaultAgent(identity.directory);
+  const running = request.delivery === 'steer' && await facts.isSessionRunning(sessionId) === true;
 
   const verdict = classifySubmission({
     session,
@@ -175,13 +203,21 @@ export const admitPrompt = async ({
     kind,
     text: request.text ?? '',
     delivery: request.delivery ?? null,
+    running,
     commandAgent,
     commandResolved,
   });
+  if (verdict.reason === 'unknown-agent' || verdict.reason === 'unresolved-command') {
+    throw Object.assign(new Error('The submission’s agent could not be verified. Try again.'), { status: 409 });
+  }
   if (!verdict.build) return { action: 'pass', reason: verdict.reason };
 
-  const item = buildQueuedItemFromPrompt({ body, directory: identity.directory, sessionId, kind });
-  if (!item) return { action: 'pass', reason: 'unsupported-body' };
+  const model = session.model ?? await facts.defaultModel(identity.directory);
+  if (!model) throw Object.assign(new Error('The session’s model could not be verified. Try again.'), { status: 409 });
+  const sendConfig = { providerID: model.providerID, modelID: model.id, agent: commandAgent || session.agent || fallbackAgent,
+    ...(model.variant ? { variant: model.variant } : {}) };
+  const item = buildQueuedItemFromPrompt({ body, directory: identity.directory, sessionId, kind, sendConfig });
+  if (!item) throw new TypeError('Unsupported Build prompt body');
 
   const admitted = await enqueue(sessionId, identity.directory, item);
   return { action: 'queued', itemId: admitted.itemId };
@@ -262,6 +298,7 @@ export const guardExecutionStart = async ({ body, query, sessionId, directory, k
   const agent = session.agent || fallbackAgent;
   if (!agent) return { allow: false, reason: 'agent-unknown' };
   if (!isBuildAgentName(agent)) return { allow: true };
+  if (kind === 'prompt' && body?.delivery === 'steer' && await facts.isSessionRunning(sessionId) === true) return { allow: true };
 
   // A marked request is admitted by its own route (`admitPrompt`) instead of
   // running. The marker never exempts a route the queue cannot take, so a

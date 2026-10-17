@@ -148,7 +148,8 @@ export const parseQueuedItemInput = (value) => {
   if (attachments.some((attachment) => attachment === null)) throw new TypeError('invalid attachment');
   const context = (asList(raw.context) ?? []).map(parseContextPart);
   if (context.some((part) => part === null)) throw new TypeError('invalid context part');
-  if (!text.trim() && attachments.length === 0 && context.length === 0) {
+  const commandAdmission = asRecord(raw.admission)?.kind === 'command' && asNonEmptyString(raw.admission.name);
+  if (!text.trim() && attachments.length === 0 && context.length === 0 && !commandAdmission) {
     throw new TypeError('item needs text, attachments, or context');
   }
   const sendConfig = parseSendConfig(raw.sendConfig);
@@ -156,8 +157,7 @@ export const parseQueuedItemInput = (value) => {
   const projectId = asNonEmptyString(provenance?.projectId);
   const taskId = asNonEmptyString(provenance?.taskId);
   if (provenance && (!projectId || !taskId)) throw new TypeError('invalid scheduledTask provenance');
-  // An admitted prompt keeps the session's own model and agent: its selection is
-  // already on the session, and the client never sent one with the prompt.
+  // Older admitted prompts may lack the server-captured model and agent.
   const admitted = asRecord(raw.admission) !== null || (asList(raw.acceptedPrompts) ?? []).length > 0;
   if (!sendConfig && !provenance && !admitted) throw new TypeError('item sendConfig with providerID and modelID is required');
   const item = { content, text };
@@ -705,8 +705,7 @@ export function createMessageQueueRuntime({
   const sendItem = async (sessionId, directory, item, buildSelection, { forced = false } = {}) => {
     const { providerID, modelID, variant } = item.sendConfig;
     let agent = item.sendConfig.agent;
-    // An admitted prompt keeps the session's own selection; only an explicit
-    // captured send config switches it.
+    // Older admitted prompts without captured selection keep the session's.
     const admittedPrompt = Object.keys(item.sendConfig).length === 0 && (item.acceptedPrompts?.length ?? 0) > 0;
     let model = { id: modelID, providerID, ...(variant ? { variant } : {}) };
     const promptFiles = item.attachments.map(toPromptFile);
@@ -727,9 +726,8 @@ export function createMessageQueueRuntime({
     }
 
     // v2 selects model and agent on the session, not per prompt: the choice is
-    // switched once and then persists. An admitted prompt carries no selection
-    // of its own (the session already holds it) and an inherited scheduled item
-    // keeps the target's, so neither switches anything.
+    // switched once and then persists. Legacy admissions and scheduled items
+    // without captured selection keep the target's.
     if ((!item.scheduledTask && !admittedPrompt) || (providerID && modelID)) await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/model`, {
       directory,
       method: 'POST',
@@ -745,7 +743,14 @@ export function createMessageQueueRuntime({
 
     // Resolved before anything is admitted: a failed command lookup fails the
     // whole send, so a retry does not admit the context twice.
-    const command = await resolveSlashCommand(item.text, directory);
+    const accepted = await Promise.all((item.acceptedPrompts ?? []).filter(entry => asRecord(entry?.admission))
+      .map(async entry => ({
+        ...entry,
+        command: entry.admission.kind === 'command'
+          ? { name: entry.admission.name, arguments: asText(entry.admission.text) }
+          : await resolveSlashCommand(asText(entry.admission.text), directory),
+      })));
+    const command = accepted.length ? null : await resolveSlashCommand(item.text, directory);
 
     // Standing project context rides the send exactly as a UI send would
     // attach it; a failed lookup sends without it rather than not at all.
@@ -760,7 +765,6 @@ export function createMessageQueueRuntime({
     // sending "/name args" as a prompt instead would skip the template
     // OpenCode 2.x expands only on the command route.
     const admission = asRecord(item.admission);
-    const accepted = (item.acceptedPrompts ?? []).filter((entry) => asRecord(entry?.admission));
     // Synthetics the prompt arrived behind (standing context, a goal briefing)
     // are staged with it: forwarding them while the prompt waits would leave
     // the model reading background with nothing following it.
@@ -806,22 +810,26 @@ export function createMessageQueueRuntime({
       // each goes out with its own id and payload, in the order they arrived.
       if (accepted.length > 0) {
         for (const entry of accepted) {
-          const { admission: record, messageId } = entry;
+          const { admission: record, messageId, command } = entry;
           // An admitted prompt is queued work, and the delivery is stated
           // rather than left to upstream's default (which steers). The idle
           // probe is not atomic with this send, so a turn that starts in the
           // gap would otherwise swallow the build as steering; `queue` leaves
           // it parked for the next turn instead. A steer the user asked for was
           // already refused a queue entry, so nothing here is a steer.
-          const body = { text: asText(record.text) || item.text, delivery: 'queue' };
+          const isCommand = Boolean(command);
+          const body = { text: command ? command.arguments : asText(record.text), delivery: 'queue' };
           const promptId = asNonEmptyString(messageId);
-          if (promptId) body.id = promptId;
-          if (promptFiles.length > 0) body.files = promptFiles;
+          if (command) body.name = command.name;
+          else if (promptId) body.id = promptId;
+          // shortcut: older admissions have only slot-wide files; retain those until the pre-fix queue drains.
+          const files = record.files ?? promptFiles;
+          if (files.length > 0) body.files = files;
           if ((record.agents ?? []).length > 0) body.agents = record.agents;
           if ((record.skills ?? []).length > 0) body.skills = record.skills;
           if (record.metadata) body.metadata = record.metadata;
           if (record.resume !== undefined) body.resume = record.resume;
-          await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
+          await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/${isCommand ? 'command' : 'prompt'}`, {
             directory,
             method: 'POST',
             body,

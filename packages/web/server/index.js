@@ -108,7 +108,7 @@ import { createNotificationTemplateRuntime } from './lib/notifications/template-
 import { createPermissionAutoAcceptRuntime } from './lib/permission-auto-accept/runtime.js';
 import { createMessageQueueRuntime } from './lib/message-queue/runtime.js';
 import { createWorkBoardStore } from './lib/work-board/store.js';
-import { createWorkBoardProjectionRuntime } from './lib/work-board/projection.js';
+import { createWorkBoardProjectionRuntime, readWorkBoardSessions } from './lib/work-board/projection.js';
 import { createSessionActivityProbe } from './lib/opencode/session-activity.js';
 import { createDispatchResultsRuntime } from './lib/dispatch-results/runtime.js';
 import { createRoutingRuntime } from './lib/routing/runtime.js';
@@ -1156,35 +1156,12 @@ const workBoardOpenCodeClient = (directory) => createOpenCodeClient({
   headers: getOpenCodeAuthHeaders(),
   directory,
 });
-const WORK_BOARD_SESSION_PAGES = 4;
 const workBoardProjectionRuntime = createWorkBoardProjectionRuntime({
   store: workBoardStore,
   readPage: (sessionId, directory) => workBoardOpenCodeClient(directory).message.list({
     sessionID: sessionId, limit: 32, order: 'desc',
   }),
-  // v2 lists sessions per location (the directory header) newest first. The
-  // caller's recency window bounds the pages read; a failed read throws so the
-  // projection keeps the inherited cards it already had.
-  readSessions: async (directory, { includeOlder = false, recentWindowMs = 0 } = {}) => {
-    const client = workBoardOpenCodeClient(directory);
-    const sessions = [];
-    const seenCursors = new Set();
-    let cursor;
-    for (let pageNumber = 0; pageNumber < WORK_BOARD_SESSION_PAGES; pageNumber += 1) {
-      const page = await client.session.list(cursor ? { cursor } : { order: 'desc', limit: 100 });
-      if (!Array.isArray(page?.data)) throw new Error('OpenCode session list is unavailable');
-      sessions.push(...page.data);
-      const next = page.cursor?.next;
-      if (!next || seenCursors.has(next)) break;
-      // Newest first: once a page reaches past the window, older pages cannot
-      // add a recent session.
-      if (!includeOlder && (page.data.at(-1)?.time?.updated ?? 0) < Date.now() - recentWindowMs) break;
-      seenCursors.add(next);
-      cursor = next;
-    }
-    const cutoff = includeOlder ? 0 : Date.now() - recentWindowMs;
-    return sessions.filter((session) => session?.id && !session.parentID && (session.time?.updated ?? 0) >= cutoff);
-  },
+  readSessions: (directory, options) => readWorkBoardSessions(workBoardOpenCodeClient(directory), directory, options),
   readActiveSessionIds: () => workBoardActivityProbe.fetchActiveSessionStatuses(),
   readQueueSnapshot: () => messageQueueRuntime.buildSnapshot(),
   readQueueEnabled: (directory) => messageQueueRuntime.readQueueSettings({ directory }).then((settings) => settings.enabled),

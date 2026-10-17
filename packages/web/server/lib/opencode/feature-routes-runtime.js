@@ -297,21 +297,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
     // asked to queue is answered here instead of reaching OpenCode now.
     registerQueuePromptAdmission(app, {
       messageQueueRuntime,
-      facts: createAdmissionFacts({
-        openCodeFetch: async (fetchPath, { directory } = {}) => {
-          const params = new URLSearchParams();
-          if (directory) params.set('directory', directory);
-          const search = params.toString();
-          const base = buildOpenCodeUrl(fetchPath, '');
-          const response = await fetch(search ? `${base}?${search}` : base, {
-            method: 'GET',
-            headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders() },
-            signal: AbortSignal.timeout(15_000),
-          });
-          if (!response.ok) throw new Error(`OpenCode ${fetchPath} failed with ${response.status}`);
-          return unwrapOpenCodeResponse(await response.json().catch(() => null));
-        },
-      }),
+      facts: createAdmissionFacts({ buildOpenCodeUrl, getOpenCodeAuthHeaders }),
     });
 
     registerOpenCodeRoutes(app, {
