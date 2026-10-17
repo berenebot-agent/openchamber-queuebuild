@@ -1,14 +1,13 @@
 import React from 'react';
-import { workBoardSessions } from './workBoardSessions';
-import { readWorkBoardMemory, rememberWorkBoard, type BoardSnapshot } from './workBoardMemory';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { workBoardCardTitle } from './workBoardCardTitle';
 import { Icon } from '@/components/icon/Icon';
 import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
-import { useSessionTurnActivity, useGlobalSessionStatusStore } from '@/sync/global-session-status';
+import { useSessionTurnActivity } from '@/sync/global-session-status';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useI18n } from '@/lib/i18n';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -18,16 +17,14 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { prepareLocalAttachments } from '@/sync/input-store';
 import { createSession, setSessionWorkState } from '@/sync/session-actions';
-import { hasActiveSubagent } from '@/sync/global-session-status';
-import { hasRunningShell, useBackgroundShellsStore } from '@/sync/background-shells';
 import { opencodeClient } from '@/lib/opencode/client';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, WorkBoardRequestError, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
-import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
-import { workBoardLane, workBoardMoved, workBoardOrderNeighbour, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, type WorkBoardActivity, type WorkBoardActiveEntry, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
+import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, WorkBoardRequestError, updateQueueSettings, type WorkBoardCard, type WorkBoardAttachment, type WorkBoardSnapshotCard } from '@/lib/workBoardApi';
+import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, captureWorkBoardAttachments, workBoardBuildBadges, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -153,7 +150,7 @@ function WorkBoardQueueRowItem({ row, index, order, busy, disabled, onOpen, onMo
  * The Build queue lane. The running lease and builds started outside the queue
  * sit above the gap. Waiting items keep the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy, error, dragged, onOpen, onMove, onTogglePause, onForce, onCancel, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy, error, dragged, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onNewBuild }: {
   rows: WorkBoardQueueRow[];
   active: { sessionId: string; needsReview?: boolean; startedAt: number } | undefined;
   activeTitle: string;
@@ -167,13 +164,18 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
   onTogglePause: (row: { itemId: string; sessionId: string; paused: boolean }) => void;
   onForce: (row: { itemId: string; sessionId: string }) => void;
   onCancel: (row: { itemId: string; sessionId: string }) => void;
+  onResolveForced: (row: { itemId: string; sessionId: string }) => void;
   onNewBuild: () => void;
 }) {
   const { t } = useI18n();
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
     {error && <p role="alert" className="mb-2 px-1 text-xs text-[var(--status-error-text)]">{error}</p>}
     {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} onOpen={() => onOpen(active.sessionId)} />}
-    {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title} needsReview={false} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced} onOpen={() => onOpen(entry.sessionId)} />)}
+    {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title}
+      needsReview={Boolean(entry.needsReview)} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced}
+      onOpen={() => onOpen(entry.sessionId)}
+      resolve={entry.needsReview && entry.itemId ? { sessionId: entry.sessionId, itemId: entry.itemId } : undefined}
+      busy={busy} onResolve={onResolveForced} />)}
     {!active && !entries.length && <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
           className="mb-1 h-auto w-full flex-col items-start gap-1 rounded-md border border-dashed border-border px-2.5 py-3 text-xs font-normal text-muted-foreground"
           aria-label={t('workBoard.newBuild')}>
@@ -201,9 +203,35 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
  * treatment — the server will not release it on its own — while a lease that is
  * actually running gets the moving band, so "working" and "stuck" never look
  * the same.
+ *
+ * A build started outside the queue with an unconfirmed prompt (`resolve`) is
+ * ambiguous: it may or may not have started, so it takes the error treatment and
+ * carries its own recovery, rather than reading as a plain running build.
  */
-function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, forced = false, onOpen }: { title: string; needsReview: boolean; checking?: boolean; unavailable?: boolean; forced?: boolean; onOpen: () => void }) {
+function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, forced = false, resolve, busy = false, onResolve, onOpen }: {
+  title: string;
+  needsReview: boolean;
+  checking?: boolean;
+  unavailable?: boolean;
+  forced?: boolean;
+  resolve?: { sessionId: string; itemId: string };
+  busy?: boolean;
+  onResolve?: (row: { itemId: string; sessionId: string }) => void;
+  onOpen: () => void;
+}) {
   const { t } = useI18n();
+  if (resolve) {
+    return <div className="mb-1 rounded-md border border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)] px-2.5 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[var(--status-error-background)] text-[var(--status-error-text)]"><Icon name="alert" className="size-3.5" /></span>
+        <span className="min-w-0 flex-1">
+          <button type="button" onClick={onOpen} dir="auto" className="block w-full truncate text-start text-xs font-semibold leading-5 hover:underline" title={title}>{title}</button>
+          <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t('workBoard.forcedUnconfirmed')}</span>
+        </span>
+        <Button size="xs" variant="outline" disabled={busy} onClick={() => onResolve?.({ sessionId: resolve.sessionId, itemId: resolve.itemId })}>{t('buildQueue.recovery.continue')}</Button>
+      </div>
+    </div>;
+  }
   return <button type="button" onClick={onOpen}
     className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
       + (needsReview
@@ -395,9 +423,6 @@ export function WorkBoardView() {
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
   const includeOlder = useUIStore(state => state.workBoardOlderSessions[JSON.stringify([runtimeKey, directory])] ?? false);
-  const activeSessionIds = useGlobalSessionStatusStore(state => state.activeSessionIds);
-  const shellSessionIds = useBackgroundShellsStore(state => state.sessionIds);
-  const [boardActive, setBoardActive] = React.useState<{ directory: string; ids: Set<string> }>({ directory: '', ids: new Set() });
   const savedCard = confirmation?.runtimeKey === runtimeKey && confirmation.card.directory === directory ? confirmation.card : null;
   // Remember which board the user is on so any chat can return to it, and so a
   // New to-do draft is rooted in this project rather than the sidebar's.
@@ -406,12 +431,12 @@ export function WorkBoardView() {
     if (useUIStore.getState().workBoardProjectId === projectId) return;
     useUIStore.getState().setWorkBoardProjectId(projectId);
   }, [projectId]);
-  const [cards, setCards] = React.useState<WorkBoardCard[]>([]);
-  const [activities, setActivities] = React.useState<Map<string, WorkBoardActivity>>(new Map());
-  const [unavailable, setUnavailable] = React.useState<Set<string>>(new Set());
+  // The board is a server-owned projection: the client renders the lanes, order,
+  // queue state and live activity the server derived, and never classifies
+  // history or polls a five-second timer itself.
+  const { snapshot, error: snapshotError, refresh } = useWorkBoardSnapshot(directory, includeOlder);
   const [error, setError] = React.useState('');
   const [actionError, setActionError] = React.useState('');
-  const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [editing, setEditing] = React.useState<string | null>(null);
   const [editVersion, setEditVersion] = React.useState<number | null>(null);
@@ -426,180 +451,48 @@ export function WorkBoardView() {
   // board cards arrive with it, and a lane that will fill should say so rather
   // than claim to be empty and then gain cards.
   const sessionsLoading = useGlobalSessionsStore(state => !state.hasLoaded && state.status !== 'error');
-  const { snapshot: queue, error: queueError, refresh: refreshQueue } = useBuildQueueSnapshot();
   const [queueBusy, setQueueBusy] = React.useState(false);
   const [queueActionError, setQueueActionError] = React.useState('');
   const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
   const [forceConfirm, setForceConfirm] = React.useState<{ itemId: string; sessionId: string; title: string } | null>(null);
   const [drag, setDrag] = React.useState<WorkBoardDrag | null>(null);
+  // The queue enablement toggle is optimistic: flipping it writes the setting and
+  // shows the new state at once, and a failed write puts the old state back.
+  const [queueEnabled, setQueueEnabled] = React.useState<boolean | null>(null);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
   );
   const generation = React.useRef(0);
-  const refreshSequence = React.useRef(0);
-  const [verifiedActivities, setVerifiedActivities] = React.useState<Set<string>>(new Set());
-  const visibleCards = React.useMemo(() => {
-    const linked = new Set(cards.map(card => card.sessionId));
-    const active = new Set([...activeSessionIds, ...shellSessionIds,
-      ...(boardActive.directory === directory ? boardActive.ids : []),
-      ...(queue?.active.map(item => item.sessionId) ?? []), ...(queue?.queued.map(item => item.sessionId) ?? []),
-      ...(queue?.forced?.map(item => item.sessionId) ?? [])]);
-    const existing: WorkBoardCard[] = workBoardSessions(sessions, directory, includeOlder, active, Date.now()).filter(session => !linked.has(session.id))
-      .map(session => ({ id: `session:${session.id}`, directory, text: session.title, attachments: [],
-        sessionId: session.id, stage: 'plan', createdAt: session.time.created, updatedAt: session.time.updated }));
-    return [...cards, ...existing];
-  }, [cards, sessions, directory, includeOlder, activeSessionIds, shellSessionIds, boardActive, queue]);
-  const cardsRef = React.useRef(visibleCards);
-  cardsRef.current = visibleCards;
-  // A stable identity for the linked card set, so the activity read reruns when
-  // the set itself changes rather than only when its size does.
-  const visibleCardIds = React.useMemo(
-    () => visibleCards.filter(card => card.sessionId).map(card => card.id).sort().join('\n'),
-    [visibleCards],
-  );
-  const sessionVersions = React.useRef(new Map<string, number>());
-  const messageCache = React.useRef(new Map<string, WorkBoardActivity['messages']>());
-  const historyBusy = React.useRef(new Set<string>());
-  const [placements, setPlacements] = React.useState<BoardSnapshot['placements']>(new Map());
-  const versionsRef = React.useRef(new Map(sessions.map(session => [session.id, session.time.updated])));
-  versionsRef.current = new Map(sessions.map(session => [session.id, session.time.updated]));
-
-  React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
-    generation.current += 1;
-    useUIStore.getState().setWorkBoardOpen(false);
-  }), []);
-
-  const refresh = React.useCallback(async () => {
-    const token = generation.current;
-    const sequence = ++refreshSequence.current;
-    const runtime = getRuntimeKey();
-    if (!directory) { setLoading(false); return; }
-    try {
-      const next = await fetchWorkBoard(directory);
-      if (token !== generation.current || sequence !== refreshSequence.current || runtime !== getRuntimeKey()) return;
-      setCards(next);
-      persistWorkBoardCards(directory, next);
-      setError('');
-    } catch (cause) {
-      if (token === generation.current && sequence === refreshSequence.current && runtime === getRuntimeKey()) {
-        setError(cause instanceof Error ? cause.message : t('workBoard.failed'));
-      }
-    } finally {
-      if (token === generation.current && sequence === refreshSequence.current && runtime === getRuntimeKey()) setLoading(false);
-    }
-  }, [directory, t]);
-
+  const cards = React.useMemo<WorkBoardSnapshotCard[]>(() => snapshot?.cards ?? [], [snapshot]);
+  const loading = snapshot === null && !snapshotError;
+  React.useEffect(() => { setError(snapshotError ?? ''); }, [snapshotError]);
+  // A saved to-do from the composer arrives as a card; the next snapshot carries
+  // it, so the effect only nudges a refresh rather than merging cards by hand.
   React.useEffect(() => useWorkBoardSavedTodo.subscribe((state, previousState) => {
     const latestSave = state.latestSave;
     if (latestSave === previousState.latestSave) return;
     if (latestSave?.runtimeKey !== runtimeKey || latestSave.card.directory !== directory) return;
-    const updated = latestSave.card;
-    setCards(previous => previous.some(card => card.id === updated.id)
-      ? previous.map(card => card.id === updated.id ? updated : card) : [...previous, updated]);
     void refresh();
   }), [directory, runtimeKey, refresh]);
-
-  const lastBoard = React.useRef<BoardSnapshot>({ cards, activities, versions: new Map(), placements: new Map() });
+  // Clearing the editor on a project or runtime switch keeps the previous
+  // project's draft from leaking into the next board.
   React.useLayoutEffect(() => {
     generation.current += 1;
-    // Paint the board's own cards from the last visit before the fetch lands,
-    // so the first frame already shows the user their board instead of an empty
-    // one that fills in. The fetch replaces this seed with authoritative cards.
-    const remembered = readWorkBoardMemory(runtimeKey, directory);
-    setCards(remembered?.cards ?? (directory ? readWorkBoardCards(directory) ?? [] : []));
-    setLoading(true);
-    setError('');
     setActionError('');
-    setActivities(new Map([...remembered?.activities ?? []].map(([id, activity]) => [id, { ...activity, busy: false }])));
-    setPlacements(remembered?.placements ?? new Map());
-    setVerifiedActivities(new Set());
-    setBoardActive({ directory, ids: new Set() });
-    setUnavailable(new Set());
-    sessionVersions.current = new Map(remembered?.versions);
-    messageCache.current = new Map([...remembered?.activities ?? []].map(([id, activity]) => [id, activity.messages]));
-    historyBusy.current = new Set([...remembered?.activities ?? []].filter(([, activity]) => activity.busy).map(([id]) => id));
     setEditing(null);
     setEditVersion(null);
     setEditConflict(null);
-    void refresh();
-    const onFocus = () => { if (document.visibilityState === 'visible') void refresh(); };
-    window.addEventListener('focus', onFocus);
-    const timer = setInterval(onFocus, 30000);
-    return () => {
-      rememberWorkBoard(runtimeKey, directory, lastBoard.current);
-      generation.current += 1; clearInterval(timer); window.removeEventListener('focus', onFocus);
-    };
-  }, [directory, refresh, runtimeKey]);
-
-  // History identifies the agent that actually ran. Live status decides whether
-  // a completed step can be treated as a settled turn.
+  }, [directory, runtimeKey]);
+  React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
+    generation.current += 1;
+    useUIStore.getState().setWorkBoardOpen(false);
+  }), []);
+  // The projection's own enablement is authoritative once it arrives; before
+  // that, the local optimistic value stands.
   React.useEffect(() => {
-    let cancelled = false;
-    let refreshing = false;
-    const readActivity = async () => {
-      if (refreshing || !directory || document.visibilityState !== 'visible') return;
-      refreshing = true;
-      const runtime = getRuntimeKey();
-      const token = generation.current;
-      const next = new Map<string, WorkBoardActivity>();
-      const failed = new Set<string>();
-      try {
-        const status = await opencodeClient.getActiveSessionStatuses(directory);
-        if (cancelled || token !== generation.current || runtime !== getRuntimeKey()) return;
-        const activeIds = new Set(Object.keys(status ?? {}));
-        if (status !== null) setBoardActive({ directory, ids: activeIds });
-        const linked = cardsRef.current.filter(card => card.sessionId);
-        // Every linked card's history is an independent request. Run them
-        // together so the first paint of a lane waits on one round trip rather
-        // than one per batch, which is what made cards settle in visible steps.
-        await Promise.all(linked.map(async card => {
-          if (!card.sessionId) return;
-          if (status === null) { failed.add(card.id); return; }
-          try {
-            const version = versionsRef.current.get(card.sessionId);
-            const cached = messageCache.current.get(card.id);
-            const running = Boolean(status[card.sessionId]) || hasActiveSubagent(card.sessionId, activeIds) || hasRunningShell(card.sessionId);
-            // The session's update time is the history's identity. If it has not
-            // moved and no turn is running, the cached history is still what the
-            // server would return, so a settled lane does not refetch every tick.
-            if (cached && !running && !historyBusy.current.has(card.id) && version !== undefined && sessionVersions.current.get(card.id) === version) {
-              next.set(card.id, { busy: false, messages: cached });
-              return;
-            }
-            const page = await opencodeClient.getSessionMessages(card.sessionId, { limit: 32, order: 'desc', partShells: true }, card.directory);
-            const messages = page.items.map(item => item.info).reverse();
-            if (!cancelled && runtime === getRuntimeKey() && token === generation.current) {
-              if (version !== undefined) sessionVersions.current.set(card.id, version);
-              messageCache.current.set(card.id, messages);
-              if (running) historyBusy.current.add(card.id);
-              else historyBusy.current.delete(card.id);
-            }
-            next.set(card.id, { busy: running, messages });
-          } catch { failed.add(card.id); }
-        }));
-        if (!cancelled && token === generation.current && runtime === getRuntimeKey()) {
-          setActivities(previous => {
-            const merged = new Map([...previous, ...next]);
-            for (const id of failed) {
-              const activity = merged.get(id);
-              if (activity) merged.set(id, { ...activity, busy: false });
-            }
-            return merged;
-          });
-          setUnavailable(failed);
-          setVerifiedActivities(new Set(next.keys()));
-        }
-      } finally { refreshing = false; }
-    };
-    void readActivity();
-    const timer = setInterval(() => void readActivity(), 5000);
-    return () => { cancelled = true; clearInterval(timer); };
-    // The linked card set, not just its size: the history cache is keyed by card
-    // id, so a same-length replacement would otherwise keep serving the previous
-    // card's read. A card entering or leaving the queue changes what its turn
-    // means, and the read must follow that.
-  }, [directory, visibleCardIds]);
+    if (snapshot?.queue.enabled !== null && snapshot?.queue.enabled !== undefined) setQueueEnabled(snapshot.queue.enabled);
+  }, [snapshot]);
 
   const mutate = async (action: () => Promise<void>) => {
     const token = generation.current;
@@ -633,13 +526,14 @@ export function WorkBoardView() {
     } catch (cause) {
       if (cause instanceof WorkBoardRequestError && cause.status === 409) {
         try {
-          const latest = (await fetchWorkBoard(directory)).find(card => card.id === cardId);
+          // Re-read the board for the newest version of the card, so the dialog
+          // offers what is actually stored rather than a guess.
+          const latest = (await fetchWorkBoardSnapshot(directory, includeOlder)).cards.find(card => card.id === cardId) ?? null;
           if (!latest) {
             setActionError(t('workBoard.failed'));
             setEditConflict(null);
             return;
           }
-          setCards(previous => previous.map(card => card.id === latest.id ? latest : card));
           setEditConflict(latest);
         } catch (loadError) {
           setActionError(loadError instanceof Error ? loadError.message : t('workBoard.failed'));
@@ -653,7 +547,6 @@ export function WorkBoardView() {
   };
   const useSavedEditVersion = () => {
     if (!editConflict) return;
-    setCards(previous => previous.map(card => card.id === editConflict.id ? editConflict : card));
     setEditing(null);
     setEditVersion(null);
     setEditConflict(null);
@@ -726,45 +619,42 @@ export function WorkBoardView() {
   };
 
   // The queue column shows one project's work. Membership and order come from
-  // the server snapshot, never from card order, so a queued build the board has
-  // no card for still appears, and a move sends the queue's own order.
-  const queuedItems = React.useMemo(
-    () => (queueError || !queue ? [] : queue.queued.filter(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory))),
-    [directory, queue, queueError],
-  );
-  // Every open tab carries its own project's build count, so the header reads as
-  // an overview of which projects are building without switching tabs.
+  // the server projection, never from card order, so a queued build the board has
+  // no card for still appears, and a move sends the queue's own order. The queue
+  // section is unavailable only when its own read failed, which is not the same
+  // as an empty queue.
+  const queue = snapshot?.queue ?? null;
+  const queueError = snapshot ? (queue?.known ? '' : t('workBoard.unknown')) : '';
+  // Tab badges need every open project's queue at once, which the per-project
+  // board snapshot does not carry; the global queue snapshot stays for them.
+  const { snapshot: globalQueue, error: globalQueueError } = useBuildQueueSnapshot();
   const buildBadges = React.useMemo(
-    () => workBoardBuildBadges(visibleProjectTabs, queue, Boolean(queueError)),
-    [visibleProjectTabs, queue, queueError],
+    () => workBoardBuildBadges(visibleProjectTabs, globalQueue, Boolean(globalQueueError)),
+    [visibleProjectTabs, globalQueue, globalQueueError],
   );
-  const activeBuild = React.useMemo(
-    () => (!queueError && queue ? queue.active.find(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory)) : undefined),
-    [directory, queue, queueError],
-  );
+  const activeBuild = queue?.active ?? undefined;
   const sessionTitleFor = React.useCallback(
     (sessionId: string) => sessions.find(session => session.id === sessionId)?.title
       || t('workBoard.sessionFallback', { id: sessionId.slice(0, 9) }),
     [sessions, t],
   );
-  const queueRows = React.useMemo(() => workBoardQueueRows(queuedItems, sessionTitleFor), [queuedItems, sessionTitleFor]);
-  const queueOrder = React.useMemo(() => queuedItems.map(item => item.id), [queuedItems]);
+  const queueRows = React.useMemo(() => workBoardSnapshotRows(snapshot, sessionTitleFor), [snapshot, sessionTitleFor]);
+  const queueOrder = React.useMemo(() => queue?.order ?? [], [queue]);
   // Forced builds have no lease and no queue row; the server names them, and
-  // their titles come from the same session list the rows use.
+  // their titles come from the same session list the rows use. A forced build
+  // whose prompt may not have started carries needsReview and its item, so the
+  // board can offer its recovery instead of showing it as a plain running build.
   const forcedBuilds = React.useMemo(
-    () => (!queueError && queue ? (queue.forced ?? [])
-      .filter(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory))
-      .map(item => ({ sessionId: item.sessionId, title: sessionTitleFor(item.sessionId) })) : []),
-    [directory, queue, queueError, sessionTitleFor],
+    () => (queue?.forced ?? []).map(item => ({
+      sessionId: item.sessionId, title: sessionTitleFor(item.sessionId),
+      needsReview: item.needsReview, itemId: item.itemId,
+    })),
+    [queue, sessionTitleFor],
   );
-
   // The active project's own paused state, if any. A review-frozen lease needs
   // the user to look at that session; a Git hold only needs the tree cleaned or
   // the policy changed. The two carry different actions below.
-  const queueIssue = React.useMemo(
-    () => (!queueError && queue ? queue.issues.find(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory))?.issue : undefined),
-    [directory, queue, queueError],
-  );
+  const queueIssue = queue?.issue ?? undefined;
   const needsReview = Boolean(activeBuild?.needsReview);
   // A review-frozen lane whose session is running again is continued by adopting
   // that live turn, not by releasing into a void. The board only knows what it
@@ -773,77 +663,40 @@ export function WorkBoardView() {
     const sessionId = activeBuild?.sessionId;
     if (!sessionId) return false;
     const card = cards.find(entry => entry.sessionId === sessionId);
-    return card ? Boolean(activities.get(card.id)?.busy) : false;
-  }, [activeBuild?.sessionId, cards, activities]);
+    return card ? Boolean(snapshot?.activities[sessionId]?.busy) : false;
+  }, [activeBuild?.sessionId, cards, snapshot]);
   const reviewConfirmWording = workBoardReviewConfirmWording(resolveConfirm?.action, reviewSessionBusy);
 
-  const queueStateFor = (card: WorkBoardCard): WorkBoardQueueState | undefined => {
-    if (queueError || !queue || !card.sessionId) return undefined;
-    const index = queuedItems.findIndex(item => item.sessionId === card.sessionId);
-    if (index >= 0) {
-      const item = queuedItems[index];
-      return { itemId: item.id, paused: Boolean(item.paused), active: false, needsReview: false, order: queueOrder };
-    }
-    const active = queue.active.find(item => item.sessionId === card.sessionId);
-    if (!active) return undefined;
-    return { itemId: active.itemId, paused: false, active: true, needsReview: Boolean(active.needsReview), order: queueOrder };
-  };
-
-  const rememberedPlacement = (card: WorkBoardCard) => {
-    if (verifiedActivities.has(card.id)) return undefined;
-    const placement = placements.get(card.id);
-    return placement?.updatedAt === card.updatedAt && placement.sessionId === card.sessionId ? placement : undefined;
-  };
-  const laneFor = (card: WorkBoardCard): WorkBoardLane => queueStateFor(card) ? 'queue'
-    : rememberedPlacement(card)?.lane ?? workBoardLane(card, activities.get(card.id), undefined);
-  const completionTimeFor = (card: WorkBoardCard) => rememberedPlacement(card)?.completedAt
-    ?? workBoardCompletionTime(card, activities.get(card.id));
+  const queueStateFor = (card: WorkBoardCard): WorkBoardQueueState | undefined => workBoardQueueFromSnapshot(snapshot, card);
+  const laneFor = (card: WorkBoardCard): WorkBoardLane => workBoardCardLane(snapshot, card);
 
   /**
-   * Every lane's cards, in the order the board shows them. A card's stored
-   * `placementOrder` wins where it exists; anything else follows in the board's
-   * own order, so a new card lands at the end of an arrangement the user set
-   * rather than in the middle. An unarranged lane falls back to its own rule —
-   * newest completion first in Done.
+   * Every lane's cards, in the order the board shows them. The server already
+   * ordered each lane (stored placement order, then Done by newest completion),
+   * so the client only follows the projection's own order and falls back to the
+   * card list order for anything it does not name.
    */
   const orderedLanes = React.useMemo(() => {
-    const byLane = new Map<WorkBoardLane, WorkBoardCard[]>(lanes.map(lane => [lane, []]));
-    for (const card of visibleCards) byLane.get(laneFor(card))?.push(card);
-    byLane.get('done')?.sort((a, b) => completionTimeFor(b) - completionTimeFor(a) || a.id.localeCompare(b.id));
-    const ordered = new Map<WorkBoardLane, WorkBoardCard[]>();
-    for (const [lane, cardsInLane] of byLane) {
-      const arranged = cardsInLane.filter(card => card.placementOrder !== undefined)
-        .sort((a, b) => (a.placementOrder ?? 0) - (b.placementOrder ?? 0));
-      ordered.set(lane, [...arranged, ...cardsInLane.filter(card => card.placementOrder === undefined)]);
+    const byId = new Map(cards.map(card => [card.id, card]));
+    const ordered = new Map<WorkBoardLane, WorkBoardSnapshotCard[]>();
+    for (const lane of lanes) {
+      const inLane = workBoardSnapshotOrder(snapshot, lane, cards).flatMap(id => {
+        const card = byId.get(id);
+        return card ? [card] : [];
+      });
+      ordered.set(lane, inLane);
     }
     return ordered;
-    // laneFor and completionTimeFor read the current cards, activities and queue
-    // state, all of which are dependencies here.
-  }, [visibleCards, activities, queue, queueError, verifiedActivities, placements]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cards, snapshot]);
 
-  React.useLayoutEffect(() => {
-    const ids = new Set(visibleCards.map(card => card.id));
-    lastBoard.current = {
-      cards,
-      activities: new Map([...activities].filter(([id]) => ids.has(id)).map(([id, activity]) =>
-        [id, { ...activity, busy: activity.busy || historyBusy.current.has(id) }])),
-      versions: new Map([...sessionVersions.current].filter(([id]) => ids.has(id))),
-      placements: new Map(visibleCards.map(card => [card.id, {
-        lane: laneFor(card), completedAt: completionTimeFor(card), updatedAt: card.updatedAt, sessionId: card.sessionId,
-      }])),
-    };
-  });
   // A lease awaiting review is unfinished work the server will not release on
   // its own; completing its card would hide that resolution. Manual Done stays
   // out of reach for it.
-  const canComplete = (card: WorkBoardCard) => {
-    if (loading || error) return false;
-    const lane = laneFor(card);
-    if (lane !== 'todo' && lane !== 'plan' && lane !== 'build') return false;
-    if (!card.sessionId) return true;
-    return verifiedActivities.has(card.id) && Boolean(activities.get(card.id)) && !activities.get(card.id)?.busy && !unavailable.has(card.id)
-      && !queueError && queue !== null;
-  };
+  //
+  // The server decides what each card can do; the board only reads it.
+  const canDo = (card: WorkBoardSnapshotCard, action: WorkBoardSnapshotCard['availableActions'][number]) =>
+    !loading && !error && card.availableActions.includes(action);
+  const canComplete = (card: WorkBoardSnapshotCard) => canDo(card, 'complete');
   // Every lane's own card moves into Done together, from its own menu. Done has
   // no such action: its cards are already there.
   const completeAllIn = (lane: WorkBoardLane) => {
@@ -878,12 +731,27 @@ export function WorkBoardView() {
       // A forced build can report that its prompt was not confirmed: the item
       // stays queued, so say so instead of reading as a clean success.
       if (payload.success && payload.data.warning) setQueueActionError(payload.data.warning);
-      await refreshQueue();
+      await refresh();
     } catch (cause) {
       setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
     } finally {
       setQueueBusy(false);
     }
+  };
+  // The project's queue enablement. The toggle is its own setting on the same
+  // server route; flipping it writes the setting, and a failed write restores the
+  // previous value so the switch never lies about what is stored.
+  const toggleQueueEnabled = (next: boolean) => {
+    if (!directory) return;
+    const previous = queueEnabled;
+    setQueueEnabled(next);
+    setQueueActionError('');
+    void updateQueueSettings(directory, next)
+      .then(stored => { setQueueEnabled(stored); return refresh(); })
+      .catch(cause => {
+        setQueueEnabled(previous);
+        setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
+      });
   };
   const moveQueued = (itemId: string, delta: number) => {
     const index = queueOrder.indexOf(itemId);
@@ -929,6 +797,11 @@ export function WorkBoardView() {
     setForceConfirm(null);
     void queueMutate('/api/build-queue/force', 'POST', body);
   };
+  // A forced build whose prompt was not confirmed is resolved like a parked
+  // lease: acknowledge it and release the lane. The item it targeted pins the
+  // request to the build the user is looking at.
+  const resolveForcedBuild = (row: { itemId: string; sessionId: string }) =>
+    void queueMutate('/api/build-queue/resolve', 'POST', { directory, itemId: row.itemId, action: 'skip' });
 
   /**
    * Move one card to a lane, or to a place inside one. The board write and the
@@ -938,13 +811,14 @@ export function WorkBoardView() {
    */
   const place = (cards: WorkBoardCard[], lane: WorkBoardCardLane, before: string | null) => void mutate(async () => {
     if (!cards.length) return;
-    const at = Date.now();
+    // The server stamps the placement with its own clock; each card carries its
+    // version so a concurrent change elsewhere is a reported conflict.
     const targets = cards.map(card => ({
       id: card.id, updatedAt: card.updatedAt, text: card.text, sessionId: card.sessionId,
     }));
     const result: { placed: WorkBoardCard[]; failed: { id: string; error: string }[] } = cards.length === 1
-      ? { placed: [await placeWorkBoardCard(cards[0], lane, at, before)], failed: [] }
-      : await placeWorkBoardCards(directory, lane, at, targets);
+      ? { placed: [await placeWorkBoardCard(cards[0], lane, before)], failed: [] }
+      : await placeWorkBoardCards(directory, lane, targets);
     const failures = result.failed.map(failure => `${workBoardCardTitle(cards.find(card => card.id === failure.id)?.text ?? failure.id, [])}: ${failure.error}`);
     // A linked session follows its card: into Done means the work is done and
     // the session leaves In work; out of Done puts it back.
@@ -962,7 +836,7 @@ export function WorkBoardView() {
     const id = String(event.active.id);
     const row = queueRows.find(candidate => candidate.itemId === id);
     if (row) { setDrag({ type: 'queue', id, title: row.title }); return; }
-    const card = visibleCards.find(candidate => candidate.id === id);
+    const card = cards.find(candidate => candidate.id === id);
     const lane = card ? laneFor(card) : 'queue';
     if (!card || lane === 'queue') return;
     setDrag({ type: 'card', id, lane, title: card.briefRemoved && card.sessionId
@@ -979,7 +853,7 @@ export function WorkBoardView() {
       // only card lanes are droppable, so the suffix is a card lane.
       const target = overId.slice(LANE_PREFIX.length) as WorkBoardCardLane;
       if (target === held.lane) return;
-      const card = visibleCards.find(candidate => candidate.id === held.id);
+      const card = cards.find(candidate => candidate.id === held.id);
       if (card) place([card], target, null);
       return;
     }
@@ -988,10 +862,13 @@ export function WorkBoardView() {
       reorderQueued(held.id, overId === held.id ? null : overId);
       return;
     }
-    const card = visibleCards.find(candidate => candidate.id === held.id);
+    const card = cards.find(candidate => candidate.id === held.id);
     if (!card) return;
-    const overCard = visibleCards.find(candidate => candidate.id === overId);
+    const overCard = cards.find(candidate => candidate.id === overId);
     const overLane = overCard ? laneFor(overCard) : undefined;
+    // A drag never moves a card into or out of the queue: the queue lane is not a
+    // drop target, so a card whose lane is queue is not draggable and an over
+    // card in the queue falls back to the dragged card's own lane.
     const targetLane: WorkBoardCardLane = overLane === undefined || overLane === 'queue' ? held.lane : overLane;
     const current = laneCards(targetLane);
     const before = overId === held.id || overId.startsWith(LANE_PREFIX) ? null
@@ -1029,6 +906,13 @@ export function WorkBoardView() {
           onChange={event => useUIStore.getState().setWorkBoardOlderSessions(runtimeKey, directory, event.target.checked)} />
         {t('workBoard.includeOlderSessions')}
       </label>
+      {/* The queue's own on/off switch lives on the board, the surface that
+          manages the project's queue. It shows the server's saved value. */}
+      <div className="mb-2 flex items-center gap-2 rounded-md border border-border px-2.5 py-1">
+        <span className="text-xs font-medium">{t(queueEnabled ? 'workBoard.queueOn' : 'workBoard.queueOff')}</span>
+        <Switch aria-label={t('workBoard.queueEnabledLabel')} checked={queueEnabled === true}
+          disabled={!directory || busy} onCheckedChange={toggleQueueEnabled} />
+      </div>
       <Button size="sm" variant="ghost" className="mb-2" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
     </header>
     {(needsReview || queueIssue) && <section role="alert" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3 py-2">
@@ -1054,7 +938,7 @@ export function WorkBoardView() {
         if (lane === 'queue') {
           for (const card of inLane) {
             if (card.sessionId && !queueStateFor(card)) {
-              liveBuilds.set(card.sessionId, { sessionId: card.sessionId, title: sessionTitleFor(card.sessionId), checking: !verifiedActivities.has(card.id), unavailable: unavailable.has(card.id) });
+              liveBuilds.set(card.sessionId, { sessionId: card.sessionId, title: sessionTitleFor(card.sessionId), checking: card.status !== 'known', unavailable: card.status === 'unavailable' });
             }
           }
         }
@@ -1083,6 +967,7 @@ export function WorkBoardView() {
             onTogglePause={toggleQueuedPause}
             onForce={forceQueued}
             onCancel={cancelQueued}
+            onResolveForced={resolveForcedBuild}
             onNewBuild={() => newCard('queue')}
           /> : <SortableContext items={inLane.map(card => card.id)} strategy={verticalListSortingStrategy}>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">
@@ -1093,14 +978,12 @@ export function WorkBoardView() {
                 : t('workBoard.empty')
             }</p>}
             {inLane.map(card => {
-              const activity = activities.get(card.id);
-              const checking = Boolean(card.sessionId) && !verifiedActivities.has(card.id) && !unavailable.has(card.id);
-              const statusUnknown = Boolean(card.sessionId) && (!verifiedActivities.has(card.id) || unavailable.has(card.id));
+              const activity = card.sessionId ? snapshot?.activities[card.sessionId] : undefined;
+              const checking = Boolean(card.sessionId) && card.status === 'unknown';
+              const statusUnknown = Boolean(card.sessionId) && card.status !== 'known';
               const hasRunningTurn = Boolean(activity?.busy);
-              const canReturnToTodo = !loading && !error && Boolean(card.sessionId) && lane !== 'todo' && !hasRunningTurn
-                && !statusUnknown && !queueError && queue !== null;
-              const canRemove = !loading && !error && lane === 'todo' && !hasRunningTurn
-                && (!card.sessionId || (!statusUnknown && !queueError && queue !== null));
+              const canReturnToTodo = canDo(card, 'returnToTodo');
+              const canRemove = canDo(card, 'remove');
               const title = card.briefRemoved && card.sessionId
                 ? sessionTitleFor(card.sessionId) : workBoardCardTitle(card.text, card.attachments);
               // A card is one of two sizes. Every card that can carry a status

@@ -987,6 +987,31 @@ export const createProjectConfigRuntime = (deps) => {
   };
 
   /**
+   * The project's build-queue enablement, or `null` when the project never
+   * chose. Enablement is per project (the whole checkout, however many worktree
+   * directories hang off it), never per directory a request happened to name:
+   * otherwise a prompt could opt itself out of the session's own queue by
+   * asking with a different directory.
+   *
+   * Only `false` is stored. A project that never chose is absent from the file,
+   * which reads as enabled on a server that can enforce the queue; the key is
+   * written as `false` only when the user turns it off explicitly.
+   */
+  const readBuildQueueEnabled = async (projectID) => {
+    const raw = await readRawProjectConfigFromDisk(projectID);
+    return raw.buildQueueEnabled === false ? false : raw.buildQueueEnabled === true ? true : null;
+  };
+
+  const setBuildQueueEnabled = async (projectID, enabled) => withProjectWriteLock(projectID, async () => {
+    const existing = await readRawProjectConfigFromDisk(projectID);
+    const next = { ...existing, version: PROJECT_CONFIG_VERSION };
+    if (enabled === true) delete next.buildQueueEnabled;
+    else next.buildQueueEnabled = false;
+    await writeRawProjectConfigToDisk(projectID, next);
+    return enabled === true;
+  });
+
+  /**
    * Record (or, with a null fingerprint, withdraw) this machine's approval of
    * one project loop file. Kept in the per-machine project config, never in
    * the repository.
@@ -1124,6 +1149,8 @@ export const createProjectConfigRuntime = (deps) => {
     updateScheduledTaskStateIf,
     reconcileLoopTasks,
     setLoopApproval,
+    readBuildQueueEnabled,
+    setBuildQueueEnabled,
     resolveProjectConfigPath,
   };
 };

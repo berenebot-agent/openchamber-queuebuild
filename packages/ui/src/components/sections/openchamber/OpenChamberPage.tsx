@@ -4,6 +4,7 @@ import { AboutSettings } from './AboutSettings';
 import { SessionRetentionSettings } from './SessionRetentionSettings';
 import { MergedWorktreeCleanupSettings } from './MergedWorktreeCleanupSettings';
 import { SessionWorkSettings } from './SessionWorkSettings';
+import { BuildQueueSettings } from './BuildQueueSettings';
 import { PasskeySettings } from './PasskeySettings';
 import { AppLinkSecuritySettings } from './AppLinkSecuritySettings';
 import { DefaultsSettings } from './DefaultsSettings';
@@ -56,6 +57,7 @@ export const OpenChamberPage: React.FC<OpenChamberPageProps> = ({ section }) => 
                 <OpenChamberVisualSettings />
                 <DefaultsSettings key={runtimeEndpointEpoch} />
                 <SessionWorkSettings />
+                {!isVSCode && <BuildQueueSettings />}
                 {showDesktopNetworkSettings && <DesktopNetworkSettings />}
                 {!isVSCode && <OpenCodeCliSettings />}
                 {!isVSCode && <EnvironmentVariablesSettings key={runtimeEndpointEpoch} />}
@@ -201,37 +203,40 @@ const VisualSectionContent: React.FC = () => {
 // Chat section: User message rendering, Diff layout, Mobile status bar, Show reasoning traces, Follow-up behavior, Persist draft
 const ChatSectionContent: React.FC = () => {
     return (
-        <OpenChamberVisualSettings
-            visibleSettings={[
-                'sessionGoal',
-                'sessionAssist',
-                'activityRenderMode',
-                'userMessageRendering',
-                'mermaidRendering',
-                'reasoning',
-                'showToolFileIcons',
-                'showTurnChangedFiles',
-                'collapsibleUserMessages',
-                'promptNavigatorEnabled',
-                'wideChatLayout',
-                'codeBlockLineWrap',
-                'tableCellWrap',
-                'copyMessagesAsPlainText',
-                'splitAssistantMessageActions',
-                'subagentReadOnlyBanner',
-                'diffLayout',
-                'inputHistoryScope',
-                'inputHistoryLimit',
-                'messageSearch',
-                'dotfiles',
-                'fileViewerPreview',
-                'followUpBehavior',
-                'persistDraft',
-                'inputSpellcheck',
-                'largeTextPaste',
-                'enterToSend',
-            ]}
-        />
+        <>
+            <OpenChamberVisualSettings
+                visibleSettings={[
+                    'sessionGoal',
+                    'sessionAssist',
+                    'activityRenderMode',
+                    'userMessageRendering',
+                    'mermaidRendering',
+                    'reasoning',
+                    'showToolFileIcons',
+                    'showTurnChangedFiles',
+                    'collapsibleUserMessages',
+                    'promptNavigatorEnabled',
+                    'wideChatLayout',
+                    'codeBlockLineWrap',
+                    'tableCellWrap',
+                    'copyMessagesAsPlainText',
+                    'splitAssistantMessageActions',
+                    'subagentReadOnlyBanner',
+                    'diffLayout',
+                    'inputHistoryScope',
+                    'inputHistoryLimit',
+                    'messageSearch',
+                    'dotfiles',
+                    'fileViewerPreview',
+                    'followUpBehavior',
+                    'persistDraft',
+                    'inputSpellcheck',
+                    'largeTextPaste',
+                    'enterToSend',
+                ]}
+            />
+            {!isVSCodeRuntime() && <BuildQueueSettings />}
+        </>
     );
 };
 

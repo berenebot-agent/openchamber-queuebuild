@@ -31,15 +31,15 @@ Start agent work, see what changed, and take it through review and release. Your
 
 This fork adds **project-wide serial Build execution** for OpenCode agent sessions. You can plan different features in multiple sessions and enqueue the implementation turns without waiting for each previous one to finish.
 
-1. Open your project, then select **Build queue** from the right-hand context rail and turn on **Enabled** for that project.
+1. Open your project and turn on **Enabled** for its queue on the **Work Board** (the board is the one place a project's Build queue is managed).
 2. Continue using **Plan** mode freely in as many existing sessions as you need.
 3. Select the **Build** agent in a session and send your implementation prompt. Its submission is added to the project queue; it does not start while another managed build is running.
-4. Repeat from other sessions. The composer shows each session's queue position. Use the right-hand queue panel to reorder, cancel, or open those sessions.
-5. When the active Build turn finishes, the next starts according to the chosen Git policy: continue without a Git check, pause until clean, or commit explicitly staged changes using a model-generated message.
+4. Repeat from other sessions. The Work Board's Build queue column shows the project order; reorder, pause, cancel or Force a waiting build there.
+5. When the active Build turn finishes, the next starts according to the chosen Git policy: continue without a Git check, pause until clean, or commit explicitly staged changes using a model-generated message (set in **Settings → Chat**).
 
 **Safety:** Builds receive a reminder to run tests and commit *only their own changes*. In automatic commit mode, the server commits **only files deliberately staged in Git**, refuses remaining unstaged/untracked work, and checks staged paths and content for common secrets before contacting the model. It never automatically stages, stashes, resets, or deletes unrelated files. This check cannot guarantee detection of every secret. Queue state and execution leases survive browser disconnects and server restarts; uncertain interrupted builds require review.
 
-**Scope:** This applies to existing sessions and new-session Build prompts using the web/desktop OpenChamber composer with the queue enabled. External OpenCode API clients and VS Code's separate queue implementation are not intercepted. Sessions from distinct worktree directories have separate queues. The enabled setting is local to each browser profile, while queued jobs live on the server.
+**Scope:** This applies to existing sessions and new-session Build prompts sent through the web/desktop OpenChamber composer with the project's queue enabled. A direct API client that starts a Build turn on an enabled project is refused rather than allowed to bypass the lane; prompts the server itself sends straight to OpenCode (a goal continuation, the control API) keep their previous immediate behavior. VS Code's separate queue implementation is not intercepted. Sessions from distinct worktree directories have separate queues. Enablement, queue contents and every queue control now live on the server, so all devices see the same queue and the same setting.
 
 **Running this fork:** Build/deploy the server and frontend from this repository instead of using upstream's published OpenChamber Docker image. Keep the existing OpenChamber data directory mounted persistently so queue state is retained. The included Docker Compose file builds this fork locally:
 
@@ -57,11 +57,12 @@ After a successful build, open `http://localhost:3000`. Persist the included `./
 ### Work board in this fork
 
 Open **Work board** from the session sidebar to see To-do, Plan, Build queue,
-and Done columns. Use **Save to To-do** in the composer to save text
+Build complete, and Done columns. Use **Save to To-do** in the composer to save text
 and files without starting an LLM. **Start Plan** creates a planning session
 from the saved brief. The Build queue column shows the build running now above
-the ones waiting, with reorder, pause and cancel on hover. The Build queue
-remains available inside chats.
+the ones waiting, with reorder, pause, Force and cancel on hover, and the project
+queue's **Enabled** switch. The chat shows a compact queue indicator that opens
+the board.
 See the [work board guide](docs/WORK_BOARD.md) for promotion, recovery, and
 supported interfaces.
 

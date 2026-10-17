@@ -435,6 +435,58 @@ describe("sendMessage", () => {
     })
   })
 
+  test("marks a prompt and a command for server admission, never a context synthetic", async () => {
+    responses.push(json({ id: "msg_ctx" }), json({ id: "msg_5" }), noContent())
+    await opencodeClient.sendMessage({
+      id: "ses_1",
+      providerID: "openai",
+      text: "ship it",
+      messageId: "msg_5",
+      context: [{ text: "selected code" }],
+    })
+    await opencodeClient.sendCommand({ id: "ses_1", command: "ship" })
+    const marked = requests.map((request) => `${request.method} ${request.url.pathname} ${request.headers.get("x-openchamber-build-queue") ?? "none"}`)
+    expect(marked).toEqual([
+      "POST /api/session/ses_1/synthetic none",
+      "POST /api/session/ses_1/prompt admit",
+      "POST /api/session/ses_1/command admit",
+    ])
+  })
+
+  test("reports a queued server admission to the sender instead of leaving it optimistic", async () => {
+    responses.push(new Response(JSON.stringify({ data: { id: "msg_7" }, queued: true }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "x-openchamber-queued": "true",
+        "x-openchamber-queued-id": "msg_7",
+      },
+    }))
+    let queued = 0
+    const id = await opencodeClient.sendMessage({
+      id: "ses_1",
+      providerID: "openai",
+      text: "ship it",
+      messageId: "msg_7",
+      onQueued: () => { queued += 1 },
+    })
+    expect(id).toBe("msg_7")
+    expect(queued).toBe(1)
+  })
+
+  test("a prompt the server ran reports no queued admission", async () => {
+    responses.push(json({ id: "msg_8" }))
+    let queued = 0
+    await opencodeClient.sendMessage({
+      id: "ses_1",
+      providerID: "openai",
+      text: "explain",
+      messageId: "msg_8",
+      onQueued: () => { queued += 1 },
+    })
+    expect(queued).toBe(0)
+  })
+
   // OpenCode's `ModelRef.variant` is an optional string: a `null` is a 400
   // ("Expected string at [model][variant]") and the prompt never goes out.
   test("an explicit Default thinking level switches the model without a variant, never as null", async () => {

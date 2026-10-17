@@ -88,7 +88,7 @@ const createOpenCode = () => {
   return { state, fetchImpl };
 };
 
-const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, prepareBuildCommit, buildMonitorDelayMs, buildRecheckMs, buildCompletionGraceMs, settingsFilePath } = {}) => {
+const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, checkBuildGit, prepareBuildCommit, buildMonitorDelayMs, buildRecheckMs, buildCompletionGraceMs, settingsFilePath, projectConfigRuntime, resolveProjectIdentity } = {}) => {
   let eventHandler = () => {};
   let statusHandler = () => {};
   const broadcasts = [];
@@ -119,6 +119,8 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   if (buildRecheckMs !== undefined) options.buildRecheckMs = buildRecheckMs;
   if (buildCompletionGraceMs !== undefined) options.buildCompletionGraceMs = buildCompletionGraceMs;
   if (settingsFilePath !== undefined) options.settingsFilePath = settingsFilePath;
+  if (projectConfigRuntime !== undefined) options.projectConfigRuntime = projectConfigRuntime;
+  if (resolveProjectIdentity !== undefined) options.resolveProjectIdentity = resolveProjectIdentity;
   const runtime = createMessageQueueRuntime(options);
   return {
     runtime,
@@ -965,7 +967,7 @@ describe('message queue runtime', () => {
 
 describe('project-wide build queue', () => {
   it('announces the build queue the moment a build is enqueued', async () => {
-    // The queue pane and the work board read this snapshot. Without the
+    // The work board and the chat's compact indicator read this snapshot. Without the
     // broadcast, a queued build only appeared on the next poll.
     const { runtime, broadcasts } = createRuntime({ settingsFilePath: path.join(makeDataDir(), 'settings.json') });
     await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
@@ -1180,6 +1182,56 @@ describe('project-wide build queue', () => {
     await expect(runtime.forceDispatch(DIRECTORY, SESSION, plain.itemId)).rejects.toThrow(/Only a queued build/);
     runtime.stop();
     await runtime.flush();
+  });
+
+  it('holds an ambiguous force durably and refuses a second force of the same item', async () => {
+    const { runtime, openCode, dataDir } = createRuntime({ checkBuildGit: async () => null });
+    const queued = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'force me', text: 'force me', buildQueue: true }));
+    // Paused keeps the dispatch tick off the item, so only the Force can send it.
+    await runtime.setBuildPaused(SECOND, queued.itemId, true);
+    // The idle probes pass; the prompt itself fails ambiguously.
+    openCode.state.failNext = /\/prompt$/;
+    const result = await runtime.forceDispatch(DIRECTORY, SECOND, queued.itemId);
+    expect(result.warning).toContain('not confirmed');
+    // The item stays queued, the uncertain force is visible as a recovery, and
+    // a second force of the same item cannot dispatch it again.
+    expect(runtime.buildSnapshot().queued.map(entry => entry.id)).toEqual([queued.itemId]);
+    const forced = runtime.buildSnapshot().forced;
+    expect(forced).toHaveLength(1);
+    expect(forced[0]).toMatchObject({ sessionId: SECOND, itemId: queued.itemId, needsReview: true });
+    await expect(runtime.forceDispatch(DIRECTORY, SECOND, queued.itemId)).rejects.toThrow(/already being sent/);
+    // The reservation is durable: it was written before the prompt.
+    await runtime.flush();
+    const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'message-queue.json'), 'utf8'));
+    expect(persisted.forceReservations?.[SECOND]?.itemId).toBe(queued.itemId);
+    // The user resolves it: the marker clears and the item stays queued.
+    await runtime.resolveBuild(DIRECTORY, 'skip', queued.itemId);
+    expect(runtime.buildSnapshot().forced).toHaveLength(0);
+    expect(runtime.buildSnapshot().queued.map(entry => entry.id)).toEqual([queued.itemId]);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('restores an unresolved force reservation on restart, without re-sending it', async () => {
+    const { runtime, openCode, dataDir } = createRuntime({ checkBuildGit: async () => null });
+    const queued = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'force me', text: 'force me', buildQueue: true }));
+    await runtime.setBuildPaused(SECOND, queued.itemId, true);
+    openCode.state.failNext = /\/prompt$/;
+    await runtime.forceDispatch(DIRECTORY, SECOND, queued.itemId);
+    runtime.stop();
+    await runtime.flush();
+
+    const restarted = createRuntime({ checkBuildGit: async () => null, dataDir });
+    await restarted.runtime.load();
+    const forced = restarted.runtime.buildSnapshot().forced;
+    expect(forced).toHaveLength(1);
+    expect(forced[0]).toMatchObject({ sessionId: SECOND, itemId: queued.itemId, needsReview: true });
+    // Nothing was dispatched again while the state is uncertain.
+    expect(promptCalls(restarted.openCode)).toHaveLength(0);
+    await restarted.runtime.resolveBuild(DIRECTORY, 'skip', queued.itemId);
+    expect(restarted.runtime.buildSnapshot().forced).toHaveLength(0);
+    restarted.runtime.stop();
+    await restarted.runtime.flush();
   });
 
   it('appends a further build prompt into the session\'s single lane slot', async () => {
@@ -1986,4 +2038,354 @@ describe('project-wide build queue', () => {
     }
   });
 
+});
+
+describe('queue settings', () => {
+  const settingsRuntime = ({ enabled = null } = {}) => {
+    const state = { enabled, written: [] };
+    return {
+      state,
+      readBuildQueueEnabled: async () => state.enabled,
+      setBuildQueueEnabled: async (_projectId, value) => { state.written.push(value); state.enabled = value === false ? false : true; return state.enabled; },
+      readProjectSetup: async () => ({}),
+      updateProjectSetup: async () => ({}),
+      resolveProjectConfigPath: () => '/tmp/none.json',
+    };
+  };
+  const identityOf = (input) => ({ directory: input.directory, projectId: input.directory ? 'project-1' : null });
+  const registeredOnly = (input) => (String(input.directory).startsWith('/repo')
+    ? { directory: input.directory, projectId: 'project-1' }
+    : { directory: null, projectId: null });
+  const SECOND = 'ses_queue_settings_2';
+
+  it('answers enabled by default, and off only after an explicit off', async () => {
+    const projectConfigRuntime = settingsRuntime();
+    const { runtime } = createRuntime({ projectConfigRuntime, resolveProjectIdentity: identityOf });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true });
+    await runtime.writeQueueSettings({ directory: DIRECTORY }, false);
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false });
+    await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true });
+    expect(projectConfigRuntime.state.written).toEqual([false, true]);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('reports a directory it cannot place in a project as a client error', async () => {
+    const { runtime } = createRuntime({ projectConfigRuntime: settingsRuntime(), resolveProjectIdentity: registeredOnly });
+    await expect(runtime.readQueueSettings({ directory: '/nowhere' })).rejects.toMatchObject({ status: 400 });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('rejects a non-boolean enabled value', async () => {
+    const { runtime } = createRuntime({ projectConfigRuntime: settingsRuntime(), resolveProjectIdentity: identityOf });
+    await expect(runtime.writeQueueSettings({ directory: DIRECTORY }, 'yes')).rejects.toThrow(TypeError);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('answers enabled when the setting cannot be stored at all', async () => {
+    const { runtime } = createRuntime({ resolveProjectIdentity: identityOf });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('refuses to turn the queue off while a build is running or waiting', async () => {
+    const { runtime, openCode } = createRuntime({
+      projectConfigRuntime: settingsRuntime(),
+      resolveProjectIdentity: identityOf,
+      checkBuildGit: async () => null,
+      buildMonitorDelayMs: 60,
+    });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(runtime.buildSnapshot().active).toHaveLength(1);
+    await expect(runtime.writeQueueSettings({ directory: DIRECTORY }, false)).rejects.toMatchObject({ status: 409 });
+
+    const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true }));
+    await expect(runtime.writeQueueSettings({ directory: DIRECTORY }, false)).rejects.toMatchObject({ status: 409 });
+    expect(waiting.itemId).toBeTruthy();
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+});
+
+describe('prompt admission', () => {
+  // A prompt as the admission module builds it: the accepted entry carries the
+  // text that arrived with that prompt, so a merged slot dispatches each one
+  // with its own words.
+  const admittedItem = (messageId, overrides = {}) => {
+    const text = overrides.text ?? 'ship it';
+    const admission = {
+      sessionId: SESSION, directory: DIRECTORY, kind: 'prompt', text,
+      agents: [{ name: 'build' }], skills: [], leading: [],
+    };
+    return {
+      ...overrides,
+      content: text,
+      text,
+      attachments: overrides.attachments ?? [],
+      context: overrides.context ?? [],
+      sendConfig: overrides.sendConfig ?? {},
+      buildQueue: true,
+      messageId,
+      admission,
+      acceptedPrompts: [{ messageId, admission }],
+    };
+  };
+
+  it('exposes the wire id on the public item and merges several into one lane slot', async () => {
+    const { runtime, openCode } = createRuntime();
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, admittedItem('msg_a'));
+    const merged = await runtime.enqueue(SESSION, DIRECTORY, admittedItem('msg_b', { content: 'and this', text: 'and this' }));
+
+    // One lane slot, one row, but both wire ids acknowledged.
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    const publicItem = runtime.sessionSnapshot(SESSION).items[0];
+    expect(publicItem.messageId).toBe('msg_a');
+    expect(publicItem.messageIds).toEqual(['msg_a', 'msg_b']);
+    expect(merged.itemId).toBe(publicItem.id);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('dispatches every accepted prompt in one lane slot with its own id', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 40 });
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, admittedItem('msg_a'));
+    await runtime.enqueue(SESSION, DIRECTORY, admittedItem('msg_b', { content: 'second', text: 'second' }));
+    delete openCode.state.active[SESSION];
+    // Arm dispatch explicitly: nothing else signals idleness here.
+    openCode.state.tail = [];
+    await runtime.setHold(SESSION, true);
+    await runtime.setHold(SESSION, false);
+    await settle(120);
+
+    const prompts = openCode.state.sent.filter((entry) => entry.path.endsWith('/prompt'));
+    expect(prompts.map((entry) => entry.body.id)).toEqual(['msg_a', 'msg_b']);
+    expect(prompts.map((entry) => entry.body.text)).toEqual(['ship it', 'second']);
+    // Each accepted prompt keeps its own agents payload.
+    expect(prompts[0].body.agents).toEqual([{ name: 'build' }]);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does not admit the same prompt id twice', async () => {
+    const { runtime, openCode } = createRuntime();
+    openCode.state.active[SESSION] = { type: 'running' };
+    const first = await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: admittedItem('msg_a') });
+    expect(first).toMatchObject({ admitted: true, settled: false });
+    const again = await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: admittedItem('msg_a') });
+    expect(again).toMatchObject({ admitted: false, settled: false, itemId: first.itemId });
+    // The repeat appended nothing: still one row and one text.
+    expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(1);
+    expect(runtime.sessionSnapshot(SESSION).items[0].text).toBe('ship it');
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('refuses a replay of a prompt that was already dispatched', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30 });
+    const admitted = await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: admittedItem('msg_a') });
+    expect(admitted.admitted).toBe(true);
+    await settle(80);
+    // It went out and left the queue.
+    expect(openCode.state.sent.some((entry) => entry.path.endsWith('/prompt'))).toBe(true);
+    expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(0);
+
+    const replay = await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: admittedItem('msg_a') });
+    expect(replay).toMatchObject({ admitted: false, settled: true });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('keeps an admitted prompt and its wire identity across a restart', async () => {
+    const first = createRuntime();
+    first.openCode.state.active[SESSION] = { type: 'running' };
+    await first.runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: admittedItem('msg_a') });
+    await first.runtime.enqueue(SESSION, DIRECTORY, admittedItem('msg_b', { content: 'more', text: 'more' }));
+    first.runtime.stop();
+    await first.runtime.flush();
+
+    const second = createRuntime({ dataDir: first.dataDir });
+    await second.runtime.load();
+    const publicItem = second.runtime.sessionSnapshot(SESSION).items[0];
+    expect(publicItem.messageIds).toEqual(['msg_a', 'msg_b']);
+    // The reloaded slot is still recognized as project build work.
+    expect(second.runtime.buildSnapshot().queued).toHaveLength(1);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
+  it('rejects an admitted prompt with no messageId', async () => {
+    const { runtime } = createRuntime();
+    await expect(runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: admittedItem(undefined) }))
+      .rejects.toThrow(TypeError);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('stages the synthetics the prompt arrived behind, before it', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30 });
+    const withLeading = admittedItem('msg_a');
+    withLeading.admission.leading = [{ text: 'standing context' }];
+    withLeading.acceptedPrompts[0].admission.leading = [{ text: 'standing context' }];
+    await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: withLeading });
+    await settle(80);
+
+    const synthetics = openCode.state.sent.filter((entry) => entry.path.endsWith('/synthetic'));
+    expect(synthetics.map((entry) => entry.body.text)).toContain('standing context');
+    const promptIndex = openCode.state.sent.findIndex((entry) => entry.path.endsWith('/prompt'));
+    const leadingIndex = openCode.state.sent.findIndex((entry) => entry.body.text === 'standing context');
+    expect(leadingIndex).toBeLessThan(promptIndex);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('ignores a client-supplied agent claim and keeps the build instruction', async () => {
+    // The classification already ran server-side; a body claiming an agent
+    // cannot drop the serialized-build instruction the lane adds.
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30 });
+    const spoofed = admittedItem('msg_a', { sendConfig: { agent: 'plan' } });
+    spoofed.sendConfig = { agent: 'plan' };
+    await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: spoofed });
+    await settle(80);
+    const synthetics = openCode.state.sent.filter((entry) => entry.path.endsWith('/synthetic'));
+    expect(synthetics.some((entry) => entry.body.text.includes('serialized with other builds'))).toBe(true);
+    runtime.stop();
+    await runtime.flush();
+  });
+});
+
+describe('per-session clear with project build work', () => {
+  it('keeps a waiting Build item and drops the ordinary messages around it', async () => {
+    // The chat's Clear all clears the conversation's own queue. A project build
+    // belongs to the board, so the chat cannot cancel it by accident.
+    const { runtime, openCode } = createRuntime();
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'build', text: 'build', buildQueue: true }));
+    const plain = await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'plain', text: 'plain' }));
+    const result = await runtime.clear(SESSION);
+    expect(result.session.items.map((entry) => entry.text)).toEqual(['build']);
+    expect(runtime.buildSnapshot().queued.map((entry) => entry.id)).toHaveLength(1);
+    expect(plain.itemId).not.toBe(runtime.buildSnapshot().queued[0].id);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('keeps an in-flight item as before, alongside the Build item', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const openCode = createOpenCode();
+    const baseFetch = openCode.fetchImpl;
+    openCode.fetchImpl = vi.fn(async (url, init = {}) => {
+      if (init.method === 'POST' && new URL(url).pathname.endsWith('/prompt')) {
+        await gate;
+      }
+      return baseFetch(url, init);
+    });
+    const { runtime } = createRuntime({ openCode });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'build', text: 'build', buildQueue: true }));
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'plain', text: 'plain' }));
+    await settle(40);
+    // The plain message is the head and is mid-send when the chat clears.
+    await runtime.clear(SESSION);
+    release();
+    await settle(40);
+    expect(runtime.sessionSnapshot(SESSION).items.map((entry) => entry.text)).toEqual(['build']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('keeps an admitted build prompt and its wire id, so the queue can still dispatch it', async () => {
+    const { runtime, openCode } = createRuntime();
+    openCode.state.active[SESSION] = { type: 'running' };
+    const admitted = {
+      content: 'ship it', text: 'ship it', attachments: [], context: [], sendConfig: {}, buildQueue: true,
+      messageId: 'msg_a',
+      admission: { sessionId: SESSION, directory: DIRECTORY, kind: 'prompt', text: 'ship it', agents: [], skills: [], leading: [] },
+      acceptedPrompts: [{ messageId: 'msg_a', admission: { sessionId: SESSION, directory: DIRECTORY, kind: 'prompt', text: 'ship it', agents: [], skills: [], leading: [] } }],
+    };
+    await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: admitted });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'plain', text: 'plain' }));
+    await runtime.clear(SESSION);
+
+    const remaining = runtime.sessionSnapshot(SESSION).items;
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].messageIds).toEqual(['msg_a']);
+    expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('still removes a scheduled item from the chat clear, as before', async () => {
+    const results = [];
+    const { runtime, openCode } = createRuntime({ onScheduledTaskResult: (_task, status) => results.push(status) });
+    openCode.state.active[SESSION] = { type: 'running' };
+    await runtime.enqueue(SESSION, DIRECTORY, item({
+      scheduledTask: { projectId: 'project-1', taskId: 'task-1' }, sendConfig: {},
+    }));
+    await runtime.clear(SESSION);
+    expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(0);
+    expect(results).toEqual(['cancelled']);
+    runtime.stop();
+    await runtime.flush();
+  });
+});
+
+describe('managed dispatch delivery', () => {
+  it('states queue delivery on a managed build prompt so a late-starting turn cannot steer it', async () => {
+    // The idle probe is not atomic with the send. Upstream steers by default, so
+    // a direct Plan turn that started in the gap would swallow the build.
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(80);
+    const prompts = openCode.state.sent.filter((entry) => entry.path.endsWith('/prompt'));
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].body.delivery).toBe('queue');
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('states queue delivery on an admitted build prompt and keeps its original id', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30 });
+    const admitted = {
+      content: 'ship it', text: 'ship it', attachments: [], context: [], sendConfig: {}, buildQueue: true,
+      messageId: 'msg_keep',
+      admission: { sessionId: SESSION, directory: DIRECTORY, kind: 'prompt', text: 'ship it', agents: [], skills: [], leading: [] },
+      acceptedPrompts: [{ messageId: 'msg_keep', admission: { sessionId: SESSION, directory: DIRECTORY, kind: 'prompt', text: 'ship it', agents: [], skills: [], leading: [] } }],
+    };
+    await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: admitted });
+    await settle(80);
+    const prompts = openCode.state.sent.filter((entry) => entry.path.endsWith('/prompt'));
+    expect(prompts[0].body.id).toBe('msg_keep');
+    expect(prompts[0].body.delivery).toBe('queue');
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('leaves the preamble context-only, so it never starts a turn of its own', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    const synthetics = openCode.state.sent.filter((entry) => entry.path.endsWith('/synthetic'));
+    expect(synthetics.length).toBeGreaterThan(0);
+    expect(synthetics.every((entry) => entry.body.resume === false)).toBe(true);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does not add delivery to an ordinary queued message', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'hello', text: 'hello' }));
+    await settle(80);
+    const prompts = openCode.state.sent.filter((entry) => entry.path.endsWith('/prompt'));
+    expect(prompts[0].body.delivery).toBeUndefined();
+    runtime.stop();
+    await runtime.flush();
+  });
 });

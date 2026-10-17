@@ -1,5 +1,4 @@
-import type { Message } from '@/lib/opencode/model';
-import type { WorkBoardCard, WorkBoardAttachment } from '@/lib/workBoardApi';
+import type { WorkBoardCard, WorkBoardAttachment, WorkBoardSnapshot, WorkBoardActivityMessage } from '@/lib/workBoardApi';
 
 export type WorkBoardLane = 'todo' | 'plan' | 'queue' | 'build' | 'done';
 
@@ -23,7 +22,7 @@ export type WorkBoardQueueState = {
 };
 
 export type WorkBoardActivity = {
-  messages: Message[];
+  messages: WorkBoardActivityMessage[];
   busy: boolean;
 };
 
@@ -59,55 +58,6 @@ export function workBoardFeedback(activity: WorkBoardActivity | undefined, unava
   if (needsReview || (hasUnseenTurn && !activity.busy && lastIdle?.role === 'idle' && lastIdle.outcome !== 'succeeded'
     && lastIdle.time.created >= (lastPrompt?.time.created ?? 0))) return 'blocked';
   return undefined;
-}
-
-/**
- * Placement state from a manual drag. A card keeps its `updatedAt`: that is the
- * boundary later session activity has to pass, and a parked To-do and the
- * stale-completion check compare against it. `placementAt` carries the drag's
- * own moment, which `updatedAt` cannot hold on its own.
- */
-export function workBoardPlacement(card: WorkBoardCard, lane: WorkBoardCardLane, at: number) {
-  if (lane === 'done') return { ...card, stage: 'done' as const, placementAt: at, completedAt: card.completedAt ?? at };
-  const next: WorkBoardCard = { ...card, stage: lane === 'build' ? 'done' : lane, placementAt: at };
-  // Leaving Done keeps the completion the card earned, so the mark does not
-  // return the moment it is dragged back into a working lane.
-  if (card.stage === 'done') { next.completedAt = card.completedAt; next.viewedAt = card.viewedAt; }
-  return next;
-}
-
-export function workBoardLane(
-  card: WorkBoardCard,
-  activity: WorkBoardActivity | undefined,
-  queue: WorkBoardQueueState | undefined,
-): WorkBoardLane {
-  if (queue) return 'queue';
-  // A new user turn after parking reopens the card without a UI-only marker.
-  const messages = [...(activity?.messages ?? [])].reverse();
-  const lastUser = messages.find(message => message.role === 'user');
-  const assistant = messages.find(message => message.role === 'assistant');
-  const latestTurn = Math.max(lastUser?.time.created ?? 0, assistant?.time.created ?? 0);
-  // A manual placement holds until something happens in the session after it.
-  if (card.placementAt !== undefined && latestTurn <= card.placementAt && !activity?.busy) {
-    return card.stage === 'done' ? (card.completedAt !== undefined ? 'done' : 'build') : card.stage;
-  }
-  const parkedAt = card.stage === 'done' ? card.completedAt ?? card.updatedAt : card.updatedAt;
-  if ((card.stage === 'todo' || card.stage === 'done') && latestTurn <= parkedAt && !activity?.busy) {
-    return card.stage === 'done' ? 'build' : card.stage;
-  }
-  if (lastUser && (!assistant || lastUser.time.created > assistant.time.created)) return 'plan';
-  if (assistant?.role === 'assistant' && assistant.agent.toLowerCase() === 'build') {
-    // A queue lease awaiting review is unfinished work, not history, and the
-    // queue input above already placed it. History alone settles a Build turn.
-    if (activity?.busy) return 'queue';
-    // The last agent was Build and the session is idle. Whether that turn
-    // succeeded, failed or was stopped, no work is running, so the card is
-    // history: it belongs in Build complete. A queue lease is the one exception
-    // above -- those keep their own recovery contract. Only a later move reaches
-    // Done, and the manual placement was already checked above.
-    return 'build';
-  }
-  return 'plan';
 }
 
 /**
@@ -149,14 +99,6 @@ export function workBoardShowsCompletionMark(card: WorkBoardCard): boolean {
   return card.completedAt > (card.viewedAt ?? 0);
 }
 
-export function workBoardCompletionTime(card: WorkBoardCard, activity: WorkBoardActivity | undefined): number {
-  const completedAt = card.completedAt ?? card.updatedAt;
-  if (card.stage === 'done' && !activity?.busy && !activity?.messages.some(message =>
-    (message.role === 'user' || message.role === 'assistant') && message.time.created > completedAt)) return card.completedAt ?? 0;
-  if (workBoardLane(card, activity, undefined) !== 'done') return 0;
-  return [...(activity?.messages ?? [])].reverse().find(message => message.role === 'idle')?.time.created ?? 0;
-}
-
 /**
  * The build queue as one column: the lease the server is running now, then the
  * waiting items in dispatch order, then any queue entry the board has no card
@@ -175,7 +117,9 @@ export type WorkBoardQueueRow = {
 /**
  * A build the queue column shows above the gap without a lease: a build the
  * user forced to start outside the queue, or one the board knows is running
- * from card activity alone. `forced` carries the marker for the first kind.
+ * from card activity alone. `forced` carries the marker for the first kind, and
+ * an ambiguous forced build — one whose prompt may not have started — also
+ * carries `needsReview` and the item the recovery acts on.
  */
 export type WorkBoardActiveEntry = {
   sessionId: string;
@@ -183,6 +127,8 @@ export type WorkBoardActiveEntry = {
   checking: boolean;
   unavailable: boolean;
   forced: boolean;
+  needsReview?: boolean;
+  itemId?: string | null;
 };
 
 /**
@@ -192,27 +138,73 @@ export type WorkBoardActiveEntry = {
  * row and carries the marker; the dedupe stops the same session showing twice.
  */
 export function workBoardActiveEntries(
-  forced: readonly { sessionId: string; title: string }[],
+  forced: readonly { sessionId: string; title: string; needsReview?: boolean; itemId?: string | null }[],
   live: readonly { sessionId: string; title: string; checking: boolean; unavailable: boolean }[],
 ): WorkBoardActiveEntry[] {
   const entries = new Map<string, WorkBoardActiveEntry>();
-  for (const entry of forced) entries.set(entry.sessionId, { ...entry, checking: false, unavailable: false, forced: true });
+  for (const entry of forced) {
+    const active: WorkBoardActiveEntry = {
+      sessionId: entry.sessionId, title: entry.title, checking: false, unavailable: false, forced: true,
+    };
+    if (entry.needsReview) active.needsReview = true;
+    if (entry.itemId) active.itemId = entry.itemId;
+    entries.set(entry.sessionId, active);
+  }
   for (const entry of live) if (!entries.has(entry.sessionId)) entries.set(entry.sessionId, { ...entry, forced: false });
   return [...entries.values()];
 }
 
-export function workBoardQueueRows(
-  queued: readonly { id: string; sessionId: string; content: string; paused: boolean }[],
+function workBoardQueueRows(
+  queued: readonly { itemId: string; sessionId: string; content: string; paused: boolean; position: number }[],
   titleFor: (sessionId: string) => string,
 ): WorkBoardQueueRow[] {
-  return queued.map((item, index) => ({
-    itemId: item.id,
+  return queued.map(item => ({
+    itemId: item.itemId,
     sessionId: item.sessionId,
     title: titleFor(item.sessionId),
     snippet: item.content.trim().split('\n').find(line => line.trim())?.trim() || '',
     paused: item.paused,
-    position: index,
+    position: item.position,
   }));
+}
+
+/**
+ * The lane a card is in, straight from the server's projection. A card the
+ * snapshot does not name (a card added by an optimistic write before the next
+ * snapshot) falls back to its stored stage so it does not vanish for a frame.
+ */
+export function workBoardCardLane(snapshot: WorkBoardSnapshot | null, card: WorkBoardCard): WorkBoardLane {
+  const lane = snapshot?.lanes[card.id];
+  if (lane) return lane;
+  return card.stage === 'done' ? 'build' : card.stage;
+}
+
+/** The server's own order for a lane, filtered to cards the board can render. */
+export function workBoardSnapshotOrder(snapshot: WorkBoardSnapshot | null, lane: WorkBoardLane, cards: readonly WorkBoardCard[]): string[] {
+  const ids = snapshot?.order[lane] ?? [];
+  if (ids.length) return ids;
+  return cards.filter(card => workBoardCardLane(snapshot, card) === lane).map(card => card.id);
+}
+
+/**
+ * The queue's own state for one card's session, from the projection, for the
+ * card's row controls. A card whose session is neither waiting nor running has
+ * no queue state.
+ */
+export function workBoardQueueFromSnapshot(snapshot: WorkBoardSnapshot | null, card: WorkBoardCard): WorkBoardQueueState | undefined {
+  if (!snapshot || !card.sessionId) return undefined;
+  const { queue } = snapshot;
+  const row = queue.rows.find(item => item.sessionId === card.sessionId);
+  if (row) return { itemId: row.itemId, paused: row.paused, active: false, needsReview: false, order: queue.order };
+  if (queue.active?.sessionId === card.sessionId) {
+    return { itemId: queue.active.itemId, paused: false, active: true, needsReview: queue.active.needsReview, order: queue.order };
+  }
+  return undefined;
+}
+
+/** The queue rows the column renders, with titles resolved from the session list. */
+export function workBoardSnapshotRows(snapshot: WorkBoardSnapshot | null, titleFor: (sessionId: string) => string): WorkBoardQueueRow[] {
+  return workBoardQueueRows(snapshot?.queue.rows ?? [], titleFor);
 }
 
 /** The full project order with one row moved by `delta`, or null at an end. */
@@ -249,7 +241,7 @@ export const workBoardDirectoryKey = (value: string) => value.replace(/\\/g, '/'
  * A queue error is not "nothing building": every open tab carries the error
  * badge so the failure is visible where the user is looking, rather than
  * silently reading as an idle project. Directories are normalised the same way
- * the Build queue pane does, so a worktree's queue does not inflate its root
+ * the server projection does, so a worktree's queue does not inflate its root
  * project's badge.
  *
  * A paused project keeps its build count: the work is still queued, and how much

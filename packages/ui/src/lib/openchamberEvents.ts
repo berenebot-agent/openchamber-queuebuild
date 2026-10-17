@@ -107,6 +107,14 @@ type BrowserProviderResetEvent = { type: 'browser-provider-reset' } & z.infer<ty
 const buildQueueUpdatedSchema = z.object({ directory: z.string().min(1) });
 type BuildQueueUpdatedEvent = { type: 'build-queue-updated' } & z.infer<typeof buildQueueUpdatedSchema>;
 
+/**
+ * The work board changed for a directory — a card was written, or a session's
+ * activity moved. The server already derived the new board; listeners re-read
+ * the projection, so only the directory travels.
+ */
+const workBoardUpdatedSchema = z.object({ directory: z.string().min(1) });
+type WorkBoardUpdatedEvent = { type: 'work-board-updated' } & z.infer<typeof workBoardUpdatedSchema>;
+
 /** Jev routing events; each carries what the routing store needs and nothing the UI must re-derive. */
 const routingUpdatedSchema = z.object({
   available: z.boolean(),
@@ -181,6 +189,7 @@ type OpenChamberEvent =
   | RoutingSafetySkippedEvent
   | MessageQueueUpdatedEvent
   | BuildQueueUpdatedEvent
+  | WorkBoardUpdatedEvent
   | ScheduledTaskRanEvent
   | SessionCreatedEvent
   | WorktreeChangedEvent
@@ -382,6 +391,12 @@ const dispatchFromEnvelope = (envelope: { type: string; properties: unknown }) =
   if (envelope.type === 'openchamber:build-queue.updated') {
     const parsed = buildQueueUpdatedSchema.safeParse(envelope.properties);
     if (parsed.success) for (const listener of listeners) listener({ type: 'build-queue-updated', ...parsed.data });
+    return;
+  }
+
+  if (envelope.type === 'openchamber:work-board.updated') {
+    const parsed = workBoardUpdatedSchema.safeParse(envelope.properties);
+    if (parsed.success) for (const listener of listeners) listener({ type: 'work-board-updated', ...parsed.data });
     return;
   }
 

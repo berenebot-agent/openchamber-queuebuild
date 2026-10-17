@@ -316,6 +316,35 @@ const isEventStreamUrl = (url: URL): boolean => url.pathname.endsWith("/event") 
 /** Header the server reads to resolve a Location; the value is URI-encoded on both ends. */
 const OPENCODE_DIRECTORY_HEADER = "x-opencode-directory"
 
+/**
+ * The admission marker. A marked prompt or command states "route this
+ * submission through the OpenChamber server", where an enabled project's build
+ * queue admits it when its own facts say Build. It is not a classification:
+ * the server reads the session's agent and the project's setting itself.
+ * Context synthetics are never marked, because the queue does not carry them.
+ */
+const BUILD_QUEUE_ADMIT_HEADER = "x-openchamber-build-queue"
+const ADMIT_MARKED_PATH = /\/session\/[^/]+\/(?:prompt|command)$/
+/** Set by the server on a prompt it queued instead of running. */
+const QUEUED_RESPONSE_HEADER = "x-openchamber-queued"
+const QUEUED_ID_RESPONSE_HEADER = "x-openchamber-queued-id"
+const QUEUED_IDS_TRACKED = 64
+
+/**
+ * Prompt ids the server answered as queued, bounded and consumed by the send
+ * that owns the id. Bounded because a sender that never asks (a direct SDK
+ * prompt) must not grow it.
+ */
+const queuedPromptIds = new Set<string>()
+const rememberQueuedPromptId = (id: string): void => {
+  queuedPromptIds.add(id)
+  while (queuedPromptIds.size > QUEUED_IDS_TRACKED) {
+    const oldest = queuedPromptIds.values().next().value
+    if (oldest === undefined) break
+    queuedPromptIds.delete(oldest)
+  }
+}
+
 type RuntimeOpencodeClientConfig = {
   baseUrl: string
   directory?: string
@@ -342,7 +371,21 @@ export const createRuntimeOpencodeClient = (config: RuntimeOpencodeClientConfig)
       const url = input instanceof URL ? input : new URL(typeof input === "string" ? input : input.url)
       const method = String(init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase()
       if (isEventStreamUrl(url) || method === "POST") {
-        return validateRuntimeResponse(await runtimeFetch(input, init))
+        // A prompt or command states that the server may route it; the server
+        // answers whether it queued it, so the sender can settle its optimistic
+        // message without guessing from history.
+        const admit = method === "POST" && ADMIT_MARKED_PATH.test(url.pathname)
+        if (admit) {
+          const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+          headers.set(BUILD_QUEUE_ADMIT_HEADER, "admit")
+          init = { ...init, headers }
+        }
+        const response = validateRuntimeResponse(await runtimeFetch(input, init))
+        if (response.headers.get(QUEUED_RESPONSE_HEADER) === "true") {
+          const id = response.headers.get(QUEUED_ID_RESPONSE_HEADER)
+          if (id) rememberQueuedPromptId(id)
+        }
+        return response
       }
       const timeout = createTimeoutSignal(requestTimeoutMs)
       const callerSignal = init?.signal !== undefined
@@ -1300,6 +1343,12 @@ class OpencodeService {
     directory?: string | null
     /** Skills named inline; attached to the prompt so OpenCode loads them with it. */
     skills?: SkillMentions
+    /**
+     * The server admitted this prompt into the project build queue instead of
+     * running it. The optimistic row can be settled at once; delivery reports
+     * later through the queue's own events.
+     */
+    onQueued?: () => void
   }): Promise<string> {
     this.assertRuntimeUnchanged(params.runtimeKey)
 
@@ -1383,6 +1432,7 @@ class OpencodeService {
     }
 
     recordProviderSuccess(params.providerID)
+    if (params.onQueued && queuedPromptIds.delete(messageId)) params.onQueued()
     return messageId
   }
 

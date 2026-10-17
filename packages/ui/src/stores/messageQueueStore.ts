@@ -8,7 +8,8 @@ import type { AttachedFile } from './types/sessionTypes';
 import { contextPartMetadataSchema, type ContextPartMetadata } from '@/lib/messages/contextParts';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { isVSCodeRuntime } from '@/lib/desktop';
+import { isServerOwnedMessageQueue } from '@/lib/messages/queueAdmission';
+export { isServerOwnedMessageQueue } from '@/lib/messages/queueAdmission';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getQueuedMessagePreview } from '@/lib/messages/queuedMessagePreview';
@@ -46,14 +47,6 @@ const normalizeFollowUpBehavior = (
 
     return DEFAULT_FOLLOW_UP_BEHAVIOR;
 };
-
-/**
- * Who delivers the queue. Web, desktop, and mobile talk to an OpenChamber
- * server that owns the queue and sends it whether or not any UI is open. VS
- * Code has no server of its own, so the extension UI keeps the local queue
- * and the foreground auto-send hook.
- */
-export const isServerOwnedMessageQueue = (): boolean => !isVSCodeRuntime();
 
 export interface QueuedMessageSendConfig {
     providerID: string;
@@ -109,13 +102,12 @@ export interface QueuedMessage {
     /** Send config captured at queue time — used as-is when auto-sending */
     sendConfig?: QueuedMessageSendConfig;
     scheduledTask?: z.infer<typeof scheduledTaskSchema>;
-    /** Serializes this turn with builds in other sessions of the same project. */
+    /** Server-classified project Build item. */
     buildQueue?: boolean;
 }
 
 interface QueuedMessageInput {
     content: string;
-    buildQueue?: boolean;
     /** Defaults to `content`. */
     text?: string;
     agentMention?: string;
@@ -225,8 +217,6 @@ const serverSessionResponseSchema = z.object({
 
 const serverTakeResponseSchema = serverSessionResponseSchema.extend({ item: serverItemSchema });
 const serverTakeAllResponseSchema = serverSessionResponseSchema.extend({ items: z.array(serverItemSchema) });
-/** A cancellation hands the removed item back so the composer can restore it. */
-const serverCancelResponseSchema = serverSessionResponseSchema.extend({ item: serverItemSchema.optional() });
 
 type ServerQueueSession = z.infer<typeof serverSessionSchema>;
 type ServerQueueItem = z.infer<typeof serverItemSchema>;
@@ -293,7 +283,6 @@ type ServerQueueAttachmentInput = Omit<ServerQueueAttachment, 'dataUrl'> & { dat
 
 type ServerQueueItemInput = {
     content: string;
-    buildQueue?: boolean;
     text: string;
     agentMention?: string;
     attachments: ServerQueueAttachmentInput[];
@@ -329,7 +318,6 @@ const toServerItemInput = (message: QueuedMessageInput, sendConfig: QueuedMessag
         sendConfig,
     };
     if (message.agentMention) item.agentMention = message.agentMention;
-    if (message.buildQueue) item.buildQueue = true;
     const contextPreview = getQueuedMessagePreview({ content: '', context: message.context });
     if (contextPreview) item.contextPreview = contextPreview;
     return item;
@@ -398,12 +386,6 @@ interface MessageQueueActions {
     reorderQueue: (target: MessageQueueTarget, fromId: string, toId: string) => void;
     /** Removes the message and returns it in full, attachments included. */
     popToInput: (target: MessageQueueTarget, messageId: string) => Promise<QueuedMessage | null>;
-    /**
-     * Cancels a queued build and returns it in full, attachments and context
-     * included, so the composer can restore what the user typed. Null when the
-     * item was already gone or the runtime has no server-owned build queue.
-     */
-    cancelBuild: (target: MessageQueueTarget, messageId: string) => Promise<QueuedMessage | null>;
     /**
      * Removes what the composer is about to send itself — one message or every
      * message not already being delivered — and returns it in full.
@@ -571,7 +553,6 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                             text: message.text ?? message.content,
                             createdAt: Date.now(),
                             sendConfig: message.sendConfig,
-                            ...(message.buildQueue ? { buildQueue: true } : {}),
                         };
                         if (message.agentMention) queuedMessage.agentMention = message.agentMention;
                         if (message.attachments && message.attachments.length > 0) queuedMessage.attachments = message.attachments;
@@ -657,25 +638,6 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         return message ?? null;
                     },
 
-                    cancelBuild: async (target, messageId) => {
-                        const key = getMessageQueueKey(target);
-                        set((state) => removeMessageLocally(state, key, messageId));
-                        // The build queue is server-owned; VS Code never creates these items.
-                        if (!isServerOwnedMessageQueue()) return null;
-                        try {
-                            const result = await requestJson(
-                                serverCancelResponseSchema,
-                                `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}`,
-                                jsonInit('DELETE'),
-                            );
-                            applyServerSession(result.session, result.revision, target.runtimeKey);
-                            return result.item ? toQueuedMessage(result.item) : null;
-                        } catch (error) {
-                            await refreshSession(target);
-                            throw error;
-                        }
-                    },
-
                     takeForSend: async (target, messageId) => {
                         const key = getMessageQueueKey(target);
                         if (isServerOwnedMessageQueue()) {
@@ -716,11 +678,9 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                     clearQueue: (target) => {
                         const key = getMessageQueueKey(target);
                         set((state) => {
-                            // Clearing drops what is still queued, never a message
-                            // already handed to the server: that send will resolve
-                            // and must find its entry to remove or restore.
+                            // Managed Builds belong to the board; in-flight messages must settle.
                             const sending = state.sendingIds[key] ?? [];
-                            const retained = (state.queuedMessages[key] ?? []).filter((m) => sending.includes(m.id));
+                            const retained = (state.queuedMessages[key] ?? []).filter((m) => m.buildQueue || sending.includes(m.id));
                             if (retained.length > 0) {
                                 return { queuedMessages: { ...state.queuedMessages, [key]: retained } };
                             }

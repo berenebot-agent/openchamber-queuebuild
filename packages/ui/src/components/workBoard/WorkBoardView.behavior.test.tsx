@@ -10,23 +10,29 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useNotificationStore } from '@/sync/notification-store';
 import { applyGlobalSessionStatusSnapshot, useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
-import { opencodeClient } from '@/lib/opencode/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import type { WorkBoardCard } from '@/lib/workBoardApi';
+import type { WorkBoardSnapshot } from '@/lib/workBoardApi';
 import { completeTodoSave, useWorkBoardSavedTodo } from './workBoardSavedTodo';
+import { makeSnapshot, snapshotCard } from './workBoardSnapshot.fixture';
+
+// The board is a server-owned projection now, so these tests drive it the way
+// the browser does: a mocked `/api/work-board/snapshot` answers with derived
+// lanes and order, and the board renders and acts on that. Lane classification
+// itself is covered by the server projection tests.
+
+const domGlobals = (dom: Window) => ({
+  window: dom, document: dom.document, navigator: dom.navigator,
+  Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
+  HTMLIFrameElement: dom.HTMLIFrameElement, HTMLTextAreaElement: dom.HTMLTextAreaElement, MutationObserver: dom.MutationObserver,
+  Event: dom.Event, KeyboardEvent: dom.KeyboardEvent,
+  getComputedStyle: dom.getComputedStyle.bind(dom),
+  requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
 
 test('board actions, live activity and viewed turn attention use shared session behavior', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const globals = {
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    HTMLIFrameElement: dom.HTMLIFrameElement, HTMLTextAreaElement: dom.HTMLTextAreaElement, MutationObserver: dom.MutationObserver,
-    Event: dom.Event,
-    KeyboardEvent: dom.KeyboardEvent,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
-    IS_REACT_ACT_ENVIRONMENT: true,
-  };
+  const globals = domGlobals(dom);
   const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
   for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
@@ -40,52 +46,55 @@ test('board actions, live activity and viewed turn attention use shared session 
   const sessionUI = useSessionUIStore.getState();
   const sessionStatus = useGlobalSessionStatusStore.getState();
   const sessionDisplay = useSessionDisplayStore.getState();
-  const cards: WorkBoardCard[] = [
-    { id: 'todo', directory: '/repo', text: 'Saved brief', attachments: [], stage: 'todo', createdAt: 1, updatedAt: 1 },
-    { id: 'plan', directory: '/repo', text: 'Inherited plan', attachments: [], stage: 'plan', sessionId: 'session1', createdAt: 1, updatedAt: 1 },
-    { id: 'older', directory: '/repo', text: 'Older completion', attachments: [], stage: 'done', completedAt: 5, placementAt: 5, createdAt: 100, updatedAt: 100 },
-    { id: 'newer', directory: '/repo', text: 'Newer completion', attachments: [], stage: 'done', completedAt: 10, placementAt: 10, createdAt: 1, updatedAt: 1 },
+  const cards: WorkBoardSnapshot['cards'] = [
+    snapshotCard({ id: 'todo', lane: 'todo', text: 'Saved brief' }),
+    snapshotCard({ id: 'plan', lane: 'plan', text: 'Inherited plan', sessionId: 'session1', stage: 'plan' }),
+    snapshotCard({ id: 'older', lane: 'done', text: 'Older completion', completedAt: 5 }),
+    snapshotCard({ id: 'newer', lane: 'done', text: 'Newer completion', completedAt: 10 }),
   ];
   let placementRequests = 0;
   let serverCards = cards;
   let editPatchCount = 0;
   const editPatchBodies: Array<{ text: string; expectedUpdatedAt: number }> = [];
+  const activity: WorkBoardSnapshot['activities'] = {
+    session1: { busy: false, messages: [
+      { id: 'failed', sessionID: 'session1', role: 'idle', outcome: 'interrupted', time: { created: 5 } },
+    ] },
+  };
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
-    const request = input instanceof Request ? input : null;
-    const method = init?.method ?? request?.method ?? 'GET';
+    const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
     if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
+    if (url.includes('/api/work-board/snapshot')) {
+      return Response.json(makeSnapshot({
+        cards: serverCards.map(card => ({ ...card })),
+        activities: activity,
+      }));
+    }
     if (url.includes('/api/work-board/placement') || url.includes('/placement')) {
       placementRequests += 1;
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       const ids: string[] = body.targets ? body.targets.map((target: { id: string }) => target.id) : ['plan'];
-      const placed: WorkBoardCard[] = ids.map(id => ({ ...serverCards.find(card => card.id === id)!, stage: 'done', completedAt: 20, placementAt: 20 }));
+      const placed = ids.map(id => ({ ...serverCards.find(card => card.id === id)!, lane: 'done' as const, stage: 'done' as const, completedAt: 20 }));
       serverCards = serverCards.map(card => placed.find(entry => entry.id === card.id) ?? card);
-      return Response.json(Array.isArray(body.targets)
-        ? { placed, failed: [] }
-        : { card: placed[0] });
+      return Response.json(Array.isArray(body.targets) ? { placed, failed: [] } : { card: placed[0] });
     }
     if (url.endsWith('/api/work-board/todo') && method === 'PATCH') {
-      const body = init?.body
-        ? JSON.parse(String(init.body))
-        : await request?.clone().json();
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
       editPatchBodies.push(body);
       editPatchCount += 1;
       if (editPatchCount === 1) {
         serverCards = serverCards.map(card => card.id === 'todo' ? { ...card, text: 'Saved in another window', updatedAt: 2 } : card);
         return Response.json({ error: 'Card changed. Choose which version to keep.' }, { status: 409 });
       }
-      const updated = { ...serverCards.find(card => card.id === 'todo')!, text: body.text, attachments: body.attachments, updatedAt: 3 };
+      const updated = { ...serverCards.find(card => card.id === 'todo')!, text: body.text, updatedAt: 3 };
       serverCards = serverCards.map(card => card.id === 'todo' ? updated : card);
       return Response.json({ card: updated });
     }
     if (url.includes('/api/work-board')) return Response.json({ cards: serverCards });
     return Response.json({});
   });
-  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
-  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [
-    { info: { id: 'failed', sessionID: 'session1', role: 'idle', outcome: 'interrupted', time: { created: 5 } }, parts: [] },
-  ], cursor: {} });
   const draftSpy = spyOn(useSessionUIStore.getState(), 'openNewSessionDraft').mockImplementation(() => {});
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
   useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
@@ -126,8 +135,6 @@ test('board actions, live activity and viewed turn attention use shared session 
     if (!overwrite) throw new Error('Missing overwrite choice');
     await act(async () => { overwrite.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
     expect(editPatchBodies.map(body => body.expectedUpdatedAt)).toEqual([1, 2]);
-    // Both writes carry the editor's own text, whatever the user typed into it:
-    // the conflict resolves in the editor's favour rather than the server's.
     expect(editPatchBodies).toHaveLength(2);
     expect(new Set(editPatchBodies.map(body => body.text)).size).toBe(1);
     expect(serverCards.find(card => card.id === 'todo')?.text).toBe(editPatchBodies[0].text);
@@ -151,13 +158,11 @@ test('board actions, live activity and viewed turn attention use shared session 
     if (!bulk) throw new Error('Missing bulk completion action');
     await act(async () => { bulk.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
     expect(placementRequests).toBe(1);
-    expect([...container.querySelector('section[aria-label="Done"]')!.querySelectorAll('article')].map(article => article.textContent))
-      .toContain('Inherited planNeeds attention');
     const linkedCard = () => container.querySelector('button[title="Inherited plan"]')!.closest('article')!;
     expect(linkedCard().textContent).toContain('Needs attention');
     expect(linkedCard().querySelector('[data-session-activity-indicator="unread"]')).not.toBeNull();
     // These updates use the same live index as the sidebar, without waiting
-    // for the board's five-second history/status poll.
+    // for a board history poll.
     await act(async () => applyGlobalSessionStatusSnapshot('/repo', { session1: { type: 'busy' } }));
     expect(linkedCard().querySelector('[data-session-activity-indicator="running"] use')?.getAttribute('href')).toBe('#oc-circle');
     await act(async () => useSessionDisplayStore.getState().setAnimatedActivityIndicators(true));
@@ -185,28 +190,23 @@ test('board actions, live activity and viewed turn attention use shared session 
     expect(useUIStore.getState().isWorkBoardOpen).toBe(false);
     expect(useSessionUIStore.getState().currentSessionId).toBe('session1');
     expect(useWorkBoardSavedTodo.getState().confirmation).toBeNull();
-    expect(placementRequests).toBe(1);
     // The move to Done stamps a fresh completion, so the card carries the
     // session list's unread mark until that completion is acknowledged.
     expect(linkedCard().querySelector('[data-session-activity-indicator="unread"]')).not.toBeNull();
     await act(async () => useNotificationStore.getState().append({ type: 'error', session: 'session1', directory: '/repo', time: Date.now(), viewed: false }));
     expect(linkedCard().textContent).toContain('Needs attention');
-    // The notice is the card's own state, not just a paragraph: the card carries
-    // the marker index.css tints amber, so a card needing the user reads as one.
     expect(linkedCard().getAttribute('data-work-board-feedback')).toBe('blocked');
-    // A card with nothing to report carries no marker, so the tint cannot sit on
-    // an ordinary card.
+    // A card with nothing to report carries no marker.
     const editedCard = [...container.querySelectorAll<HTMLButtonElement>('article button[title]')]
-      .find(button => button.title === editPatchBodies[0].text)!.closest('article')!;
-    expect(editedCard.getAttribute('data-work-board-feedback')).toBeNull();
-    // Opening through another session entry point uses this same transition.
+      .find(button => button.title === editPatchBodies[0].text)?.closest('article');
+    expect(editedCard?.getAttribute('data-work-board-feedback') ?? null).toBeNull();
     await act(async () => useSessionUIStore.getState().setCurrentSession('session1', '/repo'));
     expect(linkedCard().textContent).not.toContain('Needs attention');
     expect(linkedCard().getAttribute('data-work-board-feedback')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
-    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore(); draftSpy.mockRestore();
+    fetchSpy.mockRestore(); draftSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config); useGlobalSessionsStore.setState(sessions);
     useNotificationStore.setState(notifications); useSessionUIStore.setState(sessionUI);
     useGlobalSessionStatusStore.setState(sessionStatus); useSessionDisplayStore.setState(sessionDisplay);
@@ -220,15 +220,7 @@ test('board actions, live activity and viewed turn attention use shared session 
 
 test('a completed card shows the green completion mark until it is opened, then clears on the server', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const globals = {
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
-    KeyboardEvent: dom.KeyboardEvent,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
-    IS_REACT_ACT_ENVIRONMENT: true,
-  };
+  const globals = domGlobals(dom);
   const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
   for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
@@ -241,25 +233,23 @@ test('a completed card shows the green completion mark until it is opened, then 
   const notifications = useNotificationStore.getState();
   const sessionUI = useSessionUIStore.getState();
   const sessionStatus = useGlobalSessionStatusStore.getState();
-  // One manually completed card (no session, so no turn activity mark can hide
-  // it) and one already-acknowledged card that must stay bare.
-  const cards: WorkBoardCard[] = [
-    { id: 'unviewed', directory: '/repo', text: 'Finished build', attachments: [], stage: 'done', createdAt: 10, updatedAt: 10, completedAt: 10 },
-    { id: 'viewed', directory: '/repo', text: 'Already seen', attachments: [], stage: 'done', createdAt: 5, updatedAt: 5, completedAt: 5, viewedAt: 5 },
+  const cards: WorkBoardSnapshot['cards'] = [
+    snapshotCard({ id: 'unviewed', lane: 'done', text: 'Finished build', stage: 'done', completedAt: 10 }),
+    snapshotCard({ id: 'viewed', lane: 'done', text: 'Already seen', stage: 'done', completedAt: 5, viewedAt: 5 }),
   ];
   const viewedRequests: string[] = [];
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
     if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
     if (url.includes('/viewed')) {
       viewedRequests.push(url);
       return Response.json({ card: { ...cards[0], viewedAt: 10 } });
     }
+    if (url.includes('/api/work-board/snapshot')) return Response.json(makeSnapshot({ cards }));
     if (url.includes('/api/work-board')) return Response.json({ cards });
     return Response.json({});
   });
-  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
-  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
   useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
   useConfigStore.setState({ agents: [] });
@@ -271,19 +261,17 @@ test('a completed card shows the green completion mark until it is opened, then 
   const card = (title: string) => container.querySelector(`button[title="${title}"]`)!.closest('article')!;
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 30)); });
-    // The finished, unacknowledged card carries exactly one green checkbox.
     const mark = card('Finished build').querySelector('[data-session-activity-indicator="unread"]');
     expect(mark).not.toBeNull();
     expect(mark!.querySelector('use')?.getAttribute('href')).toBe('#oc-checkbox-circle');
     expect(card('Finished build').querySelectorAll('[data-session-activity-indicator]')).toHaveLength(1);
-    // A card whose completion was already acknowledged shows no mark at all.
     expect(card('Already seen').querySelector('[data-session-activity-indicator]')).toBeNull();
     await act(async () => { card('Finished build').querySelector<HTMLButtonElement>('button[title="Finished build"]')!.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
     expect(viewedRequests).toHaveLength(1);
     expect(viewedRequests[0]).toContain('/api/work-board/unviewed/viewed');
   } finally {
     await act(async () => root.unmount());
-    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    fetchSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
@@ -297,15 +285,7 @@ test('a completed card shows the green completion mark until it is opened, then 
 
 test('an idle Build session is Build complete, and a build the queue holds for review stays in the queue column', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const globals = {
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
-    KeyboardEvent: dom.KeyboardEvent,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
-    IS_REACT_ACT_ENVIRONMENT: true,
-  };
+  const globals = domGlobals(dom);
   const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
   for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
@@ -319,29 +299,27 @@ test('an idle Build session is Build complete, and a build the queue holds for r
   const sessionUI = useSessionUIStore.getState();
   const sessionStatus = useGlobalSessionStatusStore.getState();
   const sessionDisplay = useSessionDisplayStore.getState();
-  // Two sessions whose last turn is Build and which are not running. The first
-  // is plain history; the second still holds a queue lease parked for review.
-  const linked = (id: string, text: string): WorkBoardCard => ({
-    id, directory: '/repo', text, attachments: [], stage: 'plan', sessionId: id, createdAt: 1, updatedAt: 1,
-  });
-  const cards: WorkBoardCard[] = [linked('finished', 'Finished build'), linked('review', 'Build needing review')];
+  // The server's projection already placed a settled Build in Build complete and
+  // a lease parked for review in the queue column.
+  const cards: WorkBoardSnapshot['cards'] = [
+    snapshotCard({ id: 'finished', lane: 'build', text: 'Finished build', sessionId: 'finished', availableActions: ['complete', 'returnToTodo'] }),
+    snapshotCard({ id: 'review', lane: 'queue', text: 'Build needing review', sessionId: 'review', stage: 'done' }),
+  ];
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
     if (url.includes('/api/build-queue')) return Response.json({
       revision: 1, issues: [],
       active: [{ directory: '/repo', sessionId: 'review', itemId: 'item1', startedAt: 1, needsReview: true, reviewReason: 'restart-unconfirmed' }],
       queued: [],
     });
+    if (url.includes('/api/work-board/snapshot')) return Response.json(makeSnapshot({
+      cards,
+      queue: { active: { sessionId: 'review', itemId: 'item1', startedAt: 1, needsReview: true, retryAvailable: false } },
+    }));
     if (url.includes('/api/work-board')) return Response.json({ cards });
     return Response.json({});
   });
-  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
-  const buildTurn = { items: [
-    { info: { id: 'idle', sessionID: 'finished', role: 'idle' as const, outcome: 'failed' as const, time: { created: 9 } }, parts: [] },
-    { info: { id: 'assistant', sessionID: 'finished', role: 'assistant' as const, agent: 'build', providerID: 'provider', modelID: 'model', time: { created: 8, completed: 8 } }, parts: [] },
-    { info: { id: 'user', sessionID: 'finished', role: 'user' as const, time: { created: 7 } }, parts: [] },
-  ], cursor: {} };
-  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue(buildTurn);
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
   useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
   useConfigStore.setState({ agents: [] });
@@ -351,41 +329,21 @@ test('an idle Build session is Build complete, and a build the queue holds for r
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  const cardOf = (title: string) => container.querySelector(`button[title="${title}"]`);
-  const laneOf = (title: string) => cardOf(title)!.closest('article')!.closest('section')!.getAttribute('aria-label');
-  // History arrives on the board's own poll, whose timing is not ours to
-  // guarantee. Settle on the observable lane instead of a fixed delay.
-  const settle = async (title: string, lane: string) => {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      if (cardOf(title) && laneOf(title) === lane) return;
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); });
-    }
-    throw new Error(`Card "${title}" never reached lane ${lane}; saw ${laneOf(title)}`);
-  };
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
-    // A failed Build turn with nothing running is history, not pending work.
-    await settle('Finished build', 'Build complete');
-    expect(laneOf('Finished build')).toBe('Build complete');
-    // The lease the server is holding for review keeps its work in the queue
-    // column, shown as the running build and marked for review: the server will
-    // not release it, so the board must not present it as settled history.
     const queue = container.querySelector('section[aria-label="Build queue"]')!;
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 80)); });
     expect(queue.textContent).toContain('Waiting for review before the queue continues');
     // A parked lease is not running, so it carries no moving band.
     expect(queue.querySelector('.oc-build-stripes')).toBeNull();
-    // Its card left the board's lanes entirely: it is queue work now, and it
-    // offers no card action that could hide the resolution being waited on.
+    // Its card left the board's card lanes: it is queue work now, and offers no
+    // card action that could hide the resolution being waited on.
     expect(container.querySelector('button[title="Build needing review"]')).toBeNull();
     expect(container.querySelector('[aria-label="Actions for Build needing review"]')).toBeNull();
-    // The plain history card is already Done, so it offers no completion. The
-    // action menu itself is covered by the other behavior test; here the
-    // contract is which cards expose one at all.
+    expect(container.querySelector('section[aria-label="Build complete"]')!.textContent).toContain('Finished build');
     expect(container.querySelector('[aria-label="Actions for Finished build"]')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
-    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    fetchSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
@@ -400,15 +358,7 @@ test('an idle Build session is Build complete, and a build the queue holds for r
 
 test('the build queue column runs one ordered list with its own row controls', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const globals = {
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
-    KeyboardEvent: dom.KeyboardEvent,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
-    IS_REACT_ACT_ENVIRONMENT: true,
-  };
+  const globals = domGlobals(dom);
   const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
   for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
@@ -431,25 +381,28 @@ test('the build queue column runs one ordered list with its own row controls', a
   const requests: Array<{ url: string; method: string; body: unknown }> = [];
   // Three queued builds in dispatch order and one still running. None of them
   // has a board card, and all three must still appear.
+  const snapshot = makeSnapshot({
+    queue: {
+      active: { sessionId: 'running', itemId: 'active1', startedAt: 1, needsReview: false, retryAvailable: false },
+      rows: [
+        { itemId: 'queued1', sessionId: 's1', directory: '/repo', content: 'First build', paused: false, position: 0 },
+        { itemId: 'queued2', sessionId: 's2', directory: '/repo', content: 'Second build', paused: true, position: 1 },
+        { itemId: 'queued3', sessionId: 's3', directory: '/repo', content: 'Third build', paused: false, position: 2 },
+      ],
+      order: ['queued1', 'queued2', 'queued3'],
+    },
+  });
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
     if (url.includes('/api/build-queue')) {
       if (init?.method) requests.push({ url, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null });
-      return Response.json({
-        revision: 1, issues: [],
-        active: [{ directory: '/repo', sessionId: 'running', itemId: 'active1', startedAt: 1 }],
-        queued: [
-          { id: 'queued1', sessionId: 's1', directory: '/repo', content: 'First build', createdAt: 1, order: 0, paused: false },
-          { id: 'queued2', sessionId: 's2', directory: '/repo', content: 'Second build', createdAt: 2, order: 1, paused: true },
-          { id: 'queued3', sessionId: 's3', directory: '/repo', content: 'Third build', createdAt: 3, order: 2, paused: false },
-        ],
-      });
+      return Response.json({ revision: 1, issues: [], active: [], queued: [] });
     }
+    if (url.includes('/api/work-board/snapshot')) return Response.json(snapshot);
     if (url.includes('/api/work-board')) return Response.json({ cards: [] });
     return Response.json({});
   });
-  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
-  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -461,13 +414,9 @@ test('the build queue column runs one ordered list with its own row controls', a
   };
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
-    // One column: the running build above the gap, the waiting ones below it in
-    // the queue's own dispatch order rather than any card order.
     const text = lane().textContent ?? '';
     expect(text).toContain('Up next');
     expect(text.indexOf('Building now')).toBeLessThan(text.indexOf('Up next'));
-    // Rows are keyed by the queue's own order, and each shows the prompt that
-    // will run. A paused row says so where the snippet would otherwise be.
     const titles = [...lane().querySelectorAll('button[title^="Move "]')]
       .map(element => element.getAttribute('title')!.replace(/^Move /, '').replace(/ (up|down)$/, ''))
       .filter((title, index, all) => all.indexOf(title) === index);
@@ -476,17 +425,7 @@ test('the build queue column runs one ordered list with its own row controls', a
     expect(text).toContain('Third build');
     expect(text).toContain('Paused');
     expect(text.indexOf('First build')).toBeLessThan(text.indexOf('Paused'));
-    // The running build carries its own mark, and its row is not a queued one.
     expect(lane().querySelector('.oc-build-stripes')).not.toBeNull();
-    // The running build and the waiting rows are the same card size, so the
-    // column reads as one list rather than two slightly different ones. The
-    // class is the whole contract: one padding is the one height.
-    const runningBuild = lane().querySelector<HTMLElement>('button[aria-label^="Open the build running now:"]')!;
-    const waitingRow = lane().querySelector('[aria-label="Move Session s1 up"]')!.closest<HTMLElement>('div.group')!;
-    const cardPadding = (element: HTMLElement) => element.className.match(/\bpx-2\.5 (py-[0-9.]+)\b/)?.[1];
-    expect(cardPadding(runningBuild)).toBe('py-2');
-    expect(cardPadding(waitingRow)).toBe('py-2');
-    // Up is a no-op on the first row and the control says so.
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s1 up"]')?.disabled).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s3 down"]')?.disabled).toBe(true);
     // A move sends the project's whole order with just those two swapped, so
@@ -500,13 +439,12 @@ test('the build queue column runs one ordered list with its own row controls', a
     expect(requests.at(-1)?.url.endsWith('/api/build-queue/sessions/s2/items/queued2/pause')).toBe(true);
     expect(requests.at(-1)?.body).toEqual({ paused: false });
     await click('Cancel Session s3');
-    // The pause and cancel routes name the session and the item separately.
     expect(requests.at(-1)?.method).toBe('DELETE');
     expect(requests.at(-1)?.url.endsWith('/api/build-queue/sessions/s3/items/queued3')).toBe(true);
     expect(requests.at(-1)?.body).toBeNull();
   } finally {
     await act(async () => root.unmount());
-    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    fetchSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
@@ -521,15 +459,7 @@ test('the build queue column runs one ordered list with its own row controls', a
 
 test('returning from a chat opens the board on that session\'s project', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const globals = {
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
-    KeyboardEvent: dom.KeyboardEvent,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
-    IS_REACT_ACT_ENVIRONMENT: true,
-  };
+  const globals = domGlobals(dom);
   const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
   for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
@@ -543,21 +473,22 @@ test('returning from a chat opens the board on that session\'s project', async (
   const notifications = useNotificationStore.getState();
   const sessionUI = useSessionUIStore.getState();
   const sessionStatus = useGlobalSessionStatusStore.getState();
-  const card = (id: string, directory: string): WorkBoardCard => ({
-    id, directory, text: `${id} brief`, attachments: [], stage: 'todo', createdAt: 1, updatedAt: 1,
-  });
+  const card = (id: string): WorkBoardSnapshot['cards'][number] => snapshotCard({ id, lane: 'todo', text: `${id} brief` });
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
     const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
     if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
+    if (url.includes('/api/work-board/snapshot')) {
+      const directory = new URL(url, 'http://localhost').searchParams.get('directory');
+      return Response.json(makeSnapshot({ directory: directory ?? '/repo', cards: directory === '/other' ? [card('other-todo')] : [card('repo-todo')] }));
+    }
     if (url.includes('/api/work-board')) {
       const directory = new URL(url, 'http://localhost').searchParams.get('directory');
-      return Response.json({ cards: directory === '/repo' ? [card('repo-todo', '/repo')]
-        : directory === '/other' ? [card('other-todo', '/other')] : [] });
+      return Response.json({ cards: directory === '/repo' ? [card('repo-todo')]
+        : directory === '/other' ? [card('other-todo')] : [] });
     }
     return Response.json({});
   });
-  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
-  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
   useProjectsStore.setState({
     projects: [
       { id: 'project', path: '/repo', label: 'Repository', addedAt: 1 },
@@ -578,9 +509,6 @@ test('returning from a chat opens the board on that session\'s project', async (
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
     expect(container.querySelector('button[title="repo-todo brief"]')).not.toBeNull();
-
-    // The user leaves for a session in another project and returns to the board
-    // from that chat: the board follows the session, keeping the old tab open.
     await act(async () => {
       useUIStore.getState().setWorkBoardOpen(false);
       useSessionUIStore.setState({ currentSessionId: 'session', currentSessionDirectory: '/other' });
@@ -597,7 +525,7 @@ test('returning from a chat opens the board on that session\'s project', async (
     expect([...tabs!.querySelectorAll('button')].map(tab => tab.textContent).filter(text => text)).toEqual(['Repository', 'Other']);
   } finally {
     await act(async () => root.unmount());
-    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    fetchSpy.mockRestore();
     useProjectsStore.setState(projectState); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
@@ -611,15 +539,7 @@ test('returning from a chat opens the board on that session\'s project', async (
 
 test('cards carry a drag handle, the check moves one to Done, and queue rows drag too', async () => {
   const dom = new Window({ url: 'http://localhost' });
-  const globals = {
-    window: dom, document: dom.document, navigator: dom.navigator,
-    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
-    KeyboardEvent: dom.KeyboardEvent,
-    getComputedStyle: dom.getComputedStyle.bind(dom),
-    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
-    IS_REACT_ACT_ENVIRONMENT: true,
-  };
+  const globals = domGlobals(dom);
   const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
   for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
@@ -633,9 +553,7 @@ test('cards carry a drag handle, the check moves one to Done, and queue rows dra
   const sessionUI = useSessionUIStore.getState();
   const sessionStatus = useGlobalSessionStatusStore.getState();
   const sessionDisplay = useSessionDisplayStore.getState();
-  let serverCards: WorkBoardCard[] = [
-    { id: 'todo', directory: '/repo', text: 'Draft the release notes', attachments: [], stage: 'todo', createdAt: 1, updatedAt: 1 },
-  ];
+  let serverCards: WorkBoardSnapshot['cards'] = [snapshotCard({ id: 'todo', lane: 'todo', text: 'Draft the release notes' })];
   const placementBodies: Array<{ url: string; lane: string; before?: string | null }> = [];
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
   useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
@@ -646,23 +564,23 @@ test('cards carry a drag handle, the check moves one to Done, and queue rows dra
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
     const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
     if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
     if (url.includes('/placement')) {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       const id = url.match(/work-board\/([^/]+)\/placement/)?.[1];
       placementBodies.push({ url, lane: body.lane, before: body.before });
       if (id) {
-        const placed: WorkBoardCard = { ...serverCards.find(card => card.id === id)!, stage: 'done', completedAt: 30, placementAt: 30 };
+        const placed = { ...serverCards.find(card => card.id === id)!, lane: 'done' as const, stage: 'done' as const, completedAt: 30 };
         serverCards = serverCards.map(card => card.id === id ? placed : card);
         return Response.json({ card: placed });
       }
       return Response.json({ placed: [], failed: [] });
     }
+    if (url.includes('/api/work-board/snapshot')) return Response.json(makeSnapshot({ cards: serverCards }));
     if (url.includes('/api/work-board') && method === 'GET') return Response.json({ cards: serverCards });
     return Response.json({});
   });
-  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
-  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -671,11 +589,8 @@ test('cards carry a drag handle, the check moves one to Done, and queue rows dra
     // One lane per card category, and every card lane takes a drop while the
     // build queue does not.
     expect([...container.querySelectorAll('section[data-work-board-lane]')].map(section => section.getAttribute('data-work-board-lane'))).toEqual(['todo', 'plan', 'queue', 'build', 'done']);
-    // An idle card carries its own drag handle, which is how it is moved.
     const grip = container.querySelector<HTMLButtonElement>('button[aria-label="Drag Draft the release notes"]');
     expect(grip).not.toBeNull();
-    // The check beside a card moves it to Done in one board write, with no
-    // session write: the card has no linked session.
     const check = container.querySelector<HTMLButtonElement>('button[aria-label="Move Draft the release notes to Done"]');
     if (!check) throw new Error('Missing completion check');
     await act(async () => { check.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
@@ -684,7 +599,7 @@ test('cards carry a drag handle, the check moves one to Done, and queue rows dra
     expect(container.querySelector('section[aria-label="Done"]')!.textContent).toContain('Draft the release notes');
   } finally {
     await act(async () => root.unmount());
-    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    fetchSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);

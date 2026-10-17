@@ -305,6 +305,9 @@ background shells do not hold delivery. This is a queue-specific exception to
 the own-session send status described in `../sync/DOCUMENTATION.md`.
 On web, desktop, and mobile the server delivers the queue independently of the
 UI. The store projects authoritative snapshots and revisioned session updates.
+`lib/messages/queueAdmission.ts` checks accepted prompt IDs after an ambiguous
+response, before those prompts reach OpenCode history. It rejects unreadable
+snapshots and responses from a superseded runtime.
 Scheduled queue items also retain their `scheduledTask` provenance. An inherited
 scheduled item has no pinned send config; ordinary items keep their captured
 provider and model. Both appear in the same queue. Scheduled items allow reorder
@@ -327,9 +330,8 @@ round-trips re-read instead of guessing. Empty legacy events without a directory
 clear all projections of their session in that runtime. Projection items carry
 attachment metadata only, so `popToInput()` and `takeForSend()` asynchronously
 remove the message on the server and retrieve its complete captured payload.
-`cancelBuild()` does the same through the removal route: it returns the
-cancelled build in full so the composer can restore the typed prompt as a draft,
-which is what the in-session build banner does on Cancel.
+Clearing the per-session message queue retains managed Build items. The Work
+Board owns their cancellation and the compact chat indicator only opens it.
 
 `lib/messages/queuedMessagePreview.ts` derives the queue row from typed text,
 then attached comments/context, then the first filename. The store sends a

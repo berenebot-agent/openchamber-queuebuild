@@ -4,6 +4,11 @@ One directory per Settings page. `shared/` holds the page chrome and controls
 every page is built from; see `.agents/skills/settings-ui-patterns/SKILL.md` for
 which primitive to reach for.
 
+The Chat page includes `openchamber/BuildQueueSettings.tsx`, the instance-wide
+Git policy for project Build queues. It preserves the legacy clean-Git fallback
+and never opts existing users into automatic commits. Queue enablement and job
+controls remain on the Work Board. VS Code-only hides this server-owned policy.
+
 ## Autosave on the OpenCode configuration pages
 
 `agents/`, `commands/`, `skills/`, `mcp/`, `plugins/` and `behavior/` edit files

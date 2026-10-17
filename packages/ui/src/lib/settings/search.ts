@@ -32,6 +32,14 @@ interface SettingsSearchAvailabilityContext extends SettingsRuntimeContext {
 
 const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
+    id: 'chat.build-queue-policy',
+    page: 'chat',
+    titleKey: 'settings.openchamber.buildQueue.policy.title',
+    descriptionKey: 'settings.openchamber.buildQueue.policy.scope',
+    keywords: ['build', 'queue', 'git', 'commit', 'staged', 'pause'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'chat.activity-default',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.section.activityDefault',

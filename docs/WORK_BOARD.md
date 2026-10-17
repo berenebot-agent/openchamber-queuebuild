@@ -1,7 +1,7 @@
 # Work board
 
-The work board groups project work into To-do, Plan, Build queue, and Done.
-The existing Build queue panel remains available while a session is open.
+The work board groups project work into To-do, Plan, Build queue, Build complete,
+and Done, and is the one surface a project's Build queue is managed from.
 Open it from the **Work board** button in the session sidebar header. Project
 tabs across the board header switch between project boards. Choose **+** beside
 the tabs to add another project tab, or close a tab to hide it from the board.
@@ -29,7 +29,7 @@ below it in the order the queue will dispatch them. That running build is the
 only card on the board that carries a moving diagonal band, so work in progress
 reads apart from work that is merely waiting. A build the server has parked for
 review keeps its error treatment instead, because it is not running.
-Hovering a waiting row reaches the same controls the Build queue panel offers:
+Hovering a waiting row reaches the queue's own controls:
 move up, move down, pause or resume, and cancel. Each one writes to the queue and
 the column redraws from the refreshed snapshot.
 The column lists every queued build for the project, including one the board has
@@ -57,13 +57,15 @@ that gains a queue entry uses that entry's row without a duplicate live card.
 The column count includes the running lease, waiting entries, and these live
 builds. Project-tab badges continue to count server-managed queue work only.
 
-A waiting build can be forced to start now, outside the queue. Its row in the
-Build queue pane and on the board carries a **Force** control that confirms
+A waiting build can be forced to start now, outside the queue. Its row on the
+board carries a **Force** control that confirms
 first, because the build starts in parallel with whatever the project is already
 running. A forced build is not part of the queue: it takes no lease, waits for no
 project order, skips the Git policy, and the queue does not wait for it. It
 leaves the queue and appears above the waiting rows marked **Outside queue**
-while it runs, then settles like any other finished build.
+while it runs, then settles like any other finished build. If its prompt cannot
+be confirmed, the row says so and offers to resolve the uncertainty rather than
+reading as running; that state survives a server restart.
 
 While the board is open it owns the top of the window: the header shows
 **Work board** with a back button, instead of the last opened session's title.

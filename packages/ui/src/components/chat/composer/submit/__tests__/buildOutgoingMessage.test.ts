@@ -109,6 +109,15 @@ describe('manual queue projection', () => {
         expect(buildOutgoingMessage(input({ queued: projection }), deps()).isEmpty).toBe(true);
     });
 
+    test('managed Builds cannot supply content or selection to the ordinary composer queue', () => {
+        const build: QueuedMessage = { ...ordinary, id: 'build', text: 'Build later', buildQueue: true,
+            sendConfig: { providerID: 'other', modelID: 'other', agent: 'build' } };
+        expect(selectComposerQueue([build, ordinary])).toEqual([ordinary]);
+        const projection = selectComposerQueue([build]);
+        expect(projection).toEqual([]);
+        expect(buildOutgoingMessage(input({ queued: projection }), deps()).isEmpty).toBe(true);
+    });
+
     test('ordinary queues keep their original items, order and identity', () => {
         const queue = [ordinary, { ...ordinary, id: 'second' }];
         expect(selectComposerQueue(queue)).toBe(queue);

@@ -316,7 +316,7 @@ export async function routeMessage(params: {
     context: contextItems,
     leadingContext: params.sessionKnowledge?.then((text) => (text ? { text } : null)),
     appendSubmissions: params.appendSubmissions,
-    send: (messageID, context) => opencodeClient.sendMessage({
+    send: (messageID, context, onQueued) => opencodeClient.sendMessage({
       runtimeKey: params.runtimeKey,
       id: params.sessionId,
       providerID: params.providerID,
@@ -328,6 +328,7 @@ export async function routeMessage(params: {
       context: context.length > 0 ? context : undefined,
       delivery: params.delivery,
       messageId: messageID,
+      onQueued,
       directory: requestDirectory,
       skills,
     }).then(() => {}),

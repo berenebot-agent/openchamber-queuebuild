@@ -42,32 +42,17 @@ working or staged diff.
 `WalkthroughView` gates discovery and source loading while retaining generated
 results and any explicitly started generation job.
 
-## Build queue pane
+## Build queue
 
-`BuildQueueView` owns the instance-wide "Queue behavior" selector above the
-active and waiting builds, even when the queue is empty. It replaces the Chat
-settings checkbox. The pane explains the policy's scope and shows a visible
-warning that automatic commit mode writes all project changes without
-confirmation, initializes Git if needed and can include tracked secrets.
-
-The pane reads one project's queue, chosen by `useBuildQueueDirectory`: the work
-board's active project tab while that tab names a loaded project, else the
-chat's effective directory. A board tab switch changes neither the chat session
-nor the app directory, so without this the pane kept showing whichever project
-the chat was on while the board showed another.
-
-The UI store and settings registry persist the selector. The server remains
-authoritative for preparation, failures and dispatch. Queue snapshots project
-preparation phases and the last successful automatic commit. "Retry preparation"
-retries a Git/model preparation failure; uncertain build dispatch keeps its
-existing review confirmation. Web, Electron, hosted mobile and Capacitor use
-the server queue. VS Code does not offer this queue.
-
-A waiting row also offers a **Force** control. It confirms first, then asks the
-server to start that build now, outside the lease and the Git policy. A forced
-build leaves the queue and appears in its own **Outside queue** block above the
-waiting rows, marked active, until its session's turn finishes. The work board's
-Build queue column shows the same builds with an **Outside queue** label.
+The project build queue's own surface is the work board's Build queue column
+(`components/workBoard/DOCUMENTATION.md`); there is no right-sidebar pane. The
+in-session `BuildQueueBanner` is a compact indicator above the composer: it reads
+the same server snapshot (`useBuildQueueSnapshot`, broadcast-driven with a 3 s
+safety poll), shows this project's queued/active state, cancels a waiting build
+back into the composer, and otherwise opens the work board on this session's
+project through `rememberWorkBoardReturn`, the same navigation as the "Back to
+Work Board" button. It holds no per-directory preference: a build is in the
+indicator only because the server queue already holds it.
 
 Build-queue membership belongs to the session's own agent, not to the composer's
 selection: the composer's agent is global fallback state, so gating on it put
@@ -75,19 +60,11 @@ Plan sessions on the default Build agent into the project queue. `pendingBuilds`
 and every dispatch, pause, cancel and reorder decision test the same
 `isBuildItem` predicate, so an item flagged before that gate existed is handled
 as an ordinary queued message — it stays persisted and takeable, but never
-surfaces, prepares, or holds the queue. Titles in the pane come from a
-subscribed session list, so a poll that arrives before its session materializes
-does not leave rows labelled "Session ses_...".
+surfaces, prepares, or holds the queue.
 
-The work board's Build queue column is a second surface on this same queue, not
-a copy of it: `WorkBoardView` renders the acting build above a gap and the
-waiting builds below it, and its hover controls write the pane's own routes. The
-column lists every queued build for the project, including one the board has no
-card, and a move sends the queue's full project order so entries the board
-cannot see are never dropped. The running build carries the only moving band on
-the board (`oc-build-stripes`, hue from `status.info`, still under reduced
-motion); a lease parked for review keeps its error treatment instead. Recovery
-controls for a review lease stay in the pane's paused banner.
+Queue behavior (`buildQueueGitPolicy`) is a Settings control; the server remains
+authoritative for preparation, failures and dispatch. Web, Electron, hosted
+mobile and Capacitor use the server queue. VS Code does not offer it.
 
 The board's cards have two sizes and the size carries the state: the running
 build, the waiting rows, a running plan turn and any card showing a notice share

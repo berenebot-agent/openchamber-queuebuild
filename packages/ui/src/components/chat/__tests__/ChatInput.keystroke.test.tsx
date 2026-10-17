@@ -592,13 +592,10 @@ test('a board update failure after sending offers a board-only retry without res
   } finally { failBoardWrite = false; send.mockRestore(); }
 });
 
-test('switching a Plan conversion to Build retains it through failed queueing and consumes it when accepted', async () => {
+test('switching a Plan conversion to Build retains it through failed admission and consumes it when accepted', async () => {
   await prepareSavedTodo();
-  const { useMessageQueueStore } = await import('@/stores/messageQueueStore');
-  const { useBuildQueuePreferences } = await import('@/stores/buildQueuePreferences');
   const { useSelectionStore } = await import('@/sync/selection-store');
-  const queue = spyOn(useMessageQueueStore.getState(), 'addToQueue').mockRejectedValueOnce(new Error('Queue unavailable'));
-  useBuildQueuePreferences.getState().setEnabled('/workspace', true);
+  const send = spyOn(useSessionUIStore.getState(), 'sendMessage').mockRejectedValueOnce(new Error('Queue unavailable'));
   try {
     await measureTyping('session', async (container, view) => {
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Plan')!.click());
@@ -607,18 +604,18 @@ test('switching a Plan conversion to Build retains it through failed queueing an
         useSelectionStore.getState().saveSessionAgentSelection('ses_typing', 'build');
       });
       await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click());
-      expect(queue.mock.calls).toHaveLength(1);
+      expect(send.mock.calls).toHaveLength(1);
       expect(savedCards[0]?.stage).toBe('todo');
       expect(view.state.doc.toString()).toContain('Saved brief');
       expect(patches).toEqual([]);
-      queue.mockResolvedValue(undefined);
+      send.mockResolvedValue(undefined);
       await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click());
-      expect(queue.mock.calls).toHaveLength(2);
+      expect(send.mock.calls).toHaveLength(2);
       expect(savedCards[0]?.stage).toBe('plan');
       expect(view.state.doc.toString()).toBe('');
       savedCards = [];
     });
-  } finally { useBuildQueuePreferences.getState().setEnabled('/workspace', false); queue.mockRestore(); }
+  } finally { send.mockRestore(); }
 });
 
 test('an accepted conversion still updates its original card after switching sessions', async () => {

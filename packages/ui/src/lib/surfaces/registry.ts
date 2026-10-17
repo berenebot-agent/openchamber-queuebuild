@@ -16,8 +16,7 @@ type BuiltInContextSurfaceId =
   | 'notes'
   | 'context'
   | 'browser'
-  | 'chat'
-  | 'build-queue';
+  | 'chat';
 
 export type ContextSurfaceId = BuiltInContextSurfaceId | `plugin:${string}`;
 
@@ -136,17 +135,6 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     availability: 'always',
   },
   {
-    id: 'build-queue',
-    descriptionKey: 'contextRail.surface.plan.description',
-    description: 'Run one Build session at a time per project',
-    defaultWidth: 540,
-    mode: 'build-queue',
-    icon: 'route',
-    label: 'Build queue',
-    labelKey: 'contextPanel.mode.context',
-    availability: 'always',
-  },
-  {
     id: 'browser',
     descriptionKey: 'contextRail.surface.browser.description',
     defaultWidth: 540,
@@ -248,7 +236,6 @@ export const getVisibleContextRailSurfaces = (options: VisibleRailSurfacesOption
     if (options.hiddenSurfaces?.includes(surface.id)) {
       return false;
     }
-    if (surface.id === 'build-queue' && options.isVSCode) return false;
     if (isPluginContextPanelMode(surface.mode) && options.isVSCode) {
       return false;
     }

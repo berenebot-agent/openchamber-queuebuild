@@ -20,8 +20,9 @@ type CardChanges = {
 type BoardWrite = CardChanges | { directory: string; text: string; attachments: WorkBoardAttachment[]; sessionDirectory?: string };
 type PlacementTarget = { id: string; updatedAt: number; text: string; sessionId?: string };
 type PlacementLane = 'todo' | 'plan' | 'build' | 'done';
-type PlacementWrite = { lane: PlacementLane; at: number; before?: string | null }
-  | { directory: string; lane: PlacementLane; at: number; targets: PlacementTarget[] };
+type PlacementWrite = { lane: PlacementLane; expectedUpdatedAt?: number; before?: string | null }
+  | { directory: string; lane: PlacementLane; targets: PlacementTarget[] };
+type QueueSettingsWrite = { directory: string; enabled: boolean };
 
 export class WorkBoardRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -30,7 +31,7 @@ export class WorkBoardRequestError extends Error {
   }
 }
 
-async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite) {
+async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite | QueueSettingsWrite) {
   const runtime = getRuntimeKey();
   const response = await runtimeFetch(path, {
     method,
@@ -47,22 +48,20 @@ async function request(path: string, method = 'GET', body?: BoardWrite | Placeme
   return value;
 }
 /**
- * Put a card where the user dropped it or checked it off. `at` is the moment of
- * the drag: the server stores it as the boundary later activity has to pass.
- * `before` names the card it now sits in front of, which is how one lane's
- * order travels; null places it at the end.
+ * Put a card where the user dropped it or checked it off. The server stamps the
+ * placement with its own clock, so two devices order by one source; the card's
+ * version travels with the write so a card another device changed is a 409, not
+ * an overwrite. `before` names the card it now sits in front of, which is how
+ * one lane's order travels; null places it at the end.
  */
-export async function placeWorkBoardCard(card: Pick<WorkBoardCard, 'id' | 'directory' | 'text' | 'sessionId'>, lane: PlacementLane, at: number, before: string | null): Promise<WorkBoardCard> {
+export async function placeWorkBoardCard(card: Pick<WorkBoardCard, 'id' | 'directory' | 'text' | 'sessionId' | 'updatedAt'>, lane: PlacementLane, before: string | null): Promise<WorkBoardCard> {
   return z.object({ card: cardSchema })
     .parse(await request(`/api/work-board/${encodeURIComponent(card.id)}/placement`, 'POST',
-      { lane, at, before, directory: card.directory, sessionId: card.sessionId, text: card.text })).card;
+      { lane, expectedUpdatedAt: card.updatedAt, before, directory: card.directory, sessionId: card.sessionId, text: card.text })).card;
 }
-export async function placeWorkBoardCards(directory: string, lane: PlacementLane, at: number, targets: PlacementTarget[]) {
+export async function placeWorkBoardCards(directory: string, lane: PlacementLane, targets: PlacementTarget[]) {
   return z.object({ placed: z.array(cardSchema), failed: z.array(z.object({ id: z.string(), error: z.string() })) })
-    .parse(await request('/api/work-board/placement', 'POST', { directory, lane, at, targets }));
-}
-export async function fetchWorkBoard(directory: string): Promise<WorkBoardCard[]> {
-  return z.object({ cards: z.array(cardSchema) }).parse(await request(`/api/work-board?directory=${encodeURIComponent(directory)}`)).cards;
+    .parse(await request('/api/work-board/placement', 'POST', { directory, lane, targets }));
 }
 export async function fetchSessionWorkBoardCards(sessionId: string): Promise<WorkBoardCard[]> {
   return z.object({ cards: z.array(cardSchema) }).parse(await request(`/api/work-board?sessionId=${encodeURIComponent(sessionId)}`)).cards;
@@ -82,4 +81,93 @@ export async function deleteWorkBoardCard(id: string): Promise<void> {
 /** Acknowledge a completed card the user opened, so every client shares it. */
 export async function markWorkBoardCardViewed(id: string): Promise<WorkBoardCard> {
   return z.object({ card: cardSchema }).parse(await request(`/api/work-board/${encodeURIComponent(id)}/viewed`, 'POST')).card;
+}
+
+/**
+ * The board's server-owned projection: effective lanes, order, queue state and
+ * live activity, derived once per directory by the server. The client renders
+ * this directly instead of classifying history itself, so two tabs agree and a
+ * settled lane needs no client poll.
+ */
+const snapshotCardSchema = cardSchema.extend({
+  lane: z.enum(['todo', 'plan', 'queue', 'build', 'done']),
+  // A linked card's session status: known, unavailable (a read failed), unknown
+  // (not read yet), or none (no session).
+  status: z.enum(['known', 'unavailable', 'unknown', 'none']),
+  // What the user can do with this card, decided by the server once.
+  availableActions: z.array(z.enum(['complete', 'acknowledge', 'startPlan', 'returnToTodo', 'remove'])),
+});
+/**
+ * One history record the board's lane and feedback rules read. The server sends
+ * only these fields, not the whole transcript, so the client cannot depend on
+ * more than the board decides with. v2 wire records use `type`; the server maps
+ * it to `role` here.
+ */
+const activityMessageSchema = z.object({
+  id: z.string(), sessionID: z.string(),
+  role: z.enum(['user', 'idle', 'assistant']),
+  time: z.object({ created: z.number() }),
+  outcome: z.string().optional(),
+  agent: z.string().optional(),
+});
+const queueStateSchema = z.object({
+  known: z.boolean(),
+  // The project's queue enablement, independent of whether the queue could be
+  // read: the toggle shows the saved choice either way.
+  enabled: z.boolean().nullable(),
+  rows: z.array(z.object({
+    itemId: z.string(), sessionId: z.string(), directory: z.string(), content: z.string(), paused: z.boolean(), position: z.number(),
+  })),
+  order: z.array(z.string()),
+  active: z.object({
+    sessionId: z.string(), itemId: z.string(), startedAt: z.number(),
+    needsReview: z.boolean(), retryAvailable: z.boolean(),
+  }).nullable(),
+  forced: z.array(z.object({
+    sessionId: z.string(), startedAt: z.number(),
+    // A forced build that may not have started carries its target item and the
+    // recovery the runtime offers; a plain forced build carries nulls.
+    itemId: z.string().nullable(), needsReview: z.boolean(), action: z.string().nullable(),
+  })),
+  issue: z.string().nullable(),
+  preparation: z.object({ directory: z.string(), phase: z.string() }).nullable(),
+  commit: z.object({ directory: z.string(), hash: z.string(), subject: z.string() }).nullable(),
+});
+const snapshotSchema = z.object({
+  directory: z.string(),
+  revision: z.number(),
+  lanes: z.record(z.string(), z.enum(['todo', 'plan', 'queue', 'build', 'done'])),
+  order: z.record(z.string(), z.array(z.string())),
+  cards: z.array(snapshotCardSchema),
+  placements: z.record(z.string(), z.object({
+    lane: z.enum(['todo', 'plan', 'queue', 'build', 'done']), completedAt: z.number(),
+    updatedAt: z.number(), sessionId: z.string().optional(),
+  })),
+  activities: z.record(z.string(), z.object({ busy: z.boolean(), messages: z.array(activityMessageSchema) })),
+  unavailable: z.array(z.string()),
+  // False when the session list could not be read and no earlier read stands:
+  // the board then cannot promise it has every inherited card.
+  inheritedAvailable: z.boolean(),
+  queue: queueStateSchema,
+});
+export type WorkBoardSnapshot = z.infer<typeof snapshotSchema>;
+export type WorkBoardSnapshotCard = z.infer<typeof snapshotCardSchema>;
+export type WorkBoardActivityMessage = z.infer<typeof activityMessageSchema>;
+
+/**
+ * Read the board projection. A failure throws, so the caller keeps the board it
+ * already had rather than replacing it with an empty one.
+ */
+export async function fetchWorkBoardSnapshot(directory: string, includeOlder = false): Promise<WorkBoardSnapshot> {
+  return snapshotSchema.parse(await request(`/api/work-board/snapshot?directory=${encodeURIComponent(directory)}&includeOlder=${includeOlder ? 'true' : 'false'}`));
+}
+
+/**
+ * Set the project's queue enablement. Default enabled: a project with no saved
+ * setting queues Build prompts, and only an explicit off turns it off. The
+ * saved value comes back so the board can settle its optimistic switch.
+ */
+export async function updateQueueSettings(directory: string, enabled: boolean): Promise<boolean> {
+  const body = z.object({ enabled: z.boolean() }).parse(await request('/api/build-queue/settings', 'PUT', { directory, enabled }));
+  return body.enabled;
 }

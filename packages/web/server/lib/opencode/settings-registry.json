@@ -865,6 +865,18 @@
       "scope": "device",
       "local": true
     },
+    "workBoardProjectTabsByRuntime": {
+      "scope": "device",
+      "local": true
+    },
+    "workBoardOlderSessions": {
+      "scope": "device",
+      "local": true
+    },
+    "workBoardProjectId": {
+      "scope": "device",
+      "local": true
+    },
     "desktopSplashColors": {
       "scope": "instance",
       "owner": "desktop-shell",

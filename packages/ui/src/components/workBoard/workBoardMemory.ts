@@ -1,5 +1,4 @@
-import type { WorkBoardCard } from '@/lib/workBoardApi';
-import type { Message } from '@/lib/opencode/model';
+import type { WorkBoardCard, WorkBoardActivityMessage } from '@/lib/workBoardApi';
 import type { WorkBoardActivity, WorkBoardLane } from './workBoardWorkflow';
 
 export type BoardSnapshot = {
@@ -11,16 +10,14 @@ export type BoardSnapshot = {
 
 // These are the only history records read by board lane, ordering and feedback
 // rules. Drop transcript context, token usage, errors and tool payload metadata.
-function summarizeHistory(messages: Message[]): Message[] {
-  const kept = new Map<string, Message>();
+function summarizeHistory(messages: WorkBoardActivityMessage[]): WorkBoardActivityMessage[] {
+  const kept = new Map<string, WorkBoardActivityMessage>();
   for (const message of [...messages].reverse()) {
     if (kept.has(message.role)) continue;
     const base = { id: message.id, sessionID: message.sessionID, time: { created: message.time.created } };
     if (message.role === 'user') kept.set(message.role, { ...base, role: 'user' });
     if (message.role === 'idle') kept.set(message.role, { ...base, role: 'idle', outcome: message.outcome });
-    if (message.role === 'assistant') kept.set(message.role, {
-      ...base, role: 'assistant', agent: message.agent, providerID: message.providerID, modelID: message.modelID,
-    });
+    if (message.role === 'assistant') kept.set(message.role, { ...base, role: 'assistant', agent: message.agent });
   }
   return [...kept.values()].reverse();
 }

@@ -6,9 +6,6 @@ import type { SessionWorktreeAttachment } from '@/stores/types/sessionTypes';
 import { useSessionDirectory } from '@/sync/sync-context';
 import { getAllSyncSessionMap } from '@/sync/sync-refs';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useUIStore } from '@/stores/useUIStore';
-import { getRuntimeKey } from '@/lib/runtime-switch';
 import { getChatsRoot } from '@/lib/chatDirectories';
 import { useChatsRoot } from '@/hooks/useChatsRoot';
 
@@ -127,24 +124,3 @@ export const resolveEffectiveDirectory = (): string | undefined => {
     });
 };
 
-/**
- * The directory the Build queue pane reads its project from.
- *
- * The pane and the work board are two surfaces on one queue, so a project
- * tab switch on the board must move the pane with it. The board owns its
- * selection (`workBoardProjectTabsByRuntime` for this runtime), and switching
- * tabs changes neither the chat session nor the app directory the pane would
- * otherwise follow. Prefer the board's active project while it still names a
- * loaded project; otherwise fall back to the chat's effective directory, which
- * keeps the pane working when no board has been visited.
- */
-export const useBuildQueueDirectory = (): string | undefined => {
-    const chatDirectory = useEffectiveDirectory();
-    // Both stores are subscribed, not read imperatively: the project list loads
-    // after the persisted tab id, so the board's path appears on the frame the
-    // project arrives rather than on the next unrelated render.
-    const activeProjectId = useUIStore((state) => state.workBoardProjectTabsByRuntime[getRuntimeKey()]?.activeProjectId ?? null);
-    const boardDirectory = useProjectsStore((state) =>
-        state.projects.find((project) => project.id === activeProjectId)?.path || undefined);
-    return boardDirectory ?? chatDirectory;
-};

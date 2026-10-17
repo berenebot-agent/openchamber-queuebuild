@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { MAX_PAYLOAD_BYTES } from './store.js';
 
-export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, messageQueueRuntime }) {
+export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, messageQueueRuntime, workBoardProjection }) {
   const json = express.json({ limit: MAX_PAYLOAD_BYTES });
   const failure = (res, error) => res.status(error?.status || (error instanceof z.ZodError ? 400 : 500)).json({ error: error?.message || 'Work board request failed' });
   const resolveDirectory = async (req, directory) => {
@@ -18,6 +18,17 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
       const query = z.object({ directory: z.string().trim().min(1).optional(), sessionId: z.string().trim().min(1).optional() }).parse(req.query);
       const directory = query.directory ? await resolveDirectory(req, query.directory) : undefined;
       return res.json({ cards: await store.list(directory, query.sessionId) });
+    } catch (error) { return failure(res, error); }
+  });
+  // The board as one server-owned projection: effective lanes, order, queue
+  // status and live activity, derived once in the server process. A failure here
+  // is a real failure, not an empty board: the client keeps what it had.
+  app.get('/api/work-board/snapshot', async (req, res) => {
+    try {
+      const query = z.object({ directory: z.string().trim().min(1), includeOlder: z.enum(['true', 'false']).optional() }).parse(req.query);
+      if (!workBoardProjection) throw Object.assign(new Error('Work board snapshot is unavailable'), { status: 503 });
+      const directory = await resolveDirectory(req, query.directory);
+      return res.json(await workBoardProjection.snapshot(directory, { includeOlder: query.includeOlder === 'true' }));
     } catch (error) { return failure(res, error); }
   });
   app.post('/api/work-board', json, async (req, res) => {
@@ -54,7 +65,8 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
   // of; null puts it at the end of the lane.
   app.post('/api/work-board/:id/placement', json, async (req, res) => {
     try {
-      const body = z.object({ lane: z.enum(['todo', 'plan', 'build', 'done']), at: z.number().finite(),
+      const body = z.object({ lane: z.enum(['todo', 'plan', 'build', 'done']),
+        expectedUpdatedAt: z.number().finite().optional(),
         before: z.string().min(1).nullable().optional(), directory: z.string().trim().min(1).optional(),
         sessionId: z.string().trim().min(1).optional(), text: z.string().optional() }).parse(req.body);
       // A card the board derives from a session has no stored record yet; its
@@ -71,7 +83,7 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
   app.post('/api/work-board/placement', json, async (req, res) => {
     try {
       const body = z.object({ directory: z.string().trim().min(1), lane: z.enum(['todo', 'plan', 'build', 'done']),
-        at: z.number().finite(), targets: z.array(z.object({
+        targets: z.array(z.object({
           id: z.string().min(1), updatedAt: z.number().finite(), text: z.string(),
           sessionId: z.string().trim().min(1).optional(),
         })).min(1).max(1000) }).parse(req.body);
@@ -86,11 +98,11 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
             && ![...stored.values()].some(card => card.sessionId === target.sessionId))) {
             throw Object.assign(new Error('Card changed. Refresh the board before moving it.'), { status: 409 });
           }
-          if (current && current.updatedAt !== target.updatedAt) {
-            throw Object.assign(new Error('Card changed. Refresh the board before moving it.'), { status: 409 });
-          }
-          placed.push(await store.placement(target.id, { lane: body.lane, at: body.at, directory,
-            sessionId: target.sessionId, text: target.text }));
+          // The version check runs inside the store's serialized write against
+          // the card's current version, so a change made between this read and
+          // the write is a 409, not an overwrite.
+          placed.push(await store.placement(target.id, { lane: body.lane, directory,
+            sessionId: target.sessionId, text: target.text, expectedUpdatedAt: target.updatedAt }));
         } catch (error) { failed.push({ id: target.id, error: error.message }); }
       }
       return res.json({ placed, failed });

@@ -156,9 +156,30 @@ export const parseQueuedItemInput = (value) => {
   const projectId = asNonEmptyString(provenance?.projectId);
   const taskId = asNonEmptyString(provenance?.taskId);
   if (provenance && (!projectId || !taskId)) throw new TypeError('invalid scheduledTask provenance');
-  if (!sendConfig && !provenance) throw new TypeError('item sendConfig with providerID and modelID is required');
+  // An admitted prompt keeps the session's own model and agent: its selection is
+  // already on the session, and the client never sent one with the prompt.
+  const admitted = asRecord(raw.admission) !== null || (asList(raw.acceptedPrompts) ?? []).length > 0;
+  if (!sendConfig && !provenance && !admitted) throw new TypeError('item sendConfig with providerID and modelID is required');
   const item = { content, text };
   if (raw.buildQueue === true) item.buildQueue = true;
+  // The id the client's own prompt carried. Kept so the accepted prompt can be
+  // recognised if the client replays it, and so the queue can answer for the
+  // turn it is holding rather than starting a second one.
+  const messageId = asNonEmptyString(raw.messageId);
+  if (messageId) item.messageId = messageId;
+  if (asRecord(raw.admission)) item.admission = raw.admission;
+  // The admissions this item still owes: a prompt the server accepted from the
+  // wire, and every further prompt merged into the same lane slot.
+  const acceptedPrompts = (asList(raw.acceptedPrompts) ?? []).map((entry) => {
+    const record = asRecord(entry);
+    const admission = asRecord(record?.admission);
+    if (!admission) return null;
+    const entryId = asNonEmptyString(record.messageId);
+    return entryId ? { messageId: entryId, admission } : { admission };
+  });
+  if (acceptedPrompts.some((entry) => entry === null)) throw new TypeError('invalid acceptedPrompts entry');
+  if (acceptedPrompts.length > 0) item.acceptedPrompts = acceptedPrompts;
+  else if (item.admission) item.acceptedPrompts = [messageId ? { messageId, admission: item.admission } : { admission: item.admission }];
   const agentMention = asNonEmptyString(raw.agentMention);
   if (agentMention) item.agentMention = agentMention;
   item.attachments = attachments;
@@ -201,6 +222,12 @@ const toPublicAttachment = ({ dataUrl: _dataUrl, ...attachment }) => attachment;
 // otherwise ride every broadcast. A take hands the full item back.
 const toPublicItem = (item) => {
   const publicItem = { id: item.id, createdAt: item.createdAt, content: item.content, text: item.text };
+  if (item.messageId) publicItem.messageId = item.messageId;
+  // Every wire id this slot accepted, so a client that was told each of them
+  // was queued can confirm any of them after a lost response.
+  const messageIds = (item.acceptedPrompts ?? []).map((entry) => asNonEmptyString(entry?.messageId)).filter(Boolean);
+  if (item.messageId && !messageIds.includes(item.messageId)) messageIds.unshift(item.messageId);
+  if (messageIds.length > 0) publicItem.messageIds = messageIds;
   if (item.agentMention) publicItem.agentMention = item.agentMention;
   publicItem.attachments = item.attachments.map(toPublicAttachment);
   // Older persisted items have no UI summary. Prefer their attached comment
@@ -287,6 +314,14 @@ export function createMessageQueueRuntime({
   buildRecheckMs = BUILD_RECHECK_MS,
   buildCompletionGraceMs = 30000,
   settingsFilePath = defaultBuildQueueSettingsFile,
+  // The project's own config file, where its build-queue enablement is stored.
+  // Absent means the queue keeps its pre-setting behavior: enabled, with no way
+  // to turn it off.
+  projectConfigRuntime = null,
+  // Resolves a request directory to the project's canonical identity
+  // (`{ projectId, directory }`), so a prompt cannot opt itself out of its
+  // session's own queue by naming a different directory.
+  resolveProjectIdentity = null,
 }) {
   const filePath = path.join(dataDir, QUEUE_FILE_NAME);
 
@@ -304,6 +339,10 @@ export function createMessageQueueRuntime({
   // dispatch. Cleared once the session's own turn is done.
   const forcedBuilds = new Map(); // sessionId → { directory, startedAt }
   const forcedMonitors = new Map(); // sessionId → timeout
+  // A Force whose prompt may or may not have been accepted, held durably from
+  // before the dispatch until either the prompt is confirmed or a human
+  // resolves it. A reservation never gates dispatch and is never re-forced.
+  const forceReservations = new Map(); // sessionId → { directory, itemId, startedAt, needsReview?, reviewReason? }
   let nextBuildOrder = 1;
   let revision = 0;
   let loadPromise = null;
@@ -337,6 +376,7 @@ export function createMessageQueueRuntime({
     revision,
     nextBuildOrder,
     activeBuilds: Object.fromEntries(activeBuilds),
+    forceReservations: Object.fromEntries(forceReservations),
     sessions: Object.fromEntries(
       Array.from(queues.entries()).map(([sessionId, queue]) => [sessionId, { directory: queue.directory, items: queue.items }]),
     ),
@@ -347,7 +387,7 @@ export function createMessageQueueRuntime({
     try {
       raw = await fs.promises.readFile(filePath, 'utf8');
     } catch (error) {
-      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, nextBuildOrder: 1 };
+      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, nextBuildOrder: 1 };
       throw error;
     }
     let parsed;
@@ -359,7 +399,7 @@ export function createMessageQueueRuntime({
       const backup = `${filePath}.corrupt-${now()}`;
       await fs.promises.rename(filePath, backup).catch(() => undefined);
       console.warn(`[message-queue] queue file was unreadable and moved to ${backup}: ${error?.message ?? error}`);
-      return { sessions: {}, revision: 0, activeBuilds: {}, nextBuildOrder: 1 };
+      return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, nextBuildOrder: 1 };
     }
     const stored = asRecord(parsed) ?? {};
     const sessions = {};
@@ -371,7 +411,7 @@ export function createMessageQueueRuntime({
       if (!directory || items.length === 0) continue;
       sessions[sessionId] = { directory, items };
     }
-    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1 };
+    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1 };
   };
 
   const load = () => {
@@ -387,6 +427,20 @@ export function createMessageQueueRuntime({
               const hasQueuedItem = queues.get(value.sessionId)?.items.some(item => item.id === value.itemId);
               activeBuilds.set(directory, { ...value, observedBusy: false, restored: true, ...(hasQueuedItem ? { needsReview: true, reviewReason: 'restart-during-dispatch' } : {}) });
             }
+          }
+          // A reservation restored from disk is a Force whose prompt may have
+          // been accepted. It is never re-sent and never cleared alone: the item
+          // stays queued and the user resolves the uncertain state.
+          for (const [sessionId, value] of Object.entries(stored.forceReservations)) {
+            const entry = asRecord(value);
+            if (!isValidSessionId(sessionId) || !asNonEmptyString(entry?.directory) || !asNonEmptyString(entry?.itemId)) continue;
+            forceReservations.set(sessionId, {
+              directory: asNonEmptyString(entry.directory),
+              itemId: asNonEmptyString(entry.itemId),
+              startedAt: asCount(entry.startedAt) ?? now(),
+              needsReview: true,
+              reviewReason: 'restart-during-force',
+            });
           }
           nextBuildOrder = Math.max(nextBuildOrder, stored.nextBuildOrder, ...Array.from(queues.values()).flatMap(q => q.items.map(i => (i.buildOrder ?? 0) + 1)));
 
@@ -441,13 +495,23 @@ export function createMessageQueueRuntime({
   // carry the flag from a Plan session; those must not surface as project
   // builds, and reordering cannot rely on their position. Persisted data is
   // left as it is: this only decides what the queue dispatches and shows.
-  const isBuildItem = (item) => item.buildQueue === true && item.sendConfig?.agent?.toLowerCase() === 'build';
+  //
+  // A prompt the server admitted from the wire (`admission`) was classified
+  // against the session's live agent by the server itself, so it is build work
+  // by construction and carries no client-supplied agent string to re-check.
+  const isBuildItem = (item) => item.buildQueue === true
+    && (item.admission !== undefined || item.sendConfig?.agent?.toLowerCase() === 'build');
   /**
    * One lane slot per session: a further Build prompt joins the item the
    * session already holds instead of taking a second place in the project
    * order. Text, attachments and context join it the way they would ride one
    * queued message; the id, position, pause state and captured selection stay
    * with the slot the user created first.
+   *
+   * Every admitted prompt keeps its own wire identity in `acceptedPrompts`:
+   * two prompts merged into one slot are still two admissions to perform, each
+   * with its id, files, agents, skills and metadata, and the client was told
+   * about each of them separately.
    */
   const appendToBuildSlot = (item, incoming) => {
     const content = [item.content, incoming.content].filter(Boolean).join('\n\n');
@@ -461,6 +525,9 @@ export function createMessageQueueRuntime({
     if (incoming.context.length > 0) item.context = [...item.context, ...incoming.context];
     if (incoming.agentMention && !item.agentMention) item.agentMention = incoming.agentMention;
     if (incoming.contextPreview && !item.contextPreview) item.contextPreview = incoming.contextPreview;
+    if (incoming.admission) {
+      item.acceptedPrompts = [...(item.acceptedPrompts ?? []), { admission: incoming.admission, messageId: incoming.messageId }];
+    }
   };
   const pendingBuilds = (directory) => Array.from(queues.entries())
     .flatMap(([sessionId, queue]) => queue.items.filter(item => isBuildItem(item) && (!directory || queue.directory === directory))
@@ -472,7 +539,19 @@ export function createMessageQueueRuntime({
     preparation: Array.from(preparingBuilds, ([directory, value]) => ({ directory, phase: value.phase })),
     commits: Array.from(buildCommits, ([directory, value]) => ({ directory, ...value })),
     active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease, retryAvailable: queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId) === true })),
-    forced: Array.from(forcedBuilds, ([sessionId, value]) => ({ sessionId, directory: value.directory, startedAt: value.startedAt })),
+    forced: [
+      ...Array.from(forcedBuilds, ([sessionId, value]) => ({ sessionId, directory: value.directory, startedAt: value.startedAt })),
+      // An unresolved Force is not a running build: it carries the item it
+      // targeted and the recovery the board offers for it.
+      ...Array.from(forceReservations, ([sessionId, value]) => ({
+        sessionId,
+        directory: value.directory,
+        startedAt: value.startedAt,
+        itemId: value.itemId,
+        needsReview: value.needsReview !== false,
+        action: value.needsReview !== false ? 'resolve' : null,
+      })),
+    ],
     queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index, paused: item.buildPaused === true })),
     issues: [
       ...Array.from(buildProblems.entries()).filter(([directory]) => pendingBuilds(directory).length > 0).map(([directory, issue]) => ({ directory, issue })),
@@ -626,6 +705,9 @@ export function createMessageQueueRuntime({
   const sendItem = async (sessionId, directory, item, buildSelection, { forced = false } = {}) => {
     const { providerID, modelID, variant } = item.sendConfig;
     let agent = item.sendConfig.agent;
+    // An admitted prompt keeps the session's own selection; only an explicit
+    // captured send config switches it.
+    const admittedPrompt = Object.keys(item.sendConfig).length === 0 && (item.acceptedPrompts?.length ?? 0) > 0;
     let model = { id: modelID, providerID, ...(variant ? { variant } : {}) };
     const promptFiles = item.attachments.map(toPromptFile);
     const contextMessages = item.context.flatMap(toContextMessages);
@@ -645,8 +727,10 @@ export function createMessageQueueRuntime({
     }
 
     // v2 selects model and agent on the session, not per prompt: the choice is
-    // switched once and then persists.
-    if (!item.scheduledTask || (providerID && modelID)) await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/model`, {
+    // switched once and then persists. An admitted prompt carries no selection
+    // of its own (the session already holds it) and an inherited scheduled item
+    // keeps the target's, so neither switches anything.
+    if ((!item.scheduledTask && !admittedPrompt) || (providerID && modelID)) await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/model`, {
       directory,
       method: 'POST',
       body: { model },
@@ -675,7 +759,23 @@ export function createMessageQueueRuntime({
     // holds for a command too: its route takes file attachments only, and
     // sending "/name args" as a prompt instead would skip the template
     // OpenCode 2.x expands only on the command route.
-    const preamble = [...(isBuildItem(item) && !forced ? [{ text: BUILD_INSTRUCTION, resume: false }] : []), ...contextMessages];
+    const admission = asRecord(item.admission);
+    const accepted = (item.acceptedPrompts ?? []).filter((entry) => asRecord(entry?.admission));
+    // Synthetics the prompt arrived behind (standing context, a goal briefing)
+    // are staged with it: forwarding them while the prompt waits would leave
+    // the model reading background with nothing following it.
+    const leading = [
+      ...(admission?.leading ?? []),
+      ...accepted.flatMap((entry) => entry.admission.leading ?? []),
+    ].map((part) => ({
+      text: asText(asRecord(part)?.text),
+      resume: false,
+    })).filter((part) => part.text);
+    const preamble = [
+      ...(isBuildItem(item) && !forced ? [{ text: BUILD_INSTRUCTION, resume: false }] : []),
+      ...leading,
+      ...contextMessages,
+    ];
     if (knowledge.text) preamble.push({ text: knowledge.text, resume: false });
     for (const synthetic of preamble) {
       await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/synthetic`, {
@@ -697,15 +797,49 @@ export function createMessageQueueRuntime({
         },
       });
     } else {
-      await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
-        directory,
-        method: 'POST',
-        body: {
-          text: item.text,
-          ...(promptFiles.length > 0 ? { files: promptFiles } : {}),
-          ...(item.agentMention ? { agents: [{ name: item.agentMention }] } : {}),
-        },
-      });
+      // A prompt admitted from the wire keeps the identity it arrived with: the
+      // client's own message id, its file/agent/skill attachments and metadata.
+      // Sending a fresh id would leave the client's optimistic row unmatched,
+      // and dropping the attachments would lose what the user attached.
+      //
+      // Prompts merged into one lane slot are still separate admissions, so
+      // each goes out with its own id and payload, in the order they arrived.
+      if (accepted.length > 0) {
+        for (const entry of accepted) {
+          const { admission: record, messageId } = entry;
+          // An admitted prompt is queued work, and the delivery is stated
+          // rather than left to upstream's default (which steers). The idle
+          // probe is not atomic with this send, so a turn that starts in the
+          // gap would otherwise swallow the build as steering; `queue` leaves
+          // it parked for the next turn instead. A steer the user asked for was
+          // already refused a queue entry, so nothing here is a steer.
+          const body = { text: asText(record.text) || item.text, delivery: 'queue' };
+          const promptId = asNonEmptyString(messageId);
+          if (promptId) body.id = promptId;
+          if (promptFiles.length > 0) body.files = promptFiles;
+          if ((record.agents ?? []).length > 0) body.agents = record.agents;
+          if ((record.skills ?? []).length > 0) body.skills = record.skills;
+          if (record.metadata) body.metadata = record.metadata;
+          if (record.resume !== undefined) body.resume = record.resume;
+          await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
+            directory,
+            method: 'POST',
+            body,
+          });
+        }
+      } else {
+        // Same reason as above: the serialized lane's own prompt must be
+        // queued, never steered into a turn that began after the probe.
+        const body = { text: item.text };
+        if (promptFiles.length > 0) body.files = promptFiles;
+        if (item.agentMention) body.agents = [{ name: item.agentMention }];
+        if (isBuildItem(item)) body.delivery = 'queue';
+        await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
+          directory,
+          method: 'POST',
+          body,
+        });
+      }
     }
     if (knowledge.text && sessionKnowledgeRuntime) {
       // After the send is accepted, so a rejected dispatch carries it again.
@@ -720,7 +854,7 @@ export function createMessageQueueRuntime({
     else buildProblems.delete(directory);
     broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
   };
-  // The queue pane owns this instance-wide policy. Legacy booleans preserve
+  // Settings owns this instance-wide policy. Legacy booleans preserve
   // their behavior until a policy is selected; missing settings pause safely.
   const buildGitPolicy = () => {
     try {
@@ -738,7 +872,7 @@ export function createMessageQueueRuntime({
     } catch {
       // A directory that is not a Git repository, or one where Git cannot run,
       // never satisfies the gate: name it plainly instead of a bare command error.
-      return 'Cannot verify the Git working tree. Check that Git is installed, or choose Allow continue in the build queue pane.';
+      return 'Cannot verify the Git working tree. Check that Git is installed, or choose Allow continue in Settings.';
     }
   };
   const wakeProject = (directory) => {
@@ -747,8 +881,8 @@ export function createMessageQueueRuntime({
       // freeze that is being lifted now, so both kinds are armed.
       if (queue.directory === directory && queue.items.length > 0) armDispatch(sessionId);
     }
-    // Every build-lane mutation ends here, and the queue pane and the work board
-    // both read this snapshot. Announcing it here is what makes a queued or
+    // Every build-lane mutation ends here, and the work board reads this
+    // snapshot. Announcing it here is what makes a queued or
     // completed build appear when it happened rather than on the next poll.
     broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
   };
@@ -999,7 +1133,22 @@ export function createMessageQueueRuntime({
   const resolveBuild = async (directory, action, itemId) => {
     await load();
     const lease = activeBuilds.get(directory);
-    if (itemId && lease?.itemId !== itemId) throw httpError('The build queue changed. Refresh it before continuing.', 409);
+    // A named item must be the lease's own; with no lease it may be an
+    // unresolved Force, checked below.
+    if (itemId && lease && lease.itemId !== itemId) throw httpError('The build queue changed. Refresh it before continuing.', 409);
+    // An unconfirmed Force has its own recovery: the item was not taken by the
+    // queue, so nothing is released, and the item stays queued. Only a human
+    // clearing the marker moves it on.
+    if (!lease && itemId) {
+      const reserved = Array.from(forceReservations.entries()).find(([, value]) => value.itemId === itemId && value.directory === directory);
+      if (reserved) {
+        if (action !== 'skip') throw httpError('No recoverable build or invalid action', 409);
+        forceReservations.delete(reserved[0]);
+        commit(reserved[0]);
+        wakeProject(directory);
+        return buildSnapshot();
+      }
+    }
     if (!lease && action === 'retry' && buildProblems.has(directory)) {
       preparationFailures.delete(directory);
       setBuildProblem(directory, null);
@@ -1058,27 +1207,46 @@ export function createMessageQueueRuntime({
     const item = queue.items.find(entry => entry.id === itemId);
     if (!item) throw httpError('Build is no longer queued', 404);
     if (!isBuildItem(item)) throw httpError('Only a queued build can be forced', 409);
-    if (sending.has(sessionId) || forcedBuilds.has(sessionId)) throw httpError('This build is already being sent', 409);
+    if (sending.has(sessionId) || forcedBuilds.has(sessionId) || forceReservations.has(sessionId)) throw httpError('This build is already being sent', 409);
     const idle = await isSessionIdle(sessionId, directory);
     if (idle === null) throw httpError('The session status is unavailable; try again before forcing this build', 409);
     if (idle !== true) throw httpError('The session is busy; wait for its turn to finish before forcing this build', 409);
     const subagents = await hasWorkingSubagents(sessionId);
     if (subagents === null) throw httpError('The session status is unavailable; try again before forcing this build', 409);
     if (subagents !== false) throw httpError('The session has running subagents; wait before forcing this build', 409);
-    // Re-read after the probes: the queue may have changed while they ran.
+    // Re-read after the probes: the queue may have changed while they ran, and
+    // a simultaneous Force may have reserved the session in the meantime.
+    if (sending.has(sessionId) || forcedBuilds.has(sessionId) || forceReservations.has(sessionId)) throw httpError('This build is already being sent', 409);
     const current = queues.get(sessionId)?.items.find(entry => entry.id === itemId);
     if (!current || current.id !== item.id) throw httpError('The build queue changed. Refresh it and try again.', 409);
 
-    // Mark in flight so the tick cannot take the same item while it is admitted.
+    // Reserve before the send, synchronously, so a second Force cannot pass its
+    // own probe-to-reserve gap and dispatch the same item twice.
+    const reservation = { directory, itemId: item.id, startedAt: now(), needsReview: true, reviewReason: 'force-unconfirmed' };
+    forceReservations.set(sessionId, reservation);
     sending.set(sessionId, item.id);
     broadcast(sessionId);
+    // The reservation must be durable before the prompt can be accepted, or a
+    // crash would replay a Force with no record of it.
+    commit(sessionId);
+    await writePromise;
+    if (persistenceError) {
+      forceReservations.delete(sessionId);
+      sending.delete(sessionId);
+      commit(sessionId);
+      throw httpError('Cannot persist the build queue. Check server storage before continuing.', 503);
+    }
     try {
       // `sendItem` resolves the Auto sentinel itself, so a forced send switches
       // the session's model and agent the same way a queued one does.
       await sendItem(sessionId, directory, current, undefined, { forced: true });
     } catch (error) {
       sending.delete(sessionId);
+      // The reservation stays: the prompt may have started, and neither a
+      // re-force nor an automatic retry may risk a second dispatch. The item
+      // stays queued and the board shows the resolution control.
       commit(sessionId);
+      wakeProject(directory);
       // A timed-out or rejected prompt may still have started. There is no
       // lease to park, so the item stays queued and the caller is warned.
       return { revision, warning: 'The prompt was not confirmed. It may have started; open the session before forcing it again.' };
@@ -1086,7 +1254,8 @@ export function createMessageQueueRuntime({
     sending.delete(sessionId);
     const after = queues.get(sessionId);
     if (after) setQueueItems(sessionId, after.directory, after.items.filter(entry => entry.id !== item.id), 'sent');
-    forcedBuilds.set(sessionId, { directory, startedAt: now() });
+    forceReservations.delete(sessionId);
+    forcedBuilds.set(sessionId, { directory, startedAt: reservation.startedAt });
     commit(sessionId);
     wakeProject(directory);
     scheduleForcedMonitor(sessionId);
@@ -1115,7 +1284,7 @@ export function createMessageQueueRuntime({
    * A Build prompt submitted to the session that holds the project's lease is the
    * user unfreezing that lease from the chat it belongs to: whatever the
    * uncertain dispatch did, they want this build instead. This is the same
-   * decision the queue pane's Continue makes (it drops the frozen item), so it
+   * decision the work board's Continue makes (it drops the frozen item), so it
    * uses the same effect. Only the lease-holding session can unfreeze itself, and
    * only a Build prompt counts; a plain message or another session's build is not
    * an instruction to carry on building.
@@ -1353,7 +1522,7 @@ export function createMessageQueueRuntime({
           }
         } catch (error) {
           preparationFailures.set(current.directory, item.id);
-          setBuildProblem(current.directory, error.message || 'Automatic commit preparation failed. Retry from the queue pane.');
+          setBuildProblem(current.directory, error.message || 'Automatic commit preparation failed. Retry from the Work Board.');
           armDispatch(sessionId, buildRecheckMs);
           return;
         } finally {
@@ -1434,6 +1603,9 @@ export function createMessageQueueRuntime({
       await sendItem(sessionId, current.directory, item, buildSelection);
       const after = queues.get(sessionId);
       if (after) setQueueItems(sessionId, after.directory, after.items.filter((entry) => entry.id !== item.id), 'sent');
+      // The admission is settled: a replay of the client's prompt id would now
+      // duplicate work OpenCode has already run.
+      forgetAdmittedWhenSent(sessionId, item);
       failures.delete(sessionId);
       sending.delete(sessionId);
       commit(sessionId);
@@ -1689,6 +1861,14 @@ export function createMessageQueueRuntime({
         clearTimeout(forcedMonitors.get(deletedSessionId));
         forcedMonitors.delete(deletedSessionId);
       }
+      // The session is gone, so its uncertain Force can never be resolved in
+      // that chat; the queued item is dropped with the session below.
+      if (forceReservations.has(deletedSessionId)) {
+        const reservation = forceReservations.get(deletedSessionId);
+        forceReservations.delete(deletedSessionId);
+        commit(deletedSessionId);
+        wakeProject(reservation.directory);
+      }
       if (!queues.has(deletedSessionId)) return;
       setQueueItems(deletedSessionId, directories.get(deletedSessionId), []);
       clearTimer(deletedSessionId);
@@ -1806,6 +1986,164 @@ export function createMessageQueueRuntime({
     }
   };
 
+  // --- admission -----------------------------------------------------------
+
+  /**
+   * The queue entry already holding this prompt id, or a settled marker when it
+   * was dispatched and removed. A replayed prompt must never be admitted twice:
+   * the client may have lost the response to an admission the server completed.
+   */
+  const admittedMessageIds = new Map(); // messageId → { sessionId, itemId } (settled history)
+
+  /** Every wire id an item still owes, from whichever shape stored it. */
+  const acceptedIdsOf = (item) => {
+    const ids = (item.acceptedPrompts ?? []).map((entry) => asNonEmptyString(entry?.messageId)).filter(Boolean);
+    if (item.messageId && !ids.includes(item.messageId)) ids.unshift(item.messageId);
+    return ids;
+  };
+
+  const findAdmitted = (messageId) => {
+    if (!messageId) return null;
+    for (const [sessionId, queue] of queues) {
+      // A merged slot holds several ids; a repeat of any of them is a repeat.
+      const item = queue.items.find((entry) => acceptedIdsOf(entry).includes(messageId));
+      if (item) return { sessionId, itemId: item.id, settled: false };
+    }
+    return admittedMessageIds.get(messageId) ?? null;
+  };
+
+  const settleAdmitted = (messageId) => {
+    if (!messageId) return;
+    admittedMessageIds.set(messageId, { sessionId: null, itemId: null, settled: true });
+    while (admittedMessageIds.size > MAX_SESSIONS * MAX_ITEMS_PER_SESSION) {
+      admittedMessageIds.delete(admittedMessageIds.keys().next().value);
+    }
+  };
+
+  /**
+   * Admits a prompt the server classified as project Build work. Idempotent by
+   * the client's own prompt id: a repeat of an id the queue already holds (or
+   * already dispatched) answers `{ admitted: false }` instead of queueing twice.
+   */
+  const admitBuildPrompt = async ({ sessionId: sessionIdInput, directory: directoryInput, item: itemInput }) => {
+    const sessionId = requireSessionId(sessionIdInput);
+    const directory = asNonEmptyString(directoryInput);
+    if (!directory) throw new TypeError('directory is required');
+    const parsed = parseQueuedItemInput(itemInput);
+    if (!parsed.messageId) throw new TypeError('an admitted prompt needs its messageId');
+    await load();
+    const existing = findAdmitted(parsed.messageId);
+    if (existing) {
+      return { admitted: false, settled: existing.settled === true, itemId: existing.itemId ?? null };
+    }
+    parsed.buildQueue = true;
+    const result = await enqueue(sessionId, directory, parsed);
+    return { admitted: true, settled: false, itemId: result.itemId, revision: result.revision };
+  };
+
+  /** Settles the admission record once its item leaves the queue. */
+  const forgetAdmittedWhenSent = (sessionId, sentItem) => {
+    for (const messageId of acceptedIdsOf(sentItem)) settleAdmitted(messageId);
+  };
+
+  // --- queue settings ------------------------------------------------------
+
+  /**
+   * The project identity a directory belongs to: its canonical directory and
+   * the project id its setting is stored under. The directory is resolved the
+   * way every other server route resolves one, so a worktree keeps its own
+   * queue while sharing its project's enablement.
+   */
+  const projectIdentityOf = async (input) => {
+    const directory = asNonEmptyString(asRecord(input)?.directory);
+    if (!resolveProjectIdentity) return { directory, projectId: null };
+    try {
+      return await resolveProjectIdentity({ directory }) ?? { directory, projectId: null };
+    } catch {
+      return { directory, projectId: null };
+    }
+  };
+
+  // Settings and admission share one chain: a prompt admitted while the switch
+  // is being turned off must see one of the two orders, never a torn read.
+  let admissionChain = Promise.resolve();
+  const withAdmission = (work) => {
+    const next = admissionChain.catch(() => undefined).then(work);
+    admissionChain = next.catch(() => undefined);
+    return next;
+  };
+
+  /**
+   * Whether the project's build queue is on: `true`, `false`, or `null` when
+   * the stored value could not be read. `null` is not "off": the settings
+   * endpoint answers it as enabled, while an execution-starting admission
+   * treats it as a possible bypass and refuses (see the admission guard).
+   */
+  const queueEnabledStateFor = async (identity) => {
+    const projectId = asNonEmptyString(asRecord(identity)?.projectId);
+    // No project to place the directory in, or no store: the setting is not
+    // this server's to know, so the queue is on and nothing is refused by it.
+    if (!projectConfigRuntime || !projectId) return true;
+    try {
+      const stored = await projectConfigRuntime.readBuildQueueEnabled(projectId);
+      return stored !== false;
+    } catch {
+      return null;
+    }
+  };
+
+  const queueEnabledFor = async (identity) => (await queueEnabledStateFor(identity)) !== false;
+
+  const readQueueSettings = async (identityInput) => {
+    const identity = await projectIdentityOf(identityInput);
+    if (!asNonEmptyString(identity?.projectId)) throw httpError('A project directory is required', 400);
+    return { enabled: await queueEnabledFor(identity) };
+  };
+
+  const writeQueueSettings = async (identityInput, enabled) => withAdmission(async () => {
+    if (enabled !== true && enabled !== false) throw new TypeError('enabled must be a boolean');
+    const identity = await projectIdentityOf(identityInput);
+    const projectId = asNonEmptyString(identity?.projectId);
+    if (!projectId) throw httpError('A project directory is required', 400);
+    if (!projectConfigRuntime) throw httpError('This server cannot store the build queue setting', 503);
+    // Turning the queue off while work is in flight would strand the build that
+    // is running and the builds waiting behind it; both must be finished or
+    // cancelled first, so the user is told rather than silently losing them.
+    if (enabled === false) {
+      const directory = asNonEmptyString(identity.directory);
+      const holding = directory && activeBuilds.has(directory)
+        ? 'A build is running for this project.'
+        : (preparingBuilds.has(directory ?? '') ? 'A build is being prepared for this project.' : null);
+      if (holding) throw httpError(`${holding} Finish or cancel it before turning the queue off.`, 409);
+      const queued = pendingBuilds(directory || undefined).length;
+      if (queued > 0) throw httpError(`${queued} queued build(s) must be cancelled or started before turning the queue off.`, 409);
+      for (const sessionId of sending.keys()) {
+        if (queues.get(sessionId)?.items.some((item) => isBuildItem(item))) {
+          throw httpError('A build is being dispatched for this project. Wait for it before turning the queue off.', 409);
+        }
+      }
+    }
+    await projectConfigRuntime.setBuildQueueEnabled(projectId, enabled);
+    return { enabled };
+  });
+
+  /** The admission path the prompt route uses, serialized with the setting. */
+  const admitSubmission = (input) => withAdmission(() => admitBuildPrompt(input));
+
+  /**
+   * Whether the queue holds anything for this session that a direct API call
+   * must not walk away from: a waiting item, an in-flight send, or a build lease
+   * this session owns.
+   */
+  const hasManagedWorkFor = (sessionId) => {
+    const queue = queues.get(sessionId);
+    if (queue && queue.items.length > 0) return true;
+    if (sending.has(sessionId)) return true;
+    if (forceReservations.has(sessionId)) return true;
+    for (const lease of activeBuilds.values()) if (lease.sessionId === sessionId) return true;
+    return false;
+  };
+
   return {
     load,
     snapshot,
@@ -1816,6 +2154,14 @@ export function createMessageQueueRuntime({
     forceDispatch,
     sessionSnapshot,
     enqueue,
+    admitBuildPrompt,
+    admitSubmission,
+    resolveProjectIdentity: projectIdentityOf,
+    hasManagedWorkFor,
+    /** `true`/`false`, or `null` when the stored value could not be read. */
+    queueEnabledStateFor,
+    readQueueSettings,
+    writeQueueSettings,
     cancelScheduledTask,
     parkSession,
     remove,
@@ -1828,7 +2174,7 @@ export function createMessageQueueRuntime({
     start,
     stop,
     /** Drains the pending write; tests and shutdown use it. */
-    flush: () => writePromise,
+    flush: () => Promise.all([writePromise, admissionChain]).then(() => undefined),
   };
 }
 
@@ -1841,6 +2187,21 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.get('/api/build-queue', async (_req, res) => {
     try { await runtime.load(); res.json(runtime.buildSnapshot()); }
     catch (error) { respondError(res, error, 'Failed to load build queue'); }
+  });
+  // The project's queue enablement. `{ directory }` is the only input on the
+  // read, and the answer is `{ enabled }`; a directory the server cannot place
+  // in a project is a 400, never a silent `true`.
+  app.get('/api/build-queue/settings', async (req, res) => {
+    try { res.json(await runtime.readQueueSettings({ directory: req.query?.directory })); }
+    catch (error) { respondError(res, error, 'Failed to read build queue settings'); }
+  });
+  app.put('/api/build-queue/settings', async (req, res) => {
+    try {
+      res.json(await runtime.writeQueueSettings(
+        { directory: req.body?.directory },
+        req.body?.enabled,
+      ));
+    } catch (error) { respondError(res, error, 'Failed to save build queue settings'); }
   });
   app.post('/api/build-queue/resolve', async (req, res) => {
     try { res.json(await runtime.resolveBuild(req.body?.directory, req.body?.action, req.body?.itemId)); }

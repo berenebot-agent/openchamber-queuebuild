@@ -979,3 +979,43 @@ describe('project-config loop reconciliation', () => {
     }
   });
 });
+
+describe('project-config build queue enablement', () => {
+  it('reads null until the project chooses, and only stores an explicit off', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      expect(await runtime.readBuildQueueEnabled('project-test')).toBeNull();
+      await runtime.setBuildQueueEnabled('project-test', false);
+      expect(await runtime.readBuildQueueEnabled('project-test')).toBe(false);
+      await runtime.setBuildQueueEnabled('project-test', true);
+      // Back on default: the key is removed, not stored as true.
+      expect(await runtime.readBuildQueueEnabled('project-test')).toBeNull();
+      const raw = JSON.parse(await readFile(path.join(tempRoot, 'project-test.json'), 'utf8'));
+      expect('buildQueueEnabled' in raw).toBe(false);
+      expect(raw.version).toBe(1);
+    } finally { await cleanup(); }
+  });
+
+  it('stores the off flag as false alongside the keys the module does not own', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      await writeFile(path.join(tempRoot, 'project-test.json'), JSON.stringify({
+        version: 1, scheduledTasks: [], projectPath: '/repo', draftStarters: [{ type: 'plan', name: 'x' }],
+      }));
+      await runtime.setBuildQueueEnabled('project-test', false);
+      const raw = JSON.parse(await readFile(path.join(tempRoot, 'project-test.json'), 'utf8'));
+      expect(raw.buildQueueEnabled).toBe(false);
+      // A key written by another part of the module survives the write.
+      expect(raw.projectPath).toBe('/repo');
+      expect(raw.draftStarters).toEqual([{ type: 'plan', name: 'x' }]);
+    } finally { await cleanup(); }
+  });
+
+  it('ignores an unrelated malformed value instead of reading it as off', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      await writeFile(path.join(tempRoot, 'project-test.json'), JSON.stringify({ version: 1, scheduledTasks: [], buildQueueEnabled: 'no' }));
+      expect(await runtime.readBuildQueueEnabled('project-test')).toBeNull();
+    } finally { await cleanup(); }
+  });
+});

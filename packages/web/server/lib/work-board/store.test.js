@@ -128,6 +128,29 @@ describe('work board persistence', () => {
     } finally { await remove(dataDir); }
   });
 
+  it('places with the server clock and refuses a placement of a version another client changed', async () => {
+    const { dataDir } = await setup();
+    try {
+      let clock = 1000;
+      const store = createWorkBoardStore({ dataDir, now: () => clock });
+      const card = await store.create(input());
+      // The stamp comes from the store, never from the request: a device with a
+      // wrong clock cannot pin a card against later activity.
+      const placed = await store.placement(card.id, { lane: 'done', expectedUpdatedAt: card.updatedAt });
+      expect(placed.placementAt).toBe(1000);
+      expect(placed.completedAt).toBe(1000);
+
+      clock = 2000;
+      const changed = await store.update(card.id, { text: 'Changed elsewhere', expectedUpdatedAt: placed.updatedAt });
+      await expect(store.placement(card.id, { lane: 'todo', expectedUpdatedAt: placed.updatedAt }))
+        .rejects.toMatchObject({ status: 409 });
+      expect((await store.list('/project'))[0]).toMatchObject({ id: card.id, stage: 'done', text: 'Changed elsewhere' });
+      const retried = await store.placement(card.id, { lane: 'todo', expectedUpdatedAt: changed.updatedAt });
+      expect(retried.stage).toBe('todo');
+      expect(retried.placementAt).toBe(2000);
+    } finally { await remove(dataDir); }
+  });
+
   it('refuses a stale editor overwriting a brief another client removed', async () => {
     const { dataDir } = await setup();
     try {

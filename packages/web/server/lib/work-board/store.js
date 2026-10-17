@@ -190,12 +190,14 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       return card;
     }),
     // A drag on the board writes the user's own placement. `placementAt` is the
-    // boundary later session activity has to pass to take the card back, and it
-    // is never in the future, so a clock skew cannot pin a card that already has
-    // newer history. `updatedAt` deliberately stays put: it is the boundary a
-    // parked To-do and the stale-completion check compare against.
+    // server's own clock: a device with a wrong clock must not pin a card
+    // against later activity, and two devices must order by one source. It is
+    // the boundary later session activity has to pass. `updatedAt` deliberately
+    // stays put: it is the boundary a parked To-do and the stale-completion
+    // check compare against.
     placement: (cardId, input) => serialized(async () => {
-      const target = z.object({ lane: z.enum(['todo', 'plan', 'build', 'done']), at: z.number().finite(),
+      const target = z.object({ lane: z.enum(['todo', 'plan', 'build', 'done']),
+        expectedUpdatedAt: z.number().finite().optional(),
         before: z.string().min(1).nullable().optional(), directory: nonempty.optional(),
         sessionId: nonempty.optional(), text: z.string().optional() }).parse(input);
       const cards = await read();
@@ -208,10 +210,16 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
         && target.directory !== undefined
         && !cards.some(card => card.directory === target.directory && card.sessionId === target.sessionId);
       if (index < 0 && !inherited) throw Object.assign(new Error('Work board card not found'), { status: 404 });
-      const at = Math.min(target.at, now());
+      const at = now();
       const created = { id: id(), directory: target.directory, text: target.text ?? '', attachments: [],
         sessionId: target.sessionId, stage: 'todo', createdAt: at, updatedAt: at };
       const current = index < 0 ? created : cards[index];
+      // Another device changed the card since this one read the board. The
+      // check is inside the serialized write, so it cannot race a write that
+      // lands between a client's read and this placement.
+      if (index >= 0 && target.expectedUpdatedAt !== undefined && current.updatedAt !== target.expectedUpdatedAt) {
+        throw Object.assign(new Error('Card changed. Refresh the board before moving it.'), { status: 409 });
+      }
       // A bulk move names one project's board; a card from another one is not
       // this request's to place, even though the id exists.
       if (target.directory !== undefined && current.directory !== target.directory) {

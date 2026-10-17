@@ -107,6 +107,9 @@ import { createApnsRuntime } from './lib/notifications/apns-runtime.js';
 import { createNotificationTemplateRuntime } from './lib/notifications/template-runtime.js';
 import { createPermissionAutoAcceptRuntime } from './lib/permission-auto-accept/runtime.js';
 import { createMessageQueueRuntime } from './lib/message-queue/runtime.js';
+import { createWorkBoardStore } from './lib/work-board/store.js';
+import { createWorkBoardProjectionRuntime } from './lib/work-board/projection.js';
+import { createSessionActivityProbe } from './lib/opencode/session-activity.js';
 import { createDispatchResultsRuntime } from './lib/dispatch-results/runtime.js';
 import { createRoutingRuntime } from './lib/routing/runtime.js';
 import { createJevClient } from './lib/routing/jev.js';
@@ -1124,8 +1127,68 @@ const messageQueueRuntime = createMessageQueueRuntime({
   validateScheduledTaskTarget: (...args) => scheduledTasksRuntime.validateTarget(...args),
   onScheduledTaskResult: (...args) => scheduledTasksRuntime.onScheduledTaskResult(...args),
   dataDir: OPENCHAMBER_DATA_DIR,
+  projectConfigRuntime,
+  resolveProjectIdentity: async ({ directory }) => {
+    if (!directory) return { directory: null, projectId: null };
+    try {
+      const projects = sanitizeProjects((await readSettingsFromDiskMigrated())?.projects) || [];
+      // Longest match wins, so a worktree under a project maps to that project
+      // while keeping its own directory (and therefore its own queue).
+      const owner = projects
+        .filter((project) => project?.path && (directory === project.path || directory.startsWith(`${project.path}/`)))
+        .sort((left, right) => right.path.length - left.path.length)[0];
+      return { directory, projectId: owner?.id ?? null };
+    } catch {
+      return { directory, projectId: null };
+    }
+  },
 });
 messageQueueRuntime.start();
+
+// The Work Board's authoritative projection: one server-side answer for every
+// board, built from the card store, the queue and OpenCode's live channels.
+// The store instance is shared with the routes below, since it is the board's
+// only writer and its in-memory card list must be the one every reader sees.
+const workBoardStore = createWorkBoardStore({ dataDir: OPENCHAMBER_DATA_DIR, fs: fsPromises });
+const workBoardActivityProbe = createSessionActivityProbe({ buildOpenCodeUrl, getOpenCodeAuthHeaders });
+const workBoardOpenCodeClient = (directory) => createOpenCodeClient({
+  baseUrl: buildOpenCodeUrl('/', '').replace(/\/$/, ''),
+  headers: getOpenCodeAuthHeaders(),
+  directory,
+});
+const WORK_BOARD_SESSION_PAGES = 4;
+const workBoardProjectionRuntime = createWorkBoardProjectionRuntime({
+  store: workBoardStore,
+  readPage: (sessionId, directory) => workBoardOpenCodeClient(directory).message.list({
+    sessionID: sessionId, limit: 32, order: 'desc',
+  }),
+  // v2 lists sessions per location (the directory header) newest first. The
+  // caller's recency window bounds the pages read; a failed read throws so the
+  // projection keeps the inherited cards it already had.
+  readSessions: async (directory, { includeOlder = false, recentWindowMs = 0 } = {}) => {
+    const client = workBoardOpenCodeClient(directory);
+    const sessions = [];
+    const seenCursors = new Set();
+    let cursor;
+    for (let pageNumber = 0; pageNumber < WORK_BOARD_SESSION_PAGES; pageNumber += 1) {
+      const page = await client.session.list(cursor ? { cursor } : { order: 'desc', limit: 100 });
+      if (!Array.isArray(page?.data)) throw new Error('OpenCode session list is unavailable');
+      sessions.push(...page.data);
+      const next = page.cursor?.next;
+      if (!next || seenCursors.has(next)) break;
+      // Newest first: once a page reaches past the window, older pages cannot
+      // add a recent session.
+      if (!includeOlder && (page.data.at(-1)?.time?.updated ?? 0) < Date.now() - recentWindowMs) break;
+      seenCursors.add(next);
+      cursor = next;
+    }
+    const cutoff = includeOlder ? 0 : Date.now() - recentWindowMs;
+    return sessions.filter((session) => session?.id && !session.parentID && (session.time?.updated ?? 0) >= cutoff);
+  },
+  readActiveSessionIds: () => workBoardActivityProbe.fetchActiveSessionStatuses(),
+  readQueueSnapshot: () => messageQueueRuntime.buildSnapshot(),
+  readQueueEnabled: (directory) => messageQueueRuntime.readQueueSettings({ directory }).then((settings) => settings.enabled),
+});
 
 // Sessions an agent dispatched with `returnResult` report back to it: their
 // final answer lands in the dispatching session and wakes it.
@@ -1188,6 +1251,15 @@ globalMessageStreamHub.subscribeEvent((event) => {
     sessionGoalRuntime.processPayload(payload, directory || payload.properties?.directory || '');
     contextObligatoryRuntime.processPayload(payload, directory || payload.properties?.directory || '');
     linearSessionStatusRuntime.processPayload(payload);
+    // The board's projection invalidates the activity of the session each
+    // event names and tells every open board to re-read it.
+    const boardDirectory = workBoardProjectionRuntime.processPayload(payload, directory || payload.properties?.directory || '');
+    if (boardDirectory) {
+      broadcastOpenChamberUiEvent({
+        type: 'openchamber:work-board.updated',
+        properties: { directory: boardDirectory },
+      });
+    }
   }
 });
 
@@ -2544,6 +2616,10 @@ async function main(options = {}) {
     worktreeBootstrapStore,
     messageQueueRuntime,
     routingRuntime,
+    // The board's projection is built once at startup, next to the queue it
+    // reads; the routes only serve it and share its store.
+    workBoardStore,
+    workBoardProjectionRuntime,
   });
 
   // After bootstrap: the upgrade gate needs the real UI auth controller.

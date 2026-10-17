@@ -51,6 +51,7 @@ const deletedCleanupIdentities: Array<{ runtimeKey: string; directory: string; s
 const movedSessionDirectories: Array<{ sessionID: string; directory: string }> = []
 const globalArchivedSessions: Session[] = []
 let runtimeKey = "default-runtime"
+let queuedAdmission: { sessionId: string; directory: string; messageId: string } | null = null
 const AMBIGUOUS_TRANSPORT_FAILURE = Symbol("ambiguous-transport-failure")
 
 const notFound = (kind: string) => Object.assign(new Error(`${kind}NotFoundError`), { status: 404 })
@@ -274,6 +275,12 @@ mock.module("@/stores/useGlobalSessionsStore", () => ({
 
 mock.module("@/lib/runtime-fetch", () => ({
   runtimeFetch: async (path: string, init?: { body?: string }) => {
+    if (path === '/api/message-queue') {
+      return Response.json({ sessions: queuedAdmission ? [{
+        sessionId: queuedAdmission.sessionId, directory: queuedAdmission.directory,
+        items: [{ messageId: queuedAdmission.messageId }],
+      }] : [] })
+    }
     const payload = JSON.parse(String(init?.body ?? "{}"))
     openchamberRouteRequests.push({ path, body: payload })
     beforeArchiveRouteResolve?.(path)
@@ -1372,6 +1379,7 @@ describe("updateSessionTitle live state", () => {
 describe("optimisticSend target directory", () => {
   beforeEach(() => {
     replyCalls.length = 0
+    queuedAdmission = null
   })
 
   test("passes the prompt directory to optimistic state during session switch races", async () => {
@@ -1411,7 +1419,7 @@ describe("optimisticSend target directory", () => {
     expect(add.sessionID).toBe("session-new")
     expect(add.message.id).toBe(sentMessageID)
     expect(optimisticRemove).toBe(null)
-    expect(targetStore.getState().session_status["session-new"]?.type).toBe("busy")
+    expect(targetStore.getState().session_status["session-new"]).toBe(undefined)
     expect(currentStore.getState().session_status["session-new"]).toBe(undefined)
   })
 
@@ -1780,7 +1788,7 @@ describe("optimisticSend target directory", () => {
     expect(finalSendCalled).toBe(false)
     expect(optimisticRemove).not.toBeNull()
     expect((optimisticRemove as unknown as OptimisticRemoveCall).sessionID).toBe("session-race")
-    expect(targetStore.getState().session_status["session-race"]?.type).toBe("idle")
+    expect(targetStore.getState().session_status["session-race"]).toBe(undefined)
   })
 
   test("confirms an ambiguous send failure with a recent message refetch", async () => {
@@ -1906,7 +1914,82 @@ describe("optimisticSend target directory", () => {
     expect((optimisticRemove as OptimisticRemoveCall | null)?.sessionID).toBe("session-missing")
     expect(optimisticConfirm).toBe(null)
     expect(replyCalls.filter((call) => call.method === "session.messages").every((call) => call.params.limit === 30)).toBe(true)
-    expect(targetStore.getState().session_status["session-missing"]?.type).toBe("idle")
+    expect(targetStore.getState().session_status["session-missing"]).toBe(undefined)
+  })
+
+  test("confirms a queued prompt after a lost admission response without inventing activity", async () => {
+    const targetStore = createStore({})
+    const childStores = createChildStores([["/target/project", targetStore]])
+    const removed: string[] = []
+    const confirmed: string[] = []
+    let messageId = ''
+    const { optimisticSend, setActionRefs, setOptimisticRefs } = await import('./session-actions')
+    setActionRefs(childStores, () => '/target/project')
+    setOptimisticRefs(() => {}, input => { removed.push(input.messageID) }, input => { confirmed.push(input.messageID) })
+
+    await optimisticSend({
+      sessionId: 'session-queued', directory: '/target/project', content: 'Build this',
+      send: async id => {
+        messageId = id
+        queuedAdmission = { sessionId: 'session-queued', directory: '/target/project', messageId: id }
+        throw Object.assign(new Error('gateway timeout'), { status: 504 })
+      },
+    })
+
+    expect(confirmed).toEqual([messageId])
+    expect(removed).toEqual([messageId])
+    expect(replyCalls.some(call => call.method === 'session.messages')).toBe(false)
+    expect(targetStore.getState().session_status['session-queued']).toBe(undefined)
+  })
+
+  test('queued acceptance withdraws the optimistic prompt so cancellation cannot leave a ghost', async () => {
+    const targetStore = createStore({})
+    const childStores = createChildStores([["/target/project", targetStore]])
+    const removed: string[] = []
+    const { optimisticSend, setActionRefs, setOptimisticRefs } = await import('./session-actions')
+    setActionRefs(childStores, () => '/target/project')
+    setOptimisticRefs(() => {}, input => { removed.push(input.messageID) })
+    let messageId = ''
+    await optimisticSend({
+      sessionId: 'session-queued', directory: '/target/project', content: 'Build this',
+      send: async (id, _context, onQueued) => { messageId = id; onQueued() },
+    })
+    expect(removed).toEqual([messageId])
+  })
+
+  test('queued acceptance preserves a real prompt echoed before the response', async () => {
+    const targetStore = createStore({})
+    const childStores = createChildStores([["/target/project", targetStore]])
+    const removed: string[] = []
+    const { optimisticSend, setActionRefs, setOptimisticRefs } = await import('./session-actions')
+    setActionRefs(childStores, () => '/target/project')
+    setOptimisticRefs(() => {}, input => { removed.push(input.messageID) })
+    await optimisticSend({
+      sessionId: 'session-queued', directory: '/target/project', content: 'Build this',
+      send: async (id, _context, onQueued) => {
+        targetStore.setState({ message: { 'session-queued': [{ id, role: 'user', sessionID: 'session-queued', time: { created: 10 } }] } })
+        onQueued()
+      },
+    })
+    expect(removed).toEqual([])
+    expect(targetStore.getState().message['session-queued']).toHaveLength(1)
+  })
+
+  test("a rejected admission preserves live activity received while the request was pending", async () => {
+    const targetStore = createStore({})
+    const childStores = createChildStores([["/target/project", targetStore]])
+    const { optimisticSend, setActionRefs, setOptimisticRefs } = await import('./session-actions')
+    setActionRefs(childStores, () => '/target/project')
+    setOptimisticRefs(() => {}, () => {})
+
+    await expect(optimisticSend({
+      sessionId: 'session-live', directory: '/target/project', content: 'Build this',
+      send: async () => {
+        targetStore.setState({ session_status: { 'session-live': { type: 'busy' } } })
+        throw new Error('admission unavailable')
+      },
+    })).rejects.toThrow('admission unavailable')
+    expect(targetStore.getState().session_status['session-live']?.type).toBe('busy')
   })
 })
 

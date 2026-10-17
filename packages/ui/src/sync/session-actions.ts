@@ -17,6 +17,7 @@ import { toJsonRecord } from "@/lib/opencode/json"
 import { ascendingId } from "@/lib/opencode/ids"
 import { mergeSessionDirectoryMetadata, resolveGlobalSessionDirectory, useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
 import { useConfigStore } from "@/stores/useConfigStore"
+import { hasQueuedPrompt, isServerOwnedMessageQueue } from "@/lib/messages/queueAdmission"
 import { waitForOpenCodeStartup } from "./opencode-startup-gate"
 import { registerSessionDirectory } from "./sync-refs"
 import { useGlobalSessionStatusStore } from "./global-session-status"
@@ -1954,7 +1955,7 @@ export async function optimisticSend(input: {
    * The actual API call. Receives the optimistic message id and the context
    * with its optimistic ids, so the server's records reconcile in place.
    */
-  send: (messageID: string, context: SyntheticContextInput[]) => Promise<void>
+  send: (messageID: string, context: SyntheticContextInput[], onQueued: () => void) => Promise<void>
 }): Promise<void> {
   if (!_optimisticAdd || !_optimisticRemove) {
     throw new Error("Optimistic refs not set — is useSync() mounted?")
@@ -2078,14 +2079,27 @@ export async function optimisticSend(input: {
   })
   input.onOptimisticInsert?.()
 
-  // Set busy status
-  const current = store.getState()
-  store.setState({
-    session_status: {
-      ...current.session_status,
-      [input.sessionId]: { type: "busy" as const },
-    },
-  })
+  // Server admission can queue this prompt; live events establish execution.
+  if (!isServerOwnedMessageQueue()) {
+    const current = store.getState()
+    store.setState({
+      session_status: {
+        ...current.session_status,
+        [input.sessionId]: { type: "busy" as const },
+      },
+    })
+  }
+
+  const settleQueuedPrompt = () => {
+    const visible = store.getState().message[input.sessionId]?.find(message => message.id === messageID)
+    // A fast dispatch may already have replaced the optimistic record.
+    if (!visible || visible === optimisticMessage) {
+      optimisticRemove({ sessionID: input.sessionId, directory: targetDirectory, messageID })
+    }
+    for (const optimisticID of optimisticIDs) {
+      optimisticConfirm?.({ sessionID: input.sessionId, directory: targetDirectory, messageID: optimisticID })
+    }
+  }
 
   try {
     let sentContext = context
@@ -2099,7 +2113,9 @@ export async function optimisticSend(input: {
       }
     }
     assertRuntimeUnchanged()
-    await input.send(messageID, sentContext)
+    let queued = false
+    await input.send(messageID, sentContext, () => { queued = true })
+    if (queued) settleQueuedPrompt()
   } catch (error) {
     const status = getErrorStatus(error)
     const ambiguousFailure = isAmbiguousSendFailure(error)
@@ -2108,7 +2124,11 @@ export async function optimisticSend(input: {
       : null
 
     if (acceptedRecords) {
-      materializeConfirmedSendRecords(store, input.sessionId, optimisticIDs, acceptedRecords)
+      if (acceptedRecords.kind === 'queued') {
+        settleQueuedPrompt()
+        return
+      }
+      materializeConfirmedSendRecords(store, input.sessionId, optimisticIDs, acceptedRecords.records)
       for (const optimisticID of optimisticIDs) {
         optimisticConfirm?.({
           sessionID: input.sessionId,
@@ -2169,7 +2189,7 @@ export async function optimisticSend(input: {
       session,
       message,
       part,
-      session_status: {
+      session_status: isServerOwnedMessageQueue() ? rollbackState.session_status : {
         ...rollbackState.session_status,
         [input.sessionId]: { type: "idle" as const },
       },
@@ -2182,7 +2202,7 @@ async function fetchRecentSendConfirmationRecords(
   sessionId: string,
   messageID: string,
   directory?: string | null,
-): Promise<Array<{ info: Message; parts: Part[] }> | null> {
+): Promise<{ kind: 'queued' } | { kind: 'history'; records: Array<{ info: Message; parts: Part[] }> } | null> {
   // Bounded: a connection that never returns must still let the send fail
   // rather than hang the composer.
   const reconnectDeadline = Date.now() + SEND_CONFIRMATION_RECONNECT_TIMEOUT_MS
@@ -2192,6 +2212,13 @@ async function fetchRecentSendConfirmationRecords(
 
   for (let attempt = 0; attempt < SEND_CONFIRMATION_REFETCH_ATTEMPTS; attempt += 1) {
     if (attempt > 0) await wait(SEND_CONFIRMATION_REFETCH_BASE_RETRY_MS * 2 ** (attempt - 1))
+    if (isServerOwnedMessageQueue()) {
+      try {
+        if (await hasQueuedPrompt(sessionId, messageID, directory)) return { kind: 'queued' }
+      } catch {
+        // History may still confirm a prompt whose queue read is unavailable.
+      }
+    }
     try {
       const page = await opencodeClient.getSessionMessages(
         sessionId,
@@ -2200,7 +2227,7 @@ async function fetchRecentSendConfirmationRecords(
       )
       const records = page.items.filter((record) => !!record.info?.id)
       if (records.some((record) => record.info.id === messageID)) {
-        return records
+        return { kind: 'history', records }
       }
     } catch {
       // Confirmation is best-effort; if it fails, keep the original send error path.

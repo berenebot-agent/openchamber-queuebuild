@@ -21,6 +21,9 @@ import { registerMessageSearchRoutes } from '../message-search/routes.js';
 import { registerPermissionAutoAcceptRoutes } from '../permission-auto-accept/runtime.js';
 import { registerMessageQueueRoutes } from '../message-queue/runtime.js';
 import { registerRoutingPromptRewrite, registerRoutingRoutes } from '../routing/routes.js';
+import { createAdmissionFacts } from '../message-queue/admission.js';
+import { registerQueuePromptAdmission } from '../message-queue/prompt-admission-routes.js';
+import { unwrapOpenCodeResponse } from './response-envelope.js';
 import { registerConfigEntityRoutes } from './config-entity-routes.js';
 import { registerSettingsUtilityRoutes } from './core-routes.js';
 import { registerProjectIconRoutes } from './project-icon-routes.js';
@@ -262,13 +265,18 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       messageQueueRuntime,
       routingRuntime,
       globalEventHub,
+      workBoardStore,
+      workBoardProjectionRuntime,
       openchamberVersion,
     } = routeDependencies;
 
     registerWorkBoardRoutes(app, {
-      store: createWorkBoardStore({ dataDir: openchamberDataDir, fs: fsPromises }),
+      // One store instance, the one the projection reads: it is the board's
+      // only writer and caches the parsed card list.
+      store: workBoardStore ?? createWorkBoardStore({ dataDir: openchamberDataDir, fs: fsPromises }),
       resolveProjectDirectory,
       messageQueueRuntime,
+      workBoardProjection: workBoardProjectionRuntime?.projection,
     });
 
     registerSettingsUtilityRoutes(app, {
@@ -285,6 +293,26 @@ export const createFeatureRoutesRuntime = (dependencies) => {
     // Before the generic OpenCode proxy: swallows the `openchamber/auto` model
     // switch and routes the sends that follow it.
     registerRoutingPromptRewrite(app, routingRuntime);
+    // Before the generic OpenCode proxy too: a prompt the client explicitly
+    // asked to queue is answered here instead of reaching OpenCode now.
+    registerQueuePromptAdmission(app, {
+      messageQueueRuntime,
+      facts: createAdmissionFacts({
+        openCodeFetch: async (fetchPath, { directory } = {}) => {
+          const params = new URLSearchParams();
+          if (directory) params.set('directory', directory);
+          const search = params.toString();
+          const base = buildOpenCodeUrl(fetchPath, '');
+          const response = await fetch(search ? `${base}?${search}` : base, {
+            method: 'GET',
+            headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders() },
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (!response.ok) throw new Error(`OpenCode ${fetchPath} failed with ${response.status}`);
+          return unwrapOpenCodeResponse(await response.json().catch(() => null));
+        },
+      }),
+    });
 
     registerOpenCodeRoutes(app, {
       crypto,

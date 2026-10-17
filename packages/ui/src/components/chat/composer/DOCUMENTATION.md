@@ -144,7 +144,7 @@ and reloads. It receives the composer's main-session queue target instead of
 resolving the global selection, so a chat pinned in the side panel addresses
 its own queue. It stays visible under the form and permission docks.
 
-`selectComposerQueue` in the submission builder excludes server-scheduled items
+`selectComposerQueue` in the submission builder excludes server-scheduled and managed Build items
 before the composer counts manual content or reads captured send configuration.
 Mixed queues use only ordinary items for manual send; a scheduled-only queue
 cannot trigger an empty composer send. Only the send button flushes the queue
@@ -153,22 +153,17 @@ nothing, so a stray keystroke cannot push the queue into a running turn
 (#4749). Scheduled items stay visible in the
 queue rows with reorder and remove, but no edit or send action.
 
-A Build-agent prompt for a directory that opted into the project build queue
-routes to that queue instead of sending, so the server can run one build at a
-time per project. The rule is `shouldQueueBuildPrompt` in
-`submit/buildQueueRouting.ts`, read the same way for a send into an existing
-session and for the first message of a new one. The first message has no
-session id yet, so its draft is materialized first and the prompt is queued
-against the created session. Plan-agent prompts, shell mode, the BTW composer,
-local slash commands, and an explicit steer (`delivery`, set only for a session
-that is not idle) are not intercepted: a steer belongs to the session's own
-running turn, and only the queue is serialized.
+The server classifies Build submissions and admits them to the enabled
+project queue. First prompts and existing-session prompts use the normal send
+path; explicit queue buttons capture content and send configuration in the
+message queue. Neither path sets a client-owned Build routing flag or reads
+browser queue preferences. The server validates submission context and owns
+special-mode and steering decisions. VS Code-only delivery stays local.
 
-`BuildQueueBanner`, the in-session build row above the queue, cancels a waiting
-build through `messageQueueStore.cancelBuild()` and puts the removed prompt
-back into the composer as an active draft — text, chips and attachments — the
-same restore the queued-message Edit uses. The project-wide queue pane and the
-work board cancel only, since the build there may belong to another session.
+`BuildQueueBanner`, the compact indicator above the session queue, links to the
+session's project on the Work Board. Build queue mutations live on the board;
+there is no RHS Build Queue pane. The unrelated per-session message queue
+keeps its own edit, send and removal controls.
 
 `BackgroundShellsStrip` lists the commands that went to the background (not the ones
 a turn is waiting for, see `background` in `sync/background-shells.ts`) of

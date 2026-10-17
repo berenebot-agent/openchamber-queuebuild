@@ -491,30 +491,18 @@ describe("server-owned message queue", () => {
     expect(calls[1]).toEqual({ method: "DELETE", path: "/api/message-queue/sessions/session-1", body: undefined })
   })
 
-  test("cancelBuild sends the cancellation and hands the build back for restore", async () => {
-    useMessageQueueStore.setState({ queuedMessages: { [key]: [{ id: "build-1", content: "planned task", text: "planned task", createdAt: 1, buildQueue: true, sendConfig: { providerID: "p", modelID: "m" } }] } })
-    respond = () => json({ revision: 15, session: session([]), item: serverItem("build-1", "planned task", { buildQueue: true }) })
-    const restored = await useMessageQueueStore.getState().cancelBuild(target, "build-1")
-
-    expect(calls[0]).toEqual({ method: "DELETE", path: "/api/message-queue/sessions/session-1/items/build-1", body: undefined })
-    expect(restored?.content).toBe("planned task")
-    expect(useMessageQueueStore.getState().queuedMessages[key]).toBe(undefined)
-  })
-
-  test("cancelBuild returns null when the server no longer holds the item", async () => {
-    respond = () => json({ revision: 16, session: session([]) })
-    const restored = await useMessageQueueStore.getState().cancelBuild(target, "gone-1")
-    expect(restored).toBeNull()
-    expect(calls[0]?.method).toBe("DELETE")
-  })
-
-  test("a failed cancelBuild re-reads the server instead of guessing", async () => {
-    useMessageQueueStore.setState({ queuedMessages: { [key]: [{ id: "build-1", content: "planned task", text: "planned task", createdAt: 1, buildQueue: true, sendConfig: { providerID: "p", modelID: "m" } }] } })
-    respond = (call) => (call.method === "DELETE"
-      ? new Response(JSON.stringify({ error: "build is active or awaiting review" }), { status: 409 })
-      : json({ revision: 17, sessions: [session([])] }))
-    await expect(useMessageQueueStore.getState().cancelBuild(target, "build-1")).rejects.toThrow()
-    expect(useMessageQueueStore.getState().queuedMessages[key]).toBe(undefined)
+  test("clearing ordinary messages retains hidden project Build items", async () => {
+    useMessageQueueStore.setState({ queuedMessages: { [key]: [
+      { id: "build-1", content: "planned task", text: "planned task", createdAt: 1, buildQueue: true },
+      { id: "q1", content: "follow up", text: "follow up", createdAt: 2 },
+    ] } })
+    respond = () => json({ revision: 15, session: session([serverItem("build-1", "planned task", { buildQueue: true })]) })
+    useMessageQueueStore.getState().clearQueue(target)
+    expect(useMessageQueueStore.getState().queuedMessages[key]?.map(item => item.id)).toEqual(["build-1"])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(calls[0]).toEqual({ method: "DELETE", path: "/api/message-queue/sessions/session-1", body: undefined })
+    expect(useMessageQueueStore.getState().queuedMessages[key]?.map(item => item.id)).toEqual(["build-1"])
   })
 
   test("reorderQueue sends the complete new order", async () => {

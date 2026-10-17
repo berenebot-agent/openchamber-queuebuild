@@ -12,15 +12,103 @@ UI-side queue and foreground auto-send hook.
 ## Files
 
 - `runtime.js` — `createMessageQueueRuntime(...)` (state, persistence,
-  dispatch loop, event handling) and `registerMessageQueueRoutes(app, runtime)`.
+  dispatch loop, event handling, build-queue settings, admission) and
+  `registerMessageQueueRoutes(app, runtime)`.
+- `admission.js` — the queue's own classification of a wire submission: the
+  execution-start guard, the admission decision, and the response shape.
+- `build-classification.js` — which submissions are project Build work, from
+  live server facts.
+- `prompt-admission-routes.js` — the middleware mounted ahead of the OpenCode
+  proxy that admits or refuses an execution-starting session call.
 - `runtime.test.js` — delivery, idleness gates, retries, holds, persistence,
-  concurrency with in-flight sends, slash commands, and project knowledge.
+  concurrency with in-flight sends, slash commands, project knowledge, build
+  lanes, settings, admission and the per-session clear.
+- `admission.test.js` — classification, guard and response shapes.
+- `prompt-admission-routes.http.test.js` — what the middleware queues, refuses
+  and forwards, through a real Express stack.
 
 Wiring: created in `server/index.js` after the global event hub and the
 session-knowledge runtime; routes registered in
 `opencode/feature-routes-runtime.js` (before the generic OpenCode proxy) with
 JSON bodies enabled in `opencode/core-routes.js`; stopped by
 `opencode/shutdown-runtime.js`.
+
+## Queue enablement
+
+The queue is a property of the **project**, stored in its own config file
+(`packages/web/server/lib/projects/project-config.js`, key
+`buildQueueEnabled`). Only an explicit off is written; a project that never
+chose has no key and reads as enabled. The whole checkout shares one setting,
+so every worktree of a project answers the same way while each worktree keeps
+its own lane and lease. The directory a request names cannot change the answer:
+the server resolves it to its canonical project first, so a prompt cannot opt
+itself out of its session's queue by asking with another directory.
+
+`GET /api/build-queue/settings?directory=…` answers `{ enabled }`;
+`PUT /api/build-queue/settings` with `{ directory, enabled }` saves it and
+answers `{ enabled }`. A directory the server cannot place in a project is 400.
+Turning the queue off is refused with 409 while a build is running, being
+prepared, being dispatched, or waiting for that project — those builds would
+otherwise be stranded.
+
+## Admission
+
+A client can reach OpenCode's own session routes, so a `buildQueue` flag it
+sends is a display hint, never authority. The server decides from live facts:
+
+- the **session's agent** (`session.agent`, else the server's default agent),
+- whether the project's queue is enabled,
+- and the shape of the request (prompt, command, shell, synthetic, skill).
+
+Two paths use that decision.
+
+**Capture.** A request marked with the header `x-openchamber-build-queue:
+admit` is taken into the queue instead of running now: `POST
+/api/session/:id/prompt` and `/command`. The shared UI marks every prompt and
+command it sends (`lib/opencode/client.ts`), never a context synthetic: the
+marker states "route this submission", and the classification above still decides
+whether it is Build work. The item keeps the wire identity the
+prompt arrived with — its message id, files, agents, skills and metadata — and
+dispatch replays exactly that, so the client's optimistic row reconciles when
+the real admission lands. The prompt route answers the full `SessionInbox.User`
+record the SDK decodes, plus a top-level `queued: true` and the headers
+`x-openchamber-queued` / `x-openchamber-queued-id`, which is how a sender learns
+its prompt was queued and which optimistic record can settle (a queued prompt is
+not a running turn, so the sender leaves live status to the event stream).
+Context-only synthetics (`resume: false`) stay unmarked and are admitted
+immediately, exactly as a direct send admits them. The
+answer is idempotent by the prompt's own message id: a repeat while the item is
+waiting, in flight, or already dispatched answers without admitting it twice.
+`item.messageId` and `item.messageIds` carry those ids in public snapshots, so a
+client that lost the response can confirm admission from the queue.
+Prompts merged into one lane slot each keep their own id and payload in
+`item.acceptedPrompts`, and dispatch sends them in order.
+
+**Guard.** A request that would start execution on a Build session of an
+enabled project, and was not captured, is refused with 409 instead of running
+outside the lane. OpenCode starts execution by default and `resume: false` is
+the only suppressor, so the guard reads the default as starting: `prompt`,
+`command`, `shell`, `synthetic` (unless `resume: false`), and `skill` (unless
+`resume: false`) qualify, as does `interrupt?resume=true`. A `move`, an inbox
+`steer`, or a cancellation is refused while the queue holds something for that
+session (`hasManagedWorkFor`), so a project's work cannot be walked away from.
+Deliberately **not** guarded: `compact` (the compaction agent is its own
+legitimate turn), `generate` (does not mutate history), and the benign
+settings, agent, model, view, instructions and revert calls, none of which start
+a turn. Failures are conservative where the queue is the owner: an unreadable
+setting, an unreadable session, or an unknown agent refuses, because "unknown"
+there could be a bypass; a request with no project to place it in, or a project
+with the queue off, passes untouched.
+
+**Delivery.** Upstream steers by default, and the idleness probe is not atomic
+with the send: a direct turn that starts in the gap would swallow a queued build
+as a steer. Every prompt the queue dispatches for a build item therefore states
+`delivery: 'queue'`, which parks it for the next turn instead. The same applies
+to a forced build: it should start its own turn rather than steer into the
+project's running one. An admitted prompt's own delivery is not replayed — a
+steer was already refused a queue entry — so the stated value is always `queue`.
+Ordinary queued messages are left as they were, since a steer into a running
+turn is a legitimate thing for the user to have asked for.
 
 ## Auto routing
 
@@ -51,6 +139,9 @@ send never re-resolves mutable UI state:
     { kind: 'synthetic', text },                         // handed to the composer by another surface
   ],
   sendConfig: { providerID, modelID, agent?, variant? }   // required
+  messageId?,     // the client's own prompt id, for a prompt admitted from the wire
+  acceptedPrompts?, // [{ messageId, admission }]: every prompt this slot owes, in order
+  admission?      // { kind, delivery, agents, skills, metadata, resume, leading }: how to replay it
 }
 ```
 
@@ -109,7 +200,9 @@ bumped on every mutation; clients use it to reject stale snapshots.
 
 In-memory only, deliberately: the in-flight item (`sendingId`), retry
 backoff, abort timestamps, and holds. A restart has no in-flight sends; a
-persisted "sending" flag would strand a message forever.
+persisted "sending" flag would strand a message forever. The admission
+bookkeeping (which prompt ids were already dispatched) is in-memory too: it is a
+dedupe window for a lost response, not durable state, and the window is bounded.
 
 ## Delivery loop
 
@@ -177,11 +270,8 @@ persisted "sending" flag would strand a message forever.
 ### Project build queue
 
 The fork extends this queue with a project-wide lane for `build`-agent prompts
-(`item.buildQueue`, a `buildOrder`, one lease per directory). The composer
-captures those prompts, including the first prompt of a new session, which it
-queues against a session it creates first
-(`packages/ui/src/components/chat/composer/submit/buildQueueRouting.ts`).
-One session holds one lane slot. A Build prompt for a session that already
+(`item.buildQueue`, a `buildOrder`, one lease per directory). One session holds
+one lane slot. A Build prompt for a session that already
 waits appends to the item that session holds — its text, attachments and
 context join it, and its id, place in the project order, pause state and
 captured selection stay — so a session never appears twice in the pane however
@@ -207,10 +297,11 @@ requires:
   lease (`activeBuilds`), and
 - this item is the oldest pending build across every session of that directory
   (`pendingBuilds(directory)[0]`), and
-- the working tree satisfies the policy selected in the build queue pane.
+- the working tree satisfies the policy selected in Settings.
 
-The queue pane's "Queue behavior" selector applies to every project on the
-instance, including when its current queue is empty. It has 3 policies:
+The Git policy selector in OpenChamber Settings (Chat page) applies to every
+project on the instance, including when its current queue is empty. It has 3
+policies:
 
 - **Allow continue**, `continue`, skips Git checks and creates no commits.
 - **Commit staged changes using model**, `commit`, prepares a clean repository
@@ -325,26 +416,44 @@ A waiting build can be started now, outside the queue lane, with
 lease, its dispatch order and the Git policy are all skipped: the item is sent to
 its own idle session through the same `sendItem` path and then removed from the
 queue. It takes no lease, so the gate stays free and the rest of the queue keeps
-dispatching. It is never parked for review, because the queue does not own it.
+dispatching.
 
 The forced prompt carries no serialized-build instruction: `sendItem` skips
 `BUILD_INSTRUCTION` for it, since the model is not running inside the queue. The
-queue pane and the work board show it above the waiting rows, marked as outside
-the queue, until its session's own turn is done.
+work board shows it above the waiting rows, marked as outside the queue, until
+its session's own turn is done.
 
-`GET /api/build-queue` reports these in `forced` (`sessionId`, `directory`,
-`startedAt`), separate from the lease in `active`. They are in-memory only, are
-never persisted, and clear when the session's turn completes or the session is
-deleted. A force whose prompt cannot be confirmed keeps the item queued and
-answers with `warning`, because the prompt may have started and there is no lease
-to park.
+Every force is reserved before its prompt leaves, and that reservation is written
+to the queue file first: a request arriving while the probes run, or a second one
+after them, is refused (`409`), so one item cannot be dispatched twice, and a
+crash cannot replay a prompt with no record of it. A confirmed send moves the
+reservation to the in-memory `forced` list. A send that cannot be confirmed
+leaves both the item queued and the reservation in place, flagged
+`needsReview: true` with its `itemId` and `action: 'resolve'`; that state survives
+a restart (`reviewReason: 'restart-during-force'`) and is never retried
+automatically. The user clears it with `POST /api/build-queue/resolve` (`skip`
+plus the named `itemId`), which drops the marker and leaves the queued item
+alone; a `retry` is not accepted for a force.
+
+`GET /api/build-queue` reports running forces and unresolved reservations
+together in `forced`, separate from the lease in `active`. A resolved force
+clears when the session's turn completes or the session is deleted.
+
+**Not covered by admission.** Prompts the server itself sends straight to
+OpenCode — the session-goal continuation, and the control API's
+`POST /api/openchamber/sessions[/:id/send]` dispatch — do not pass through the
+middleware, which sits on the OpenChamber HTTP proxy. They keep their previous
+behavior: they run immediately rather than joining the lane. A Build session
+started from the control API therefore runs its first prompt outside the queue;
+use the composer, which the queue covers.
 
 The saved setting applies without a restart. `createMessageQueueRuntime` takes
 `settingsFilePath` to point at another instance's file (tests, embedders).
 
 Web, Electron, hosted mobile and Capacitor use this server-owned policy through
-their queue pane. VS Code keeps the build queue unavailable and retains its
-existing foreground message delivery behavior.
+the Work Board, which is the one queue management surface. VS Code keeps the
+build queue unavailable and retains its existing foreground message delivery
+behavior.
 
 A 2xx HTML app-shell response is a failed dispatch, not acceptance. The queued item stays persisted and uses the existing retry backoff. Project knowledge is recorded as delivered only after the prompt or command is accepted.
 
@@ -367,6 +476,8 @@ allowlists.
 | Route | Purpose |
 |---|---|
 | `GET /api/message-queue` | Full snapshot `{ revision, sessions[] }` |
+| `GET /api/build-queue/settings?directory=` | `{ enabled }` for the project that directory belongs to |
+| `PUT /api/build-queue/settings` | `{ directory, enabled }` → `{ enabled }`; 409 while that project's builds are running or waiting |
 | `POST .../sessions/:id/items` | Append `{ directory, item }`; returns `{ revision, session, itemId }` and arms a dispatch (the session may already be idle) |
 | `DELETE .../sessions/:id/items/:itemId` | Remove; `409` while that item is in flight. Returns `{ revision, session, item? }` — the removed item's full payload — so the composer can restore a cancelled build instead of losing the prompt |
 | `POST .../sessions/:id/items/:itemId/take` | Remove and return the full item (payloads included); `404`/`409` |
@@ -374,7 +485,7 @@ allowlists.
 | `PUT .../sessions/:id/order` | `{ itemIds }` must be a complete permutation |
 | `PUT /api/build-queue/sessions/:id/items/:itemId/pause` | `{ paused: boolean }`; pending managed builds only |
 | `POST /api/build-queue/force` | `{ directory, sessionId, itemId }`; start a waiting build now, outside the lease and Git policy, and remove it from the queue |
-| `DELETE .../sessions/:id` | Clear; the in-flight item stays |
+| `DELETE .../sessions/:id` | Clear; the in-flight item and every managed Build item stay (the project queue owns those; use `/api/build-queue` to cancel one) |
 | `PUT .../sessions/:id/hold` | `{ held, ttlMs? }` |
 
 Every mutation broadcasts `openchamber:message-queue.updated` with
@@ -390,13 +501,13 @@ session is deleted or evicted).
 
 Build-lane changes additionally broadcast `openchamber:build-queue.updated` with
 `{ directory }` to every connected client. It carries no snapshot because the
-build pane and the work board already read `GET /api/build-queue`, and the queue
+work board already reads `GET /api/build-queue`, and the queue
 is the authority for order, pause state and the running lease. `wakeProject`
 emits it, so every build mutation reaches it, and `enqueue` calls it for a
 newly queued build; the preparation lifecycle emits its own as phases advance.
 Clients re-read on that event instead of waiting for the next poll, so a build
-appears in the pane and on the board when it was submitted. The poll remains as
-the reconnect and missed-event fallback.
+appears on the board when it was submitted. The read also runs on a control-stream
+reconnect, which is the missed-event fallback.
 
 Limits: 20 items per session, 50 sessions (oldest evicted, never one with an
 item in flight), 200k characters of content; attachment payloads are bounded

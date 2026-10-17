@@ -58,8 +58,8 @@ export interface QueuedInput {
 }
 
 export const selectComposerQueue = (messages: readonly QueuedMessage[]): readonly QueuedMessage[] =>
-    messages.some((message) => message.scheduledTask)
-        ? messages.filter((message) => !message.scheduledTask)
+    messages.some((message) => message.scheduledTask || message.buildQueue)
+        ? messages.filter((message) => !message.scheduledTask && !message.buildQueue)
         : messages;
 
 /** An issue, PR or tracker item attached to the composer, as it is sent. */

@@ -669,6 +669,11 @@ export const LOCAL_DEVICE_KEYS = [
   'alwaysShowScrollbars',
   'agentMemoryViewedAt',
   'projectContextSidebarWidth',
+  // Work Board view preferences: which tabs this device had open, whether it
+  // shows older sessions, and the last project it looked at.
+  'workBoardProjectTabsByRuntime',
+  'workBoardOlderSessions',
+  'workBoardProjectId',
 ] as const;
 
 /**

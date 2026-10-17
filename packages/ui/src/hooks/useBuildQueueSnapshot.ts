@@ -1,44 +1,53 @@
 import React from 'react';
+import { z } from 'zod';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
 
-export interface BuildQueueEntry {
-  id: string;
-  sessionId: string;
-  directory: string;
-  content: string;
-  createdAt: number;
-  order: number;
-  paused: boolean;
-}
+const buildQueueEntrySchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  directory: z.string(),
+  content: z.string(),
+  createdAt: z.number(),
+  order: z.number(),
+  paused: z.boolean(),
+});
 
-interface BuildQueueLease {
-  directory: string;
-  sessionId: string;
-  itemId: string;
-  startedAt: number;
-  needsReview?: boolean;
-  reviewReason?: string;
-  retryAvailable?: boolean;
-}
+const buildQueueLeaseSchema = z.object({
+  directory: z.string(),
+  sessionId: z.string(),
+  itemId: z.string(),
+  startedAt: z.number(),
+  needsReview: z.boolean().optional(),
+  reviewReason: z.string().optional(),
+  retryAvailable: z.boolean().optional(),
+});
 
-export interface BuildQueueSnapshot {
-  revision: number;
-  active: BuildQueueLease[];
-  forced?: BuildQueueForced[];
-  queued: BuildQueueEntry[];
-  issues: Array<{ directory: string; issue: string }>;
-  preparation?: Array<{ directory: string; phase: 'initializing' | 'staging' | 'generating' | 'committing' }>;
-  commits?: Array<{ directory: string; hash: string; subject: string }>;
-}
+const buildQueueForcedSchema = z.object({
+  directory: z.string(),
+  sessionId: z.string(),
+  startedAt: z.number(),
+});
 
-/** A build a user forced to start outside the queue lane. Display only. */
-interface BuildQueueForced {
-  directory: string;
-  sessionId: string;
-  startedAt: number;
-}
+const buildQueueSnapshotSchema = z.object({
+  revision: z.number(),
+  active: z.array(buildQueueLeaseSchema),
+  queued: z.array(buildQueueEntrySchema),
+  issues: z.array(z.object({ directory: z.string(), issue: z.string() })),
+  forced: z.array(buildQueueForcedSchema).optional(),
+  preparation: z.array(z.object({
+    directory: z.string(),
+    phase: z.enum(['initializing', 'staging', 'generating', 'committing']),
+  })).optional(),
+  commits: z.array(z.object({
+    directory: z.string(),
+    hash: z.string(),
+    subject: z.string(),
+  })).optional(),
+});
+
+type BuildQueueSnapshot = z.infer<typeof buildQueueSnapshotSchema>;
 
 export function useBuildQueueSnapshot(enabled = true) {
   const [snapshot, setSnapshot] = React.useState<BuildQueueSnapshot | null>(null);
@@ -52,12 +61,10 @@ export function useBuildQueueSnapshot(enabled = true) {
     try {
       const response = await runtimeFetch('/api/build-queue');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json() as BuildQueueSnapshot;
-      if (!Array.isArray(data.active) || !Array.isArray(data.queued) || !Array.isArray(data.issues)) {
-        throw new Error('Invalid build queue response');
-      }
+      const parsed = buildQueueSnapshotSchema.safeParse(await response.json());
+      if (!parsed.success) throw new Error('Invalid build queue response');
       if (request !== sequence.current || runtime !== getRuntimeKey()) return;
-      setSnapshot(data);
+      setSnapshot(parsed.data);
       setError(null);
     } catch (cause) {
       if (request !== sequence.current || runtime !== getRuntimeKey()) return;
@@ -69,28 +76,23 @@ export function useBuildQueueSnapshot(enabled = true) {
     setSnapshot(null);
     setError(null);
     if (!enabled) return;
-    const unsubscribe = subscribeRuntimeEndpointChanged(() => {
+    const unsubscribeRuntime = subscribeRuntimeEndpointChanged(() => {
       sequence.current += 1;
       setSnapshot(null);
       setError(null);
       void refresh();
     });
-    // The server broadcasts every build-queue mutation. Reading on that push is
-    // what makes a queued build appear when it was submitted rather than on the
-    // next poll; the interval below stays as the reconnect and missed-event
-    // safety net, since a dropped push must not strand a stale column.
     const unsubscribeEvents = subscribeOpenchamberEvents(event => {
-      if (event.type === 'build-queue-updated') void refresh();
+      // Reconnect reads cover mutations missed while the stream was down.
+      if (event.type === 'build-queue-updated' || event.type === 'event-stream-ready') void refresh();
     });
-    void refresh();
-    const interval = setInterval(() => void refresh(), 3000);
     const onVisibilityChange = () => { if (document.visibilityState === 'visible') void refresh(); };
     document.addEventListener('visibilitychange', onVisibilityChange);
+    void refresh();
     return () => {
       sequence.current += 1;
-      unsubscribe();
+      unsubscribeRuntime();
       unsubscribeEvents();
-      clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [enabled, refresh]);

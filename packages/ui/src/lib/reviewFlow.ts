@@ -399,7 +399,7 @@ const sendPlainMessage = async (
     },
     beforeOptimisticInsert: () => assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey),
     onOptimisticInsert: () => requestChatForceScrollBottom(sessionID),
-    send: (messageID, context) => {
+    send: (messageID, context, onQueued) => {
       assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
       // Only a genuine change travels with the prompt; the review session was
       // created on this selection, so normally nothing is switched.
@@ -413,6 +413,7 @@ const sendPlainMessage = async (
         text,
         context,
         messageId: messageID,
+        onQueued,
       }).then(() => undefined);
     },
   });

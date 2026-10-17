@@ -322,6 +322,58 @@ describe('useUIStore context panel tabs', () => {
     }
   });
 
+  test('drops a persisted build-queue tab and its zone placement on rehydrate, keeping other surfaces', async () => {
+    const directory = '/repo';
+    useUIStore.persist.setOptions({ storage: {
+      getItem: () => ({
+        // Older than the current store version, so rehydrate runs the migrate
+        // sanitizer — the path legacy data actually takes.
+        version: 25,
+        state: {
+          // A build-queue tab from before the pane was removed, plus a moved
+          // placement for the same surface.
+          contextSurfaceZones: { 'build-queue': 'bottom' },
+          contextPanelByDirectory: {
+            [directory]: {
+              isOpen: true,
+              expanded: false,
+              widthByMode: { 'build-queue': 540, notes: 640 },
+              touchedAt: 1,
+              // The removed tab is the active one, so a naive restore would
+              // leave the panel open on nothing.
+              activeTabId: 'build-queue',
+              tabs: [
+                { id: 'file:/repo/a.ts', mode: 'file', targetPath: '/repo/a.ts', dedupeKey: '/repo/a.ts', touchedAt: 1 },
+                { id: 'notes', mode: 'notes', dedupeKey: 'notes', touchedAt: 2 },
+                { id: 'build-queue', mode: 'build-queue', dedupeKey: 'build-queue', touchedAt: 3 },
+              ],
+            },
+          },
+        },
+      }),
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    } });
+
+    try {
+      useUIStore.setState(useUIStore.getInitialState(), true);
+      await useUIStore.persist.rehydrate();
+
+      const panel = useUIStore.getState().contextPanelByDirectory[directory];
+      // The removed surface leaves no tab behind and no placement behind.
+      expect(panel?.tabs.some((tab) => (tab.mode as string) === 'build-queue')).toBe(false);
+      expect(panel?.widthByMode).toEqual({ notes: 640 });
+      expect(useUIStore.getState().contextSurfaceZones).not.toHaveProperty('build-queue');
+      // Unrelated surfaces survive untouched.
+      expect(panel?.tabs.map((tab) => tab.mode)).toEqual(['file', 'notes']);
+      // The active tab resolves to a tab that actually exists, not the dropped id.
+      expect(panel?.activeTabId).toBe('notes');
+      expect(panel?.tabs.some((tab) => tab.id === panel.activeTabId)).toBe(true);
+    } finally {
+      useUIStore.persist.setOptions(originalPersistOptions);
+    }
+  });
+
   test('drops a persisted saved-plan tab carrying an owner but no plan id', () => {
     const directory = '/repo';
     const persisted = {
