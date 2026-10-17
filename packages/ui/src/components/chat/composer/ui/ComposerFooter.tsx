@@ -54,6 +54,7 @@ interface ComposerFooterProps {
     canAbort: boolean;
     hasContent: boolean;
     todoMode?: boolean;
+    todoUpdating?: boolean;
     todoAvailable?: boolean;
     onTodoModeChange?: (enabled: boolean) => void;
     isExpandedInput: boolean;
@@ -131,6 +132,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
         canAbort,
         hasContent,
         todoMode = false,
+        todoUpdating = false,
         todoAvailable = true,
         onTodoModeChange,
         isExpandedInput,
@@ -353,7 +355,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
                             onPrimaryAction={onPrimaryAction}
                             onQueueMessage={onQueueMessage}
                             onAbort={onAbort}
-                            sendLabel={todoMode ? t('workBoard.saveTodo') : undefined}
+                            sendLabel={todoMode ? t(todoUpdating ? 'workBoard.updateTodo' : 'workBoard.saveTodo') : undefined}
                         />}
                     </div>
                 </>

@@ -511,6 +511,7 @@ export function persistIcon(directory: string, icon: string | undefined): void {
  * needs the bytes back.
  */
 const persistedWorkBoardCardSchema = z.object({
+  briefRemoved: z.literal(true).optional(),
   id: z.string().min(1),
   directory: z.string(),
   text: z.string(),

@@ -8,11 +8,13 @@ const attachmentSchema = z.object({
 const cardSchema = z.object({
   id: z.string(), directory: z.string(), text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().optional(), viewedAt: z.number().optional(), sessionId: z.string().optional(), stage: z.enum(['todo', 'plan', 'done']),
+  briefRemoved: z.literal(true).optional(),
 });
 export type WorkBoardAttachment = z.infer<typeof attachmentSchema>;
 export type WorkBoardCard = z.infer<typeof cardSchema>;
 type CardChanges = {
   text?: string; attachments?: WorkBoardAttachment[]; sessionId?: string; stage?: 'todo' | 'plan'; expectedUpdatedAt?: number;
+  removeBrief?: true;
 };
 type BoardWrite = CardChanges | { directory: string; text: string; attachments: WorkBoardAttachment[]; sessionDirectory?: string };
 const completionTargetSchema = z.object({

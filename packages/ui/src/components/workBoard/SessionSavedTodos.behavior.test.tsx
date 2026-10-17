@@ -107,6 +107,9 @@ test('only a parked To-do card shows a footer entry; promotion hides it and a re
   try {
     await render();
     expect(container.textContent).toContain(parked.text);
+    served = [{ ...parked, text: '', attachments: [], briefRemoved: true }];
+    await act(async () => dom.dispatchEvent(new dom.Event('focus')));
+    expect(container.querySelector('section')).toBeNull();
     // Promotion submits the text into the session, so the card leaves To-do. The
     // transcript already shows the message; the footer must not echo it.
     served = [{ ...parked, stage: 'plan', updatedAt: 2 }];

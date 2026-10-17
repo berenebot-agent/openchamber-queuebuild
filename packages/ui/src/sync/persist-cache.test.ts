@@ -422,6 +422,26 @@ describe("persisted work board cards", () => {
     expect(readWorkBoardCards(boardDirectory)?.map((item) => item.id)).toEqual(["a"])
   })
 
+  test("round-trips a removed brief without losing its session or lane", () => {
+    const removed = { ...card("removed"), sessionId: "session1", text: "", attachments: [], briefRemoved: true as const }
+    persistWorkBoardCards(boardDirectory, [removed])
+    expect(readWorkBoardCards(boardDirectory)).toEqual([removed])
+  })
+
+  test("a confirmed brief removal clears persisted and in-memory board previews", async () => {
+    const { completeTodoSave, useWorkBoardSavedTodo } = await import("@/components/workBoard/workBoardSavedTodo")
+    const { rememberWorkBoard, readWorkBoardMemory } = await import("@/components/workBoard/workBoardMemory")
+    const { getRuntimeKey } = await import("@/lib/runtime-switch")
+    const original = { ...card("removed"), sessionId: "session1" }
+    persistWorkBoardCards(boardDirectory, [original])
+    rememberWorkBoard(getRuntimeKey(), boardDirectory, { cards: [original], activities: new Map(), versions: new Map(), placements: new Map() })
+    const removed = { ...original, text: "", attachments: [], briefRemoved: true as const }
+    completeTodoSave(removed)
+    expect(readWorkBoardCards(boardDirectory)).toEqual([removed])
+    expect(readWorkBoardMemory(getRuntimeKey(), boardDirectory)?.cards).toEqual([removed])
+    useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null })
+  })
+
   test("drops a foreign record and forgets a directory's cards", () => {
     persistWorkBoardCards(boardDirectory, [card("kept")])
 

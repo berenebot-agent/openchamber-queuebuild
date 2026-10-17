@@ -47,7 +47,7 @@ export function SessionSavedTodos({ sessionId }: { sessionId: string }) {
   // A parked brief is a pending message. Once the card is promoted, its text is
   // a real user turn in the transcript, so the footer entry would duplicate it.
   // Only a card still in To-do carries text the session has not received.
-  const pending = cards.filter(card => card.stage === 'todo');
+  const pending = cards.filter(card => card.stage === 'todo' && !card.briefRemoved);
   if (!pending.length && !current?.failed) return null;
   return <div className="mx-auto w-full max-w-3xl space-y-3 px-4 py-3">
     {pending.map(card => <SavedTodoBrief key={card.id} card={card} />)}

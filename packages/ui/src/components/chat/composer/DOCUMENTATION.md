@@ -29,6 +29,17 @@ and new-session drafts also skip this parking-status poll. Queue snapshot
 requests reject stale responses after disable, unmount, or runtime change.
 See `docs/WORK_BOARD.md` and `components/workBoard` for promotion and recovery.
 
+The same mode also carries an edit and a Plan conversion started from the
+session's **Saved to To-do** entry (`useSavedTodoComposer.ts`). Both append the
+saved text and files to whatever the composer holds, and Cancel restores the
+draft, attachments and agent captured when the entry was clicked. Edit saves
+back onto the same card, so the composer's submit reads **Update to-do**; Plan
+selects the Plan agent and promotes the card only after the send is accepted.
+The composer renders one status row for the active conversion, and the queued
+Build path consumes it when the queue accepts the message. `ChatContainer`
+publishes one registration per column, so a brief in the timeline reaches the
+composer beside it, pinned column included.
+
 `ChatContainer.tsx` keeps one `ChatInput` mounted while a new-session draft
 becomes its first session. Draft-only UI first fades for 120ms while the editor
 stays in place. The parent then moves the editor to its final session position

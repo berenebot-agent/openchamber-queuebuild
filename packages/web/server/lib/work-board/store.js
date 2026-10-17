@@ -28,14 +28,18 @@ const updateSchema = z.object({
   text: z.string().optional(), attachments: z.array(attachmentSchema).optional(),
   sessionId: nonempty.optional(), stage: z.enum(['todo', 'plan']).optional(),
   expectedUpdatedAt: z.number().finite().optional(),
+  removeBrief: z.literal(true).optional(),
 });
 const cardSchema = z.object({
   id: nonempty, directory: nonempty, text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number().finite(), updatedAt: z.number().finite(),
   completedAt: z.number().finite().optional(), viewedAt: z.number().finite().optional(),
   sessionId: nonempty.optional(), stage: z.enum(['todo', 'plan', 'done']),
+  briefRemoved: z.literal(true).optional(),
 }).refine(value => value.stage !== 'plan' || value.sessionId, 'Plan card requires a session')
-  .refine(value => value.text.trim() || value.attachments.length, 'Card has no content');
+  .refine(value => value.briefRemoved
+    ? value.sessionId && value.text === '' && value.attachments.length === 0
+    : value.text.trim() || value.attachments.length, 'Card has no content');
 const storedSchema = z.object({ version: z.literal(1), cards: z.array(cardSchema) })
   .refine(value => new Set(value.cards.map(card => card.id)).size === value.cards.length, 'Duplicate card ids');
 
@@ -125,6 +129,12 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       const index = cards.findIndex(card => card.directory === directory && card.sessionId === sessionId);
       const current = cards[index];
       const previousText = current?.text ?? '';
+      if (current?.briefRemoved && !text.trim() && !attachments.length) {
+        const card = { id: current.id, directory, sessionId, text: '', attachments: [], briefRemoved: true,
+          stage: 'todo', createdAt: current.createdAt, updatedAt: Math.max(now(), current.updatedAt + 1) };
+        await write(cards.map(entry => entry.id === current.id ? card : entry));
+        return card;
+      }
       const alreadySaved = previousText === text || previousText.endsWith(`\n\n${text}`);
       const mergedText = !text.trim() || alreadySaved ? previousText
         : [previousText, text].filter(value => value.trim()).join('\n\n');
@@ -163,11 +173,33 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       if (changes.expectedUpdatedAt !== undefined && changes.expectedUpdatedAt !== current.updatedAt) {
         throw Object.assign(new Error('Card changed. Choose which version to keep.'), { status: 409 });
       }
-      const content = contentSchema.safeParse({ text: changes.text ?? current.text, attachments: changes.attachments ?? current.attachments });
-      if (!content.success) throw invalid(content.error);
       if (current.sessionId && changes.sessionId && current.sessionId !== changes.sessionId) {
         throw Object.assign(new Error('Work board card is already linked to another session'), { status: 409 });
       }
+      if (changes.removeBrief) {
+        if (!current.sessionId || changes.text !== undefined || changes.attachments !== undefined
+          || changes.sessionId !== undefined || changes.stage !== undefined) {
+          throw Object.assign(new Error('Removing a brief requires a linked session and no other changes'), { status: 400 });
+        }
+        // Placement uses updatedAt as its parking boundary. Removing content
+        // leaves that boundary, stage and completion acknowledgement untouched.
+        const next = { ...current, text: '', attachments: [], briefRemoved: true };
+        await write(cards.map(card => card.id === cardId ? next : card));
+        return next;
+      }
+      // A stale editor must never restore content erased by another client.
+      // Parking the session again is the explicit way to create a new brief.
+      if (current.briefRemoved && (changes.text !== undefined || changes.attachments !== undefined)) {
+        throw Object.assign(new Error('This saved brief was removed. Save a new to-do to replace it.'), { status: 409 });
+      }
+      if (current.briefRemoved) {
+        const next = cardSchema.parse({ ...current, stage: changes.stage ?? current.stage,
+          updatedAt: Math.max(now(), current.updatedAt + 1) });
+        await write(cards.map(card => card.id === cardId ? next : card));
+        return next;
+      }
+      const content = contentSchema.safeParse({ text: changes.text ?? current.text, attachments: changes.attachments ?? current.attachments });
+      if (!content.success) throw invalid(content.error);
       const next = { ...current, ...content.data, sessionId: changes.sessionId ?? current.sessionId,
         stage: changes.stage ?? current.stage, updatedAt: Math.max(now(), current.updatedAt + 1) };
       if (next.stage === 'plan' && !next.sessionId) throw Object.assign(new Error('A card must be linked before promotion'), { status: 409 });

@@ -14,6 +14,46 @@ const remove = (dataDir) => fs.rm(dataDir, { recursive: true, force: true });
 const input = (directory = '/project') => ({ directory, text: 'Plan this' });
 
 describe('work board persistence', () => {
+  for (const stage of ['todo', 'plan', 'done']) {
+    it(`removes a saved brief while preserving the ${stage} session placement and completion`, async () => {
+      const { dataDir, store } = await setup();
+      try {
+        const saved = await store.parkSession({ ...input(), sessionId: 'session1', attachments: [
+          { id: 'file1', filename: 'a.txt', mimeType: 'text/plain', size: 2, dataUrl: 'data:text/plain;base64,aGk=' },
+        ] });
+        const card = stage === 'done' ? await store.complete(saved)
+          : stage === 'plan' ? await store.update(saved.id, { stage }) : saved;
+        const removed = await store.update(card.id, { removeBrief: true, expectedUpdatedAt: card.updatedAt });
+        expect(removed).toEqual({ ...card, text: '', attachments: [], briefRemoved: true });
+        expect(await createWorkBoardStore({ dataDir }).list()).toEqual([removed]);
+        expect(await fs.readFile(path.join(dataDir, 'work-board.json'), 'utf8')).not.toContain('aGk=');
+        await expect(store.update(card.id, { text: 'Stale edit', expectedUpdatedAt: card.updatedAt })).rejects.toMatchObject({ status: 409 });
+        const completed = await store.complete(removed);
+        expect(completed.stage).toBe('done');
+        const parked = await store.parkSession({ directory: '/project', sessionId: 'session1', text: '', attachments: [] });
+        expect(parked).toMatchObject({ id: card.id, stage: 'todo', text: '', briefRemoved: true });
+        const replacement = await store.parkSession({ directory: '/project', sessionId: 'session1', text: 'New brief', attachments: [] });
+        expect(replacement.text).toBe('New brief');
+        expect(replacement.briefRemoved).toBeUndefined();
+      } finally { await remove(dataDir); }
+    });
+  }
+
+  it('rejects stale or unlinked removals and preserves content after a failed removal write', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      const unlinked = await store.create(input());
+      await expect(store.update(unlinked.id, { removeBrief: true })).rejects.toMatchObject({ status: 400 });
+      const linked = await store.update(unlinked.id, { sessionId: 'session1' });
+      await expect(store.update(linked.id, { removeBrief: true, expectedUpdatedAt: unlinked.updatedAt })).rejects.toMatchObject({ status: 409 });
+      await expect(store.update(linked.id, { removeBrief: true, text: 'Mixed mutation' })).rejects.toMatchObject({ status: 400 });
+      const failing = createWorkBoardStore({ dataDir, fs: { ...fs, rename: async () => { throw new Error('disk failure'); } } });
+      await expect(failing.update(linked.id, { removeBrief: true })).rejects.toThrow('disk failure');
+      expect(await failing.list()).toEqual([linked]);
+      expect(await createWorkBoardStore({ dataDir }).list()).toEqual([linked]);
+    } finally { await remove(dataDir); }
+  });
+
   it('round-trips completion for legacy To-do cards and inherited sessions without losing content', async () => {
     const { dataDir, store } = await setup();
     try {

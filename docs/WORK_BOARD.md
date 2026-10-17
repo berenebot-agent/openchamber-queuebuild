@@ -95,6 +95,36 @@ worktree and its card belongs to the root project's board. A failed read keeps
 the last loaded text visible and offers **Try again**. Session and runtime
 changes discard reads that finish for the previous session or server.
 
+### Edit, plan or remove a saved brief in the session
+
+Web and Electron desktop, including a chat pinned in the side panel, show three
+actions on that **Saved to To-do** entry. The dedicated mobile and VS Code
+composers keep the read-only entry.
+
+**Edit brief** loads the saved text and files into the composer with the existing
+draft and attachments already there, and selects **To-do**. Submit with
+**Update to-do** to save the combined text and files back onto the same card. No
+message is sent and no second card is created. **Cancel** restores the draft,
+attachments and agent you had before, and leaves the card unchanged. A stale
+save is refused: reload the board or session and try again.
+
+**Plan** loads the same combined draft and selects the Plan agent. Your existing
+draft stays in front of the saved text, and Cancel restores everything as it
+was. Nothing is sent until you submit. Once the message is accepted the card
+moves to Plan and its session entry here disappears. If you switch to another
+agent before submitting, the to-do still travels with that message: the card
+follows the agent you chose, so a Build submit through the project build queue
+moves the card to Build queue once the queue accepts it. If the send fails, the
+card stays to-do and your draft comes back. If the message was accepted but the
+board write failed, the entry says so and offers **Try again**, which updates the
+board without sending anything again. Cancelling a queued build does not bring
+the to-do back.
+
+**Remove to-do** asks for confirmation, then deletes the saved brief everywhere.
+The session, its chat history and its board lane are untouched, and its board
+card stays as a session card. The text cannot be restored; saving a new to-do
+from that session creates a fresh brief.
+
 To-do cards live on the board. They do not add empty sessions to the sidebar.
 
 ## Start planning

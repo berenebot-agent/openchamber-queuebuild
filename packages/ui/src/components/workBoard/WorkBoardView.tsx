@@ -303,6 +303,16 @@ export function WorkBoardView() {
     }
   }, [directory, t]);
 
+  React.useEffect(() => useWorkBoardSavedTodo.subscribe((state, previousState) => {
+    const latestSave = state.latestSave;
+    if (latestSave === previousState.latestSave) return;
+    if (latestSave?.runtimeKey !== runtimeKey || latestSave.card.directory !== directory) return;
+    const updated = latestSave.card;
+    setCards(previous => previous.some(card => card.id === updated.id)
+      ? previous.map(card => card.id === updated.id ? updated : card) : [...previous, updated]);
+    void refresh();
+  }), [directory, runtimeKey, refresh]);
+
   const lastBoard = React.useRef<BoardSnapshot>({ cards, activities, versions: new Map(), placements: new Map() });
   React.useLayoutEffect(() => {
     generation.current += 1;
@@ -778,7 +788,8 @@ export function WorkBoardView() {
                 && !statusUnknown && !queueError && queue !== null;
               const canRemove = !loading && !error && lane === 'todo' && !hasRunningTurn
                 && (!card.sessionId || (!statusUnknown && !queueError && queue !== null));
-              const title = workBoardCardTitle(card.text, card.attachments);
+              const title = card.briefRemoved && card.sessionId
+                ? sessionTitleFor(card.sessionId) : workBoardCardTitle(card.text, card.attachments);
               return <article key={card.id} className={'group relative overflow-hidden rounded-md border bg-surface-elevated '
                 + (activePlan
                   ? 'border-[color-mix(in_srgb,var(--status-success)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_12%,var(--surface-elevated))] px-3.5 py-3 '

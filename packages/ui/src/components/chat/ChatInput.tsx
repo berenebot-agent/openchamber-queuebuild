@@ -15,6 +15,8 @@ import { prepareLocalAttachments, useDraftAttachedFiles, useInputStore, type Syn
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { createWorkBoardCard, saveSessionToTodo } from '@/lib/workBoardApi';
 import { completeTodoSave } from '@/components/workBoard/workBoardSavedTodo';
+import { useSavedTodoComposer } from '@/components/workBoard/useSavedTodoComposer';
+import { Button } from '@/components/ui/button';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { captureWorkBoardAttachments } from '@/components/workBoard/workBoardWorkflow';
 import { openParallelComposer } from '@/lib/multirun/openParallelComposer';
@@ -1378,7 +1380,26 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         currentSessionPhase === 'idle' && !autoReviewRunning && !hasQueuedMessages
         && !todoQueueBlocked && !todoQueueError && todoBuildQueue !== null
     ));
+    const savedTodo = useSavedTodoComposer({
+        scope: chatDraftIdentity ? getChatDraftIdentityKey(chatDraftIdentity) : '',
+        sessionId: currentSessionId,
+        available: todoAvailable && !newSessionDraftOpen,
+        planAgent: agents.find(agent => agent.name.toLowerCase() === 'plan')?.name,
+        agent: currentAgentName,
+        todoMode,
+        setTodoMode,
+        selectAgent: (agent) => {
+            if (!columnPinned) setAgent(agent);
+            if (currentSessionId) saveSessionAgentSelection(currentSessionId, agent);
+        },
+        readText: () => getCurrentInputSnapshot().message,
+        setText: setMessage,
+        files: attachedFiles,
+        setFiles: files => useInputStore.getState().setAttachedFiles(files, chatDraftIdentity),
+        focus: focusComposer,
+    });
     const saveToTodo = React.useCallback(async () => {
+        if (savedTodo.active) { await savedTodo.save(); return; }
         if (savingTodo || !chatDraftIdentity || !todoAvailable) {
             if (!todoAvailable) toast.error(t('workBoard.parkBlocked'));
             return;
@@ -1415,7 +1436,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         } catch (cause) {
             toast.error(cause instanceof Error ? cause.message : t('workBoard.failed'));
         } finally { setSavingTodo(false); }
-    }, [savingTodo, chatDraftIdentity, attachedFiles, getCurrentInputSnapshot, newSessionDraftOpen, newSessionDraft.selectedProjectId, currentDirectory, currentSessionDirectoryForSync, currentSessionId, clearAttachedFiles, t, todoAvailable]);
+    }, [savedTodo, savingTodo, chatDraftIdentity, attachedFiles, getCurrentInputSnapshot, newSessionDraftOpen, newSessionDraft.selectedProjectId, currentDirectory, currentSessionDirectoryForSync, currentSessionId, clearAttachedFiles, t, todoAvailable]);
 
     // Keep a ref to handleSubmit so callbacks don't depend on it.
     type SubmitOptions = {
@@ -1437,6 +1458,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ) => {
         // Queue buttons must obey the same virtual mode as Enter and Send.
         if (todoMode && !isBtwActive && !parallelActive) { await saveToTodo(); return; }
+        if (savedTodo.active && (savedTodo.active.phase === 'saving' || savedTodo.active.phase === 'sending')) return;
         // The comment's exit paths are attach/cancel; queueing a real prompt
         // underneath comment mode must never fire.
         if (isMobileCommentOpen()) return;
@@ -1464,6 +1486,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const resumeAfterQueue = prepareUserMessageResume(queueSessionId, queueRuntimeKey);
         const messageToQueue = inputSnapshot.message.replace(/^\n+|\n+$/g, '');
         const composerAttachments = sanitizeAttachmentsForSend(attachedFiles);
+
+        const queuedTodo = savedTodo.beginSend();
+        if (savedTodo.active?.phase === 'draft' && !queuedTodo) return;
+        let todoQueued = false;
+        try {
 
         // A queued message is resolved now, not at delivery: the server that
         // sends it has no agent list, no confirmed mentions, and no way to read
@@ -1547,6 +1574,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     variant: currentVariant ?? undefined,
                 } : undefined,
             });
+            todoQueued = true;
+            if (queuedTodo) void queuedTodo.accepted();
         } catch (error) {
             console.warn('[queue] failed to queue message:', error);
             toast.error(t('chat.queuedMessage.toast.queueFailed'));
@@ -1573,7 +1602,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }
         void resumeAfterQueue().catch(console.warn);
         recordLinkedReferences(queueSessionId, queueTarget.directory, linked);
-    }, [getCurrentInputSnapshot, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareReadOnSendMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t, todoMode, isBtwActive, parallelActive, saveToTodo]);
+        } finally {
+            if (!todoQueued) queuedTodo?.failed();
+        }
+    }, [getCurrentInputSnapshot, messageQueueTarget, inputMode, hasDrafts, guestCommands, attachedFiles, sanitizeAttachmentsForSend, prepareReadOnSendMentions, extractInlineFileMentions, agents, currentDirectory, consumePendingSyntheticParts, mailboxTarget, inlineDraftTarget, consumeDrafts, linkedReferences, scrollToLatest, clearAttachedFiles, chatDraftIdentity, isMobile, isMobileCommentOpen, addToQueue, currentProviderId, currentModelId, currentAgentName, currentVariant, t, todoMode, isBtwActive, parallelActive, saveToTodo, savedTodo]);
 
     /**
      * The first build prompt of a session has no session id yet: the composer
@@ -1711,6 +1743,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
 
     const handleSubmit = async (options?: SubmitOptions) => {
+        if (savedTodo.active && (savedTodo.active.phase === 'saving' || savedTodo.active.phase === 'sending')) return;
         if (todoMode && !isBtwActive && !parallel.isActive && !options?.queuedOnly) { await saveToTodo(); return; }
         // Comment mode's only submit is attach; every other send path must be
         // inert while it is open.
@@ -1923,6 +1956,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
 
+        const todoSend = !queuedOnly && !isBtwActive ? savedTodo.beginSend() : null;
+        if (savedTodo.active?.phase === 'draft' && !todoSend && !queuedOnly && !isBtwActive) return;
+        let todoHandedOff = false;
+        try {
+
         // btw mode: the child fork's blocking prompts are answered inside the
         // panel; the composer send goes straight to the fork (routeMessage
         // queues if the fork's own turn is busy).
@@ -1940,6 +1978,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // race with that run, so it is queued; the queued-message auto-send
             // hook delivers it once the session returns to idle (#1740, #3369).
             if ((deniedPermissions || dismissedForms) && delivery !== 'steer') {
+                todoSend?.failed();
+                todoHandedOff = true;
                 void handleQueueMessage();
                 return;
             }
@@ -2214,6 +2254,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         inputMode,
                         sendMessageOptions,
                     );
+                    todoHandedOff = true;
+                    if (todoSend) void todoSend.accepted();
                     scrollToBottom?.();
                 } catch (error) {
                     restoreConsumedInput();
@@ -2338,7 +2380,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             inputMode,
             sendMessageOptions,
         );
+        todoHandedOff = true;
         void sendPromise.then(() => {
+            if (todoSend) void todoSend.accepted();
             if (isBtwActive) return;
             // On a draft there is no session yet in this closure: the send path
             // creates one and makes it current before resolving, so the id is
@@ -2370,6 +2414,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             const sentKeys = new Set(linkedReferences.map(composerReferenceKey));
             setLinkedReferences((current) => current.filter((reference) => !sentKeys.has(composerReferenceKey(reference))));
         }).catch((error: unknown) => {
+            todoSend?.failed();
             const rawMessage =
                 error instanceof Error
                     ? error.message
@@ -2431,6 +2476,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         if (!isMobile) {
             composerRef.current?.focus();
+        }
+        } finally {
+            if (!todoHandedOff) todoSend?.failed();
         }
     };
 
@@ -4088,7 +4136,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ) : null;
     // Null exactly when the suggestion row alone would have been: the mobile
     // pill picks its shape from whether a top row exists.
-    const todoRow = null; // Saved via the composer mode rather than a separate button.
+    const todoRow = savedTodo.active ? <div className="flex flex-wrap items-center gap-2 text-sm" role="status">
+        <span>{t(savedTodo.active.phase === 'sent' ? 'workBoard.promotionFailed' : savedTodo.active.mode === 'edit' ? 'workBoard.editingTodo' : 'workBoard.planningTodo')}</span>
+        {savedTodo.active.phase === 'sent'
+            ? <Button size="sm" variant="outline" onClick={savedTodo.retry}>{t('workBoard.retry')}</Button>
+            : <Button size="sm" variant="ghost" disabled={savedTodo.active.phase !== 'draft'} onClick={savedTodo.cancel}>{t('workBoard.cancel')}</Button>}
+    </div> : null;
     const composerTopRows = todoRow || worktreeSetupRow || spaceWaitRow || goalRow || autoReviewRow || backgroundShellsRow || revertRow || buildQueueRow || queueRow || doneHintRow || reviewHintRow || suggestionRow ? (
         <>
             {todoRow}
@@ -4563,6 +4616,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         canAbort={canAbort}
                         hasContent={Boolean(hasContent)}
                         todoMode={todoMode && !isBtwActive && !parallelActive}
+                        todoUpdating={Boolean(savedTodo.active)}
                         todoAvailable={todoAvailable}
                         onTodoModeChange={todoSupported ? setTodoMode : undefined}
                         isExpandedInput={isExpandedInput}

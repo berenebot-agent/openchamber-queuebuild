@@ -8,6 +8,28 @@ import { registerWorkBoardRoutes } from './routes.js';
 import { createWorkBoardStore } from './store.js';
 
 describe('work board HTTP routes', () => {
+  it('updates and removes a linked brief over HTTP while retaining its session and lane after restart', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-remove-brief-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const original = await store.parkSession({ directory: '/repo', sessionId: 'session1', text: 'Original brief', attachments: [] });
+      const app = express();
+      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      const edited = await request(app).patch(`/api/work-board/${original.id}`)
+        .send({ text: 'Updated brief', expectedUpdatedAt: original.updatedAt }).expect(200);
+      await request(app).patch(`/api/work-board/${original.id}`)
+        .send({ removeBrief: true, expectedUpdatedAt: original.updatedAt }).expect(409);
+      const removed = await request(app).patch(`/api/work-board/${original.id}`)
+        .send({ removeBrief: true, expectedUpdatedAt: edited.body.card.updatedAt }).expect(200);
+      expect(removed.body.card).toEqual({ ...edited.body.card, text: '', attachments: [], briefRemoved: true });
+      const session = await request(app).get('/api/work-board').query({ sessionId: 'session1' }).expect(200);
+      const board = await request(app).get('/api/work-board').query({ directory: '/repo' }).expect(200);
+      expect(session.body.cards).toEqual([removed.body.card]);
+      expect(board.body.cards).toEqual([removed.body.card]);
+      expect(await createWorkBoardStore({ dataDir }).list()).toEqual([removed.body.card]);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
   it('restores saved session briefs after restart, scoped by session across board and worktree directories', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-session-'));
     try {
