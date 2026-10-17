@@ -840,8 +840,8 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
           </select>
         </label>
         <div className="flex min-h-11 items-center justify-between rounded-md border border-border bg-background px-3">
-          <span className="text-sm text-foreground">{t('settings.openchamber.buildQueue.enabled')}</span>
-          <Switch aria-label={t('settings.openchamber.buildQueue.enabled')}
+          <span className="text-sm text-foreground">{t('workBoard.queue')}</span>
+          <Switch aria-label={t('workBoard.queue')}
             disabled={!directory} checked={queueEnabled}
             onCheckedChange={enabled => { void setQueueEnabled(directory, enabled).catch(() => undefined); }} />
         </div>
