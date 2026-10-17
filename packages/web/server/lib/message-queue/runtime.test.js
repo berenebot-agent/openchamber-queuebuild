@@ -1260,6 +1260,79 @@ describe('project-wide build queue', () => {
     await restarted.runtime.flush();
   });
 
+  it('keeps a reviewed lease parked while its build is still queued', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null });
+    // The session stays busy so the build stays queued, then a restored
+    // dispatching lease points at it, as after a crash mid-dispatch.
+    first.openCode.state.active[SESSION] = { type: 'running' };
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ content: 'uncertain', text: 'uncertain', buildQueue: true }));
+    await first.runtime.flush();
+    const queuedItem = first.runtime.sessionSnapshot(SESSION).items[0];
+    const file = path.join(first.dataDir, 'message-queue.json');
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+    stored.activeBuilds = { [DIRECTORY]: { sessionId: SESSION, itemId: queuedItem.id, startedAt: Date.now() - 10000, phase: 'dispatching' } };
+    fs.writeFileSync(file, JSON.stringify(stored));
+    first.runtime.stop();
+
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    // The turn verifiably completed, which used to release the lane and re-send
+    // the item it still holds.
+    second.openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    second.runtime.start();
+    await settle(120);
+    expect(second.runtime.buildSnapshot().active[0]?.needsReview).toBe(true);
+    expect(second.runtime.buildSnapshot().queued).toHaveLength(1);
+    expect(promptCalls(second.openCode)).toHaveLength(0);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
+  it('does not dispatch a reserved force when its project lane frees', async () => {
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    runtime.start();
+    try {
+      // SESSION holds the project lane; SECOND's build waits behind it.
+      await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+      const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+      // Forcing SECOND fails after the prompt may have been accepted.
+      openCode.state.failNext = /\/prompt$/;
+      const result = await runtime.forceDispatch(DIRECTORY, SECOND, waiting.itemId);
+      expect(result.warning).toContain('not confirmed');
+
+      // The lane frees: the queue must not send the reserved item again.
+      openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+      delete openCode.state.active[SESSION];
+      emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
+      await settle(120);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+      expect(runtime.buildSnapshot().forced.some(entry => entry.itemId === waiting.itemId && entry.needsReview)).toBe(true);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('does not dispatch a reserved force after a restart', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    first.runtime.start();
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    const waiting = await first.runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await settle(60);
+    first.openCode.state.failNext = /\/prompt$/;
+    await first.runtime.forceDispatch(DIRECTORY, SECOND, waiting.itemId);
+    first.runtime.stop();
+    await first.runtime.flush();
+
+    const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    second.openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    second.runtime.start();
+    await settle(120);
+    expect(promptCalls(second.openCode)).toHaveLength(0);
+    expect(second.runtime.buildSnapshot().forced.some(entry => entry.itemId === waiting.itemId && entry.needsReview)).toBe(true);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
   it('appends a further build prompt into the session\'s single lane slot', async () => {
     const harness = createRuntime();
     const { runtime, openCode } = harness;

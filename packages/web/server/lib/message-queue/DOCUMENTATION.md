@@ -379,8 +379,11 @@ without a human: when the session is idle, no descendant runs and a completed
 assistant reply for the lease's own turn exists, the monitor releases the lane.
 `persistence-failed` is the one reason that never self-clears — its cause is
 storage, and re-dispatching onto a queue that cannot be written is unsafe.
-Without this, a lane parked for a turn that later completed stayed held
-indefinitely.
+A `dispatch-failed` or `restart-during-dispatch` lease is the other exception:
+its own item is still queued, and releasing the lane would let the queue send
+that item again. It stays parked for the human, whose Continue or unfreeze
+drops the item and releases it. Without this, a lane parked for a turn that
+later completed stayed held indefinitely.
 
 A parked lane also holds the queue of the session that owns it. Delivery into
 that session is what made the freeze unresolvable: the freeze does not stop an
@@ -448,9 +451,12 @@ reservation to the in-memory `forced` list. A send that cannot be confirmed
 leaves both the item queued and the reservation in place, flagged
 `needsReview: true` with its `itemId` and `action: 'resolve'`; that state survives
 a restart (`reviewReason: 'restart-during-force'`) and is never retried
-automatically. The user clears it with `POST /api/build-queue/resolve` (`skip`
-plus the named `itemId`), which drops the marker and leaves the queued item
-alone; a `retry` is not accepted for a force.
+automatically. While the reservation stands the item is not dispatched and
+holds no place in the project's runnable order, so the rest of the queue keeps
+flowing and the unresolved force never gates it. The user clears it with
+`POST /api/build-queue/resolve` (`skip` plus the named `itemId`), which drops
+the marker and returns the item to the queue; cancelling the queued item drops
+the reservation with it. A `retry` is not accepted for a force.
 
 `GET /api/build-queue` reports running forces and unresolved reservations
 together in `forced`, separate from the lease in `active`. A resolved force

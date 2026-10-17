@@ -549,7 +549,11 @@ export function createMessageQueueRuntime({
     .flatMap(([sessionId, queue]) => queue.items.filter(item => isBuildItem(item) && (!directory || queue.directory === directory))
       .map(item => ({ sessionId, directory: queue.directory, item })))
     .sort((a, b) => a.item.buildOrder - b.item.buildOrder || a.item.createdAt - b.item.createdAt || a.item.id.localeCompare(b.item.id));
-  const runnableBuilds = (directory) => pendingBuilds(directory).filter(entry => !entry.item.buildPaused);
+  // An unresolved Force owns its item: the queue must not send it again, and it
+  // holds no place in the project's runnable order, so another build can start.
+  const reservedForItem = (sessionId, itemId) => forceReservations.get(sessionId)?.itemId === itemId;
+  const runnableBuilds = (directory) => pendingBuilds(directory)
+    .filter(entry => !entry.item.buildPaused && !reservedForItem(entry.sessionId, entry.item.id));
   const buildSnapshot = () => ({
     revision,
     preparation: Array.from(preparingBuilds, ([directory, value]) => ({ directory, phase: value.phase })),
@@ -947,6 +951,10 @@ export function createMessageQueueRuntime({
       const flaggedEvidence = await leaseTurnCompleted(lease, directory);
       if (activeBuilds.get(directory) !== lease || !lease.needsReview) return;
       if (flaggedEvidence !== true) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
+      // The lease's own item is still waiting: releasing the lane would let the
+      // tick dispatch it again, the duplicate this review exists to prevent.
+      // Only dispatch-failed and restart-during-dispatch keep their item queued.
+      if (queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId)) return;
       activeBuilds.delete(directory);
       commit(lease.sessionId);
       wakeProject(directory);
@@ -1466,7 +1474,7 @@ export function createMessageQueueRuntime({
     }
 
     const head = queue.items[0];
-    if (isBuildItem(head) && head.buildPaused) return;
+    if (isBuildItem(head) && (head.buildPaused || reservedForItem(sessionId, head.id))) return;
     const failure = failures.get(sessionId);
     if (failure && failure.itemId !== head.id) failures.delete(sessionId);
     else if (failure && failure.nextAttemptAt > now()) {
@@ -1802,6 +1810,8 @@ export function createMessageQueueRuntime({
       return { revision, session: sessionSnapshot(sessionId) };
     }
     setQueueItems(sessionId, queue.directory, queue.items.filter((item) => item.id !== itemId));
+    // Cancelling the item drops the uncertain Force that pointed at it.
+    if (forceReservations.get(sessionId)?.itemId === itemId) forceReservations.delete(sessionId);
     const updated = commit(sessionId);
     if (isBuildItem(removed)) wakeProject(queue.directory);
     return { ...updated, item: removed };
