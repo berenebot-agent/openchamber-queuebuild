@@ -16,10 +16,13 @@ export const BuildQueueBanner: React.FC<{
   if (!directory || !sessionId || !snapshot) return null;
 
   const projectKey = workBoardDirectoryKey(directory);
-  const projectItems = snapshot.queued.filter(item => workBoardDirectoryKey(item.directory) === projectKey);
+  const active = snapshot.active.find(item => workBoardDirectoryKey(item.directory) === projectKey);
+  // The lease's own item can still sit in the queue while it dispatches, or when
+  // a parked lane is adopted; it is the active build, not a waiting one.
+  const projectItems = snapshot.queued.filter(item =>
+    workBoardDirectoryKey(item.directory) === projectKey && item.id !== active?.itemId);
   const index = projectItems.findIndex(item => item.sessionId === sessionId);
   const sessionItems = projectItems.filter(item => item.sessionId === sessionId);
-  const active = snapshot.active.find(item => workBoardDirectoryKey(item.directory) === projectKey);
   const issue = snapshot.issues.find(item => workBoardDirectoryKey(item.directory) === projectKey)?.issue;
   if (index < 0 && active?.sessionId !== sessionId) return null;
 

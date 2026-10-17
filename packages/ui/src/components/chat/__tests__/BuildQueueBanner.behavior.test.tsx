@@ -102,6 +102,34 @@ test('shows a review state for a build parked for review', async () => {
   expect(container.textContent).toContain('needs review');
 });
 
+test('a queued entry that is the active lease reads as running, not a queue position', async () => {
+  queue = {
+    revision: 1,
+    active: [{ directory: DIRECTORY, sessionId: SESSION, itemId: 'a', startedAt: 1 }],
+    queued: [{ id: 'a', sessionId: SESSION, directory: DIRECTORY, content: 'x', createdAt: 1, order: 0, paused: false }],
+    issues: [],
+    forced: [],
+  };
+  await render();
+  expect(container.textContent).toContain('Build running');
+  expect(container.textContent).not.toContain('#1 of 1');
+});
+
+test('a waiting build counts only waiting entries, not the running lease', async () => {
+  queue = {
+    revision: 1,
+    active: [{ directory: DIRECTORY, sessionId: 'other', itemId: 'a', startedAt: 1 }],
+    queued: [
+      { id: 'a', sessionId: 'other', directory: DIRECTORY, content: 'x', createdAt: 1, order: 0, paused: false },
+      { id: 'b', sessionId: SESSION, directory: DIRECTORY, content: 'y', createdAt: 2, order: 1, paused: false },
+    ],
+    issues: [],
+    forced: [],
+  };
+  await render();
+  expect(container.textContent).toContain('#1 of 1');
+});
+
 test('stays silent for another session\'s active build in this project', async () => {
   queue = {
     revision: 1,
