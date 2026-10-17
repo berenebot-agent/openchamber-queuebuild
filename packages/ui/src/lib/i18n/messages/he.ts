@@ -24,6 +24,8 @@ export const dict = {
   'buildQueue.recovery.description': 'אשר את הבעיה שדווחה ושחרר את הבנייה הזו. השינויים שלה נשארים בדיסק. היא לא תופעל שוב. הבנייה הבאה תתחיל כשהתור יהיה מוכן.',
   'buildQueue.recovery.confirm': 'אישור והמשך',
   'buildQueue.recovery.fallback': 'הבנייה הקודמת דורשת בדיקה.',
+  'buildQueue.adopt.title': 'להמשיך את התור?',
+  'buildQueue.adopt.description': 'כבר פועל סבב בסשן הזה. המשך מאמץ אותו כבנייה הפעילה, והתור יתחדש כשהסבב יסתיים.',
   'buildQueue.force.action': 'כפה בנייה',
   'buildQueue.force.title': 'לכפות את הבנייה הזו עכשיו?',
   'buildQueue.force.description': 'הבנייה הזו תתחיל עכשיו, במקביל לבנייה שכבר רצה. היא לא תיחשב לחלק מהתור, והתור לא יחכה לה. להמשיך?',

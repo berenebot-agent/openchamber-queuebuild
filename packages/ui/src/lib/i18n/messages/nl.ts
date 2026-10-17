@@ -24,6 +24,8 @@ export const dict = {
   'buildQueue.recovery.description': 'Bevestig het gemelde probleem en geef deze build vrij. De wijzigingen blijven op schijf. De build wordt niet opnieuw uitgevoerd. De volgende build start zodra de wachtrij gereed is.',
   'buildQueue.recovery.confirm': 'Bevestigen en hervatten',
   'buildQueue.recovery.fallback': 'De vorige build moet worden gecontroleerd.',
+  'buildQueue.adopt.title': 'Wachtrij hervatten?',
+  'buildQueue.adopt.description': 'Er loopt al een beurt in deze sessie. Doorgaan neemt die over als de actieve build, en de wachtrij gaat verder wanneer die eindigt.',
   'buildQueue.force.action': 'Build forceren',
   'buildQueue.force.title': 'Deze build nu forceren?',
   'buildQueue.force.description': 'Deze build start nu, parallel aan de build die al loopt. Hij wordt niet als onderdeel van de wachtrij behandeld en de wachtrij wacht niet op hem. Doorgaan?',

@@ -24,6 +24,8 @@ export const dict = {
   'buildQueue.recovery.description': 'Acknowledge the reported problem and release this build. Its changes remain on disk. It will not run again. The next build starts when the queue is ready.',
   'buildQueue.recovery.confirm': 'Acknowledge and continue',
   'buildQueue.recovery.fallback': 'The previous build needs review.',
+  'buildQueue.adopt.title': 'Continue the queue?',
+  'buildQueue.adopt.description': 'A turn is already running in this session. Continuing adopts it as the active build, and the queue resumes when it ends.',
   'buildQueue.force.action': 'Force build',
   'buildQueue.force.title': 'Force this build now?',
   'buildQueue.force.description': 'This build starts now, in parallel with the build already running. It will not be treated as part of the queue, and the queue will not wait for it. Continue?',

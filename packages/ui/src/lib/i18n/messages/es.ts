@@ -25,6 +25,8 @@ export const dict: Record<I18nKey, string> = {
   'buildQueue.recovery.description': 'Confirma el problema indicado y libera esta compilación. Sus cambios permanecen en el disco. No se volverá a ejecutar. La siguiente compilación comienza cuando la cola esté lista.',
   'buildQueue.recovery.confirm': 'Confirmar y continuar',
   'buildQueue.recovery.fallback': 'La compilación anterior necesita revisión.',
+  'buildQueue.adopt.title': '¿Continuar la cola?',
+  'buildQueue.adopt.description': 'Ya hay un turno en curso en esta sesión. Al continuar se adopta como build activo y la cola se reanuda cuando termina.',
   'buildQueue.force.action': 'Forzar compilación',
   'buildQueue.force.title': '¿Forzar esta compilación ahora?',
   'buildQueue.force.description': 'Esta compilación comienza ahora, en paralelo con la que ya está en curso. No se tratará como parte de la cola y la cola no esperará por ella. ¿Continuar?',

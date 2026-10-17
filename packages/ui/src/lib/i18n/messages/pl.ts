@@ -25,6 +25,8 @@ export const dict: Record<I18nKey, string> = {
   'buildQueue.recovery.description': 'Potwierdź zgłoszony problem i zwolnij tę kompilację. Jej zmiany pozostaną na dysku. Nie zostanie uruchomiona ponownie. Następna kompilacja rozpocznie się, gdy kolejka będzie gotowa.',
   'buildQueue.recovery.confirm': 'Potwierdź i kontynuuj',
   'buildQueue.recovery.fallback': 'Poprzednia kompilacja wymaga sprawdzenia.',
+  'buildQueue.adopt.title': 'Kontynuować kolejkę?',
+  'buildQueue.adopt.description': 'W tej sesji trwa już tura. Kontynuowanie przejmuje ją jako aktywną kompilację, a kolejka wznawia się po jej zakończeniu.',
   'buildQueue.force.action': 'Wymuś kompilację',
   'buildQueue.force.title': 'Wymusić tę kompilację teraz?',
   'buildQueue.force.description': 'Ta kompilacja rozpocznie się teraz, równolegle z już trwającą. Nie będzie traktowana jako część kolejki, a kolejka nie będzie na nią czekać. Kontynuować?',

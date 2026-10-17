@@ -24,6 +24,8 @@ export const dict = {
   'buildQueue.recovery.description': 'Bildirilen sorunu onaylayıp bu derlemeyi serbest bırakın. Değişiklikleri diskte kalır. Tekrar çalıştırılmaz. Kuyruk hazır olduğunda sonraki derleme başlar.',
   'buildQueue.recovery.confirm': 'Onayla ve devam et',
   'buildQueue.recovery.fallback': 'Önceki derleme incelenmeli.',
+  'buildQueue.adopt.title': 'Kuyruk sürdürülsün mü?',
+  'buildQueue.adopt.description': 'Bu oturumda zaten bir tur çalışıyor. Devam etmek onu etkin derleme olarak devralır ve tur bittiğinde kuyruk sürer.',
   'buildQueue.force.action': 'Derlemeyi zorla',
   'buildQueue.force.title': 'Bu derleme şimdi zorlansın mı?',
   'buildQueue.force.description': 'Bu derleme, hâlihazırda çalışan derlemeyle paralel olarak şimdi başlar. Kuyruğun parçası olarak görülmez ve kuyruk onu beklemez. Devam edilsin mi?',

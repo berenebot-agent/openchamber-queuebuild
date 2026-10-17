@@ -25,6 +25,8 @@ export const dict: Record<I18nKey, string> = {
   'buildQueue.recovery.description': '確認回報的問題並釋放此建置。其變更保留在磁碟上，不會再次執行。佇列準備就緒後將開始下一個建置。',
   'buildQueue.recovery.confirm': '確認並繼續',
   'buildQueue.recovery.fallback': '需要檢查上一個建置。',
+  'buildQueue.adopt.title': '繼續佇列？',
+  'buildQueue.adopt.description': '此工作階段中已有回合正在執行。繼續會將其接手為使用中的建置，佇列將在其結束後恢復。',
   'buildQueue.force.action': '強制建置',
   'buildQueue.force.title': '現在強制建置此項目？',
   'buildQueue.force.description': '此建置將立即開始，與正在執行的建置並行。它不會被視為佇列的一部分，佇列也不會等待它。是否繼續？',

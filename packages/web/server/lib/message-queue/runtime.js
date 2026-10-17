@@ -743,7 +743,9 @@ export function createMessageQueueRuntime({
   };
   const wakeProject = (directory) => {
     for (const [sessionId, queue] of queues) {
-      if (queue.directory === directory && queue.items.some(isBuildItem)) armDispatch(sessionId);
+      // A build item needs the lane; an ordinary item may be sitting behind a
+      // freeze that is being lifted now, so both kinds are armed.
+      if (queue.directory === directory && queue.items.length > 0) armDispatch(sessionId);
     }
     // Every build-lane mutation ends here, and the queue pane and the work board
     // both read this snapshot. Announcing it here is what makes a queued or
@@ -751,7 +753,10 @@ export function createMessageQueueRuntime({
     broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
   };
   const scheduleBuildMonitor = (directory, delay = buildMonitorDelayMs) => {
-    if (stopped || !activeBuilds.has(directory) || activeBuilds.get(directory).needsReview) return;
+    if (stopped || !activeBuilds.has(directory)) return;
+    // A flagged lane is still monitored so a stale flag can clear itself once the
+    // session goes quiet; `persistence-failed` is the exception (storage is the fix).
+    if (activeBuilds.get(directory).needsReview && buildReviewBlocksUserUnfreeze(activeBuilds.get(directory))) return;
     clearTimeout(buildMonitors.get(directory));
     const timer = setTimeout(() => { buildMonitors.delete(directory); void monitorBuild(directory); }, delay);
     timer.unref?.();
@@ -759,7 +764,27 @@ export function createMessageQueueRuntime({
   };
   async function monitorBuild(directory) {
     const lease = activeBuilds.get(directory);
-    if (stopped || !lease || lease.needsReview) return;
+    if (stopped || !lease) return;
+    if (lease.needsReview) {
+      // A flagged lane is not automatically a lost cause: if its own turn is
+      // verifiably finished and the session is quiet, the flag is stale and the
+      // lane must let go. `persistence-failed` is the one reason that must not
+      // self-clear — its cause is storage, and re-dispatching is unsafe.
+      if (buildReviewBlocksUserUnfreeze(lease)) return;
+      const flaggedIdle = await isSessionIdle(lease.sessionId, directory);
+      if (activeBuilds.get(directory) !== lease || !lease.needsReview) return;
+      if (flaggedIdle !== true) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
+      const flaggedChildren = await hasWorkingSubagents(lease.sessionId);
+      if (activeBuilds.get(directory) !== lease || !lease.needsReview) return;
+      if (flaggedChildren !== false) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
+      const flaggedEvidence = await leaseTurnCompleted(lease, directory);
+      if (activeBuilds.get(directory) !== lease || !lease.needsReview) return;
+      if (flaggedEvidence !== true) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
+      activeBuilds.delete(directory);
+      commit(lease.sessionId);
+      wakeProject(directory);
+      return;
+    }
     // The API can acknowledge the prompt before the session becomes busy.
     if (now() - lease.startedAt < buildMonitorDelayMs) { scheduleBuildMonitor(directory); return; }
     const idle = await isSessionIdle(lease.sessionId, directory);
@@ -785,6 +810,9 @@ export function createMessageQueueRuntime({
       lease.needsReview = true;
       lease.reviewReason = lease.restored ? 'restart-unconfirmed' : 'completion-unconfirmed';
       commit(lease.sessionId);
+      // Keep watching: a completion that arrives late turns this flag stale, and
+      // the monitor's flagged branch is what clears it.
+      scheduleBuildMonitor(directory, buildRecheckMs);
       return;
     }
     if (idle !== true || children !== false || !completed) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
@@ -875,7 +903,13 @@ export function createMessageQueueRuntime({
       // Park synchronously while checking history so the monitor cannot release
       // a genuinely interrupted turn based on an intermediate tool-step reply.
       const succeeded = await leaseHasSuccessfulTurn(lease, directory);
-      if (stopped || activeBuilds.get(directory) !== lease || !succeeded) continue;
+      if (stopped || activeBuilds.get(directory) !== lease) continue;
+      if (!succeeded) {
+        // The turn is genuinely parked for review. Keep a monitor on it anyway,
+        // so a flag that later turns out to be stale can clear itself.
+        scheduleBuildMonitor(directory);
+        continue;
+      }
       delete lease.needsReview;
       delete lease.reviewReason;
       commit(sessionId);
@@ -907,6 +941,61 @@ export function createMessageQueueRuntime({
     }
     return false;
   };
+
+  /**
+   * Whether the lease's own turn is over. `true` when a terminal `idle` record
+   * for the turn exists (`succeeded` or `interrupted`), or when no such record
+   * exists but nothing from the lease's own span is still streaming — that is the
+   * only evidence the ambiguous-dispatch and restart parks can ever produce.
+   * `false` while the lease's turn is still streaming, `null` when it cannot be
+   * read. Unknown never releases a lane.
+   *
+   * This asks about the lease's turn, not about the session being idle this
+   * instant. A later turn may have started since; that does not undo the fact
+   * that the turn this lease owns is finished.
+   */
+  const leaseTurnOver = async (lease, directory) => {
+    let cursor;
+    const seen = new Set();
+    for (let pageNumber = 0; pageNumber < 8; pageNumber += 1) {
+      const query = { limit: '50' };
+      if (cursor) query.cursor = cursor;
+      const page = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
+        directory, query,
+      }).catch(() => null);
+      const messages = asList(asRecord(page)?.data);
+      if (!messages) return null;
+      for (const value of messages) {
+        const message = asRecord(value);
+        const created = asCount(asRecord(message?.time)?.created);
+        // Newest first: anything older than the lease's turn ends the search,
+        // but only after this page's own terminal records were considered.
+        if (created !== null && created < lease.startedAt) break;
+        if (message?.type !== 'idle' || created === null || created < lease.startedAt) continue;
+        if (message.outcome === 'succeeded' || message.outcome === 'interrupted') return true;
+      }
+      cursor = asNonEmptyString(asRecord(asRecord(page)?.cursor)?.next);
+      if (!cursor || seen.has(cursor) || messages.length === 0) break;
+      seen.add(cursor);
+    }
+    // No terminal record for the lease's turn. That is what parks the
+    // ambiguous-dispatch and restart cases, so the fallback decides them: the
+    // turn is over unless something from its own span is still streaming.
+    const tail = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
+      directory, query: { limit: '5' },
+    }).catch(() => null);
+    const recent = asList(asRecord(tail)?.data);
+    if (recent === null) return null;
+    return recent.every(value => {
+      const message = asRecord(value);
+      const created = asCount(asRecord(message?.time)?.created);
+      // Older than the lease, or a later turn the user started: not this lease.
+      if (created === null || created < lease.startedAt) return true;
+      // An unfinished assistant reply from the lease's own span is still live.
+      return !(message?.type === 'assistant' && asCount(asRecord(message.time)?.completed) === null);
+    });
+  };
+
   const resolveBuild = async (directory, action, itemId) => {
     await load();
     const lease = activeBuilds.get(directory);
@@ -918,13 +1007,31 @@ export function createMessageQueueRuntime({
       return buildSnapshot();
     }
     if (!lease?.needsReview || (action !== 'skip' && action !== 'retry')) throw httpError('No recoverable build or invalid action', 409);
-    const idle = await isSessionIdle(lease.sessionId, directory);
-    const children = idle === true ? await hasWorkingSubagents(lease.sessionId) : null;
-    if (idle !== true || children !== false) throw httpError('Build session may still be running; cannot resolve yet', 409);
+    // The gate is the lease's own turn, not instant session idleness. Requiring
+    // idleness was unsatisfiable: a message delivered into the session after the
+    // freeze kept it busy, so the button that clears the freeze could never run.
+    const turnOver = await leaseTurnOver(lease, directory);
+    if (turnOver !== true) throw httpError('Build session may still be running; cannot resolve yet', 409);
     if (activeBuilds.get(directory) !== lease) throw httpError('The build queue changed. Refresh it before continuing.', 409);
     const queue = queues.get(lease.sessionId);
     const queuedItem = queue?.items.find(item => item.id === lease.itemId);
     if (action === 'retry' && !queuedItem) throw httpError('Build was already dispatched. Resubmit from its chat if needed; choose Continue to release queue', 409);
+    // A turn is running now: adopt it as this lane's active build rather than
+    // releasing into a void. The running turn becomes the work the lane tracks,
+    // and the queue resumes when it ends. Unreadable status keeps the freeze.
+    const idle = await isSessionIdle(lease.sessionId, directory);
+    if (idle === null) throw httpError('Build session may still be running; cannot resolve yet', 409);
+    if (idle === false) {
+      delete lease.needsReview;
+      delete lease.reviewReason;
+      lease.adoptedAt = now();
+      lease.phase = 'running';
+      lease.observedBusy = true;
+      commit(lease.sessionId);
+      wakeProject(directory);
+      scheduleBuildMonitor(directory);
+      return buildSnapshot();
+    }
     if (action === 'skip' && queuedItem) setQueueItems(lease.sessionId, directory, queue.items.filter(item => item.id !== lease.itemId));
     activeBuilds.delete(directory);
     buildProblems.delete(directory);
@@ -992,6 +1099,17 @@ export function createMessageQueueRuntime({
    * so a dispatch could run with no durable record of it. Storage is the fix.
    */
   const buildReviewBlocksUserUnfreeze = (lease) => lease.reviewReason === 'persistence-failed';
+
+  /**
+   * A lane waiting for a human decision, held by the given session. Its session
+   * stops taking delivery while it waits: a message that reaches the session
+   * anyway is what made the freeze unresolvable, because a busy session cannot
+   * pass the release gate.
+   */
+  const buildLaneFrozenFor = (directory, sessionId) => {
+    const lease = activeBuilds.get(directory);
+    return lease?.needsReview === true && lease.sessionId === sessionId;
+  };
 
   /**
    * A Build prompt submitted to the session that holds the project's lease is the
@@ -1120,6 +1238,18 @@ export function createMessageQueueRuntime({
     if (stopped) return;
     const queue = queues.get(sessionId);
     if (!queue || queue.items.length === 0 || sending.has(sessionId) || parkingSessions.has(sessionId) || isHeld(sessionId)) return;
+
+    // A lane frozen for review also freezes the queue of the session that owns
+    // it. Delivering there is what made Continue impossible: the freeze could not
+    // stop the message, and the message kept the session busy, so the release
+    // gate had nothing idle to see. The items stay put and go out once the lane
+    // is resolved. Other sessions in the project are untouched — only the lane's
+    // own session is what the user is being asked about.
+    const frozenOwner = buildLaneFrozenFor(queue.directory, sessionId);
+    if (frozenOwner) {
+      armDispatch(sessionId, buildRecheckMs);
+      return;
+    }
 
     const abortHoldUntil = (abortedAt.get(sessionId) ?? 0) + abortHoldMs;
     if (abortHoldUntil > now()) {

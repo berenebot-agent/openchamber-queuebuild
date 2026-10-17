@@ -35,6 +35,19 @@ export type WorkBoardQueueWrite =
   | { directory: string; sessionId: string; itemId: string }
   | { directory: string; itemId?: string; action: 'skip' | 'retry' };
 
+/**
+ * Which confirmation a review Continue shows. Continuing a frozen lane whose
+ * session is running again adopts that live turn rather than releasing the
+ * build, so it says so; otherwise the banner's own review text stands. The
+ * board only knows what it sees, so this picks wording — the server decides.
+ */
+export function workBoardReviewConfirmWording(
+  action: 'skip' | 'retry' | undefined,
+  sessionBusy: boolean,
+): 'adopt' | 'banner' {
+  return action === 'skip' && sessionBusy ? 'adopt' : 'banner';
+}
+
 export function workBoardFeedback(activity: WorkBoardActivity | undefined, unavailable: boolean, needsReview: boolean, hasUnseenTurn: boolean): 'unknown' | 'blocked' | undefined {
   if (unavailable || !activity) return 'unknown';
   const messages = [...activity.messages].reverse();

@@ -1792,11 +1792,15 @@ describe('project-wide build queue', () => {
       expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'aborted' });
       expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
 
-      await expect(runtime.resolveBuild(DIRECTORY, 'skip')).rejects.toMatchObject({ status: 409 });
+      // A busy session no longer blocks the release: the live turn is adopted as
+      // this lane's active build, and the queued successor waits for it.
+      const adopted = await runtime.resolveBuild(DIRECTORY, 'skip');
+      expect(adopted.active[0]).toMatchObject({ sessionId: SESSION });
+      expect(adopted.active[0].needsReview).not.toBe(true);
       delete openCode.state.active[SESSION];
       await expect(runtime.resolveBuild(DIRECTORY, 'skip', 'stale-item')).rejects.toMatchObject({ status: 409 });
-      await runtime.resolveBuild(DIRECTORY, 'skip');
-      await settle(60);
+      openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+      await settle(80);
       expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
     } finally { runtime.stop(); await runtime.flush(); }
   });
@@ -1845,6 +1849,141 @@ describe('project-wide build queue', () => {
       expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'aborted' });
       await expect(runtime.resolveBuild(DIRECTORY, 'skip')).rejects.toMatchObject({ status: 409 });
     } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('holds the session queue while its lane waits for review, then delivers on resolve', async () => {
+    // A frozen lane must stop delivery into its own session. Delivering there is
+    // what kept the session busy and made Continue impossible to satisfy.
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10, buildCompletionGraceMs: 10_000 });
+    runtime.start();
+    try {
+      // An older, unrelated finished turn: evidence exists, but not for the lease.
+      openCode.state.tail = [{ type: 'assistant', time: { completed: 1 } }];
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'first' }));
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+      // The build's own turn is interrupted (the Stop), with no completion: the
+      // lane parks and stays parked until a human resolves it.
+      const interruptedAt = Date.now();
+      openCode.state.active[SESSION] = { type: 'running' };
+      openCode.state.tail = [{ type: 'idle', outcome: 'interrupted', time: { created: interruptedAt } }];
+      emit({ type: 'session.idle', properties: { sessionID: SESSION, aborted: true, reason: 'user' } });
+      await settle(60);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'aborted' });
+
+      // An ordinary follow-up in that session must wait, not be delivered into a
+      // lane the user is being asked about.
+      delete openCode.state.active[SESSION];
+      await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'follow up', text: 'follow up' }));
+      await settle(80);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+      expect(runtime.sessionSnapshot(SESSION).items.map(entry => entry.content)).toEqual(['follow up']);
+
+      // Resolving the lane releases the message that was waiting behind it.
+      await runtime.resolveBuild(DIRECTORY, 'skip');
+      await settle(80);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'follow up']);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('adopts a running turn on resolve instead of refusing while the session is busy', async () => {
+    // The reported deadlock: a Stop parks the lane, a later message keeps the
+    // session busy, and Continue then refused with "may still be running". The
+    // gate asks about the lease's own turn, so the live turn is adopted.
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10, buildCompletionGraceMs: 10_000 });
+    runtime.start();
+    try {
+      openCode.state.tail = [{ type: 'assistant', time: { completed: 1 } }];
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'first' }));
+      await runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'second' }));
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+      const interruptedAt = Date.now();
+      openCode.state.active[SESSION] = { type: 'running' };
+      openCode.state.tail = [{ type: 'idle', outcome: 'interrupted', time: { created: interruptedAt } }];
+      emit({ type: 'session.idle', properties: { sessionID: SESSION, aborted: true, reason: 'user' } });
+      await settle(60);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'aborted' });
+
+      // A later turn is now running in that same session. It is not the lease's
+      // turn, but it is what the user is watching, so Continue adopts it. The
+      // interrupted record for the lease's own turn stays in history.
+      openCode.state.tail = [
+        { type: 'assistant', time: { created: interruptedAt + 1 } },
+        { type: 'idle', outcome: 'interrupted', time: { created: interruptedAt } },
+      ];
+
+      const snap = await runtime.resolveBuild(DIRECTORY, 'skip', runtime.buildSnapshot().active[0].itemId);
+      expect(snap.active[0]).toMatchObject({ sessionId: SESSION, phase: 'running' });
+      expect(snap.active[0].needsReview).not.toBe(true);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+      // The adopted turn finishes; the lane releases and the successor runs.
+      delete openCode.state.active[SESSION];
+      openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+      await settle(80);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('releases a flagged lane whose session has since gone quietly idle', async () => {
+    // The stale lease seen live: parked for review, but the session is idle with
+    // a completed turn, so the lane has no reason to stay held.
+    const { runtime, openCode, emit } = createRuntime({ checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10, buildCompletionGraceMs: 10_000 });
+    runtime.start();
+    try {
+      openCode.state.tail = [{ type: 'assistant', time: { completed: 1 } }];
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'first' }));
+      await runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'second' }));
+      await settle(60);
+
+      const interruptedAt = Date.now();
+      openCode.state.active[SESSION] = { type: 'running' };
+      openCode.state.tail = [{ type: 'idle', outcome: 'interrupted', time: { created: interruptedAt } }];
+      emit({ type: 'session.idle', properties: { sessionID: SESSION, aborted: true, reason: 'user' } });
+      await settle(60);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'aborted' });
+
+      // The turn actually finished after all: the flag is stale and the monitor
+      // clears it without a human. The successor then takes the lane.
+      delete openCode.state.active[SESSION];
+      openCode.state.tail = [{ type: 'assistant', time: { created: interruptedAt + 1, completed: Date.now() } }];
+      await settle(120);
+      expect(runtime.buildSnapshot().active.every(lease => lease.sessionId !== SESSION)).toBe(true);
+      expect(runtime.buildSnapshot().active).toHaveLength(1);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('keeps a persistence-failed lane parked even when the session is idle', async () => {
+    // The one review reason whose flag must not self-clear: storage is the fix,
+    // so the stale-flag sweep leaves it alone until a human acts.
+    const dataDir = makeDataDir();
+    const { runtime, openCode } = createRuntime({ dataDir, checkBuildGit: async () => null,
+      buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    const tmpPath = path.join(dataDir, `message-queue.json.${process.pid}.tmp`);
+    fs.mkdirSync(tmpPath);
+    runtime.start();
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'frozen', text: 'frozen', buildQueue: true }));
+      await settle(80);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'persistence-failed' });
+
+      // A completed turn and an idle session do not release this lane: only
+      // repairing storage does, so the flag survives the sweep untouched.
+      openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+      await settle(80);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'persistence-failed' });
+    } finally {
+      fs.rmSync(tmpPath, { recursive: true, force: true });
+      runtime.stop();
+      await runtime.flush();
+    }
   });
 
 });

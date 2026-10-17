@@ -25,6 +25,8 @@ export const dict: Record<I18nKey, string> = {
   'buildQueue.recovery.description': '确认报告的问题并释放此构建。其更改保留在磁盘上，不会再次运行。队列准备就绪后将开始下一个构建。',
   'buildQueue.recovery.confirm': '确认并继续',
   'buildQueue.recovery.fallback': '需要检查上一个构建。',
+  'buildQueue.adopt.title': '继续队列？',
+  'buildQueue.adopt.description': '此会话中已有回合正在运行。继续会将其作为活动构建接管，队列将在其结束后恢复。',
   'buildQueue.force.action': '强制构建',
   'buildQueue.force.title': '现在强制构建此任务？',
   'buildQueue.force.description': '此构建将立即开始，与正在运行的构建并行。它不会被视为队列的一部分，队列也不会等待它。是否继续？',

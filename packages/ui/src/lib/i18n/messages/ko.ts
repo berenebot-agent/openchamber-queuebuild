@@ -25,6 +25,8 @@ export const dict: Record<I18nKey, string> = {
   'buildQueue.recovery.description': '보고된 문제를 확인하고 이 빌드를 해제합니다. 변경 사항은 디스크에 유지되며 다시 실행되지 않습니다. 대기열이 준비되면 다음 빌드가 시작됩니다.',
   'buildQueue.recovery.confirm': '확인하고 계속',
   'buildQueue.recovery.fallback': '이전 빌드를 검토해야 합니다.',
+  'buildQueue.adopt.title': '대기열을 계속할까요?',
+  'buildQueue.adopt.description': '이 세션에서 이미 턴이 실행 중입니다. 계속하면 그 턴을 활성 빌드로 인계하고, 끝나면 대기열이 재개됩니다.',
   'buildQueue.force.action': '빌드 강제 실행',
   'buildQueue.force.title': '이 빌드를 지금 강제 실행할까요?',
   'buildQueue.force.description': '이 빌드는 이미 실행 중인 빌드와 병렬로 지금 시작됩니다. 대기열의 일부로 취급되지 않으며 대기열이 이 빌드를 기다리지 않습니다. 계속할까요?',

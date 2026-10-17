@@ -24,6 +24,8 @@ export const dict = {
   'buildQueue.recovery.description': 'Confirmez le problème signalé et libérez cette compilation. Ses modifications restent sur le disque. Elle ne sera pas relancée. La compilation suivante démarre quand la file est prête.',
   'buildQueue.recovery.confirm': 'Confirmer et reprendre',
   'buildQueue.recovery.fallback': 'La compilation précédente doit être vérifiée.',
+  'buildQueue.adopt.title': 'Reprendre la file ?',
+  'buildQueue.adopt.description': "Un tour est déjà en cours dans cette session. Continuer l'adopte comme build actif, et la file reprend lorsqu'il se termine.",
   'buildQueue.force.action': 'Forcer la compilation',
   'buildQueue.force.title': 'Forcer cette compilation maintenant ?',
   'buildQueue.force.description': 'Cette compilation démarre maintenant, en parallèle de celle déjà en cours. Elle ne sera pas traitée comme faisant partie de la file, et la file ne l’attendra pas. Continuer ?',

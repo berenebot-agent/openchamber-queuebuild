@@ -254,7 +254,7 @@ Live leases that remain verifiably idle without completion evidence for 30 secon
 also enter manual review. Delayed startup can settle during this grace period.
 A busy session, active descendant, or failed activity/history read resets the
 idle grace period. Unknown status keeps the lease held; it never admits the next
-Build. Continue releases an uncertain dispatched lease only after an idle check.
+Build.
 The Git service's scope, ignore rules and failure contract are documented in
 `../git/DOCUMENTATION.md`, under "Automatic build preparation".
 
@@ -266,14 +266,35 @@ assistant tool step alone does not prove success. Missing, unreadable or
 incomplete history keeps the lease paused for human acknowledgement. An
 in-flight monitor cannot release a lease parked during its activity reads.
 
+A flagged lane is still monitored, so a flag that has gone stale clears itself
+without a human: when the session is idle, no descendant runs and a completed
+assistant reply for the lease's own turn exists, the monitor releases the lane.
+`persistence-failed` is the one reason that never self-clears — its cause is
+storage, and re-dispatching onto a queue that cannot be written is unsafe.
+Without this, a lane parked for a turn that later completed stayed held
+indefinitely.
+
+A parked lane also holds the queue of the session that owns it. Delivery into
+that session is what made the freeze unresolvable: the freeze does not stop an
+ordinary message, and the message kept the session busy, so a release gate that
+required idleness had nothing idle to see. Held items stay queued and are
+delivered once the lane is resolved, before the lane's next build. Other
+sessions in the project are unaffected; only the lane's own session is what the
+user is being asked about.
+
 Continue acknowledges the reported problem and releases the lease without
-rerunning it or changing its files. The server still verifies that the session
-and its descendants are idle. The UI includes the lease's `itemId` in the
-resolve request, so an old confirmation cannot release a different build.
-Legacy callers can omit this optional field. The server retains retry support
-for pending dispatches; the review banner offers only Open session and Continue.
-The common request middleware parses JSON for `/api/build-queue`, including
-resolve, reorder and pause requests.
+rerunning it or changing its files. Release is gated on the lease's own turn
+having ended — a terminal `succeeded` or `interrupted` record for it, or an idle
+session with nothing of its own span still streaming — not on the session being
+idle at that instant. A later turn the user started does not hold the lane
+hostage. When such a turn is running, Continue adopts it: the flag is cleared,
+the running turn becomes the lane's active build, and the queue resumes when it
+ends. Unreadable history still refuses with 409. The UI includes the lease's
+`itemId` in the resolve request, so an old confirmation cannot release a
+different build. Legacy callers can omit this optional field. The server
+retains retry support for pending dispatches; the review banner offers only Open
+session and Continue. The common request middleware parses JSON for
+`/api/build-queue`, including resolve, reorder and pause requests.
 
 ### Unfreezing from the session
 

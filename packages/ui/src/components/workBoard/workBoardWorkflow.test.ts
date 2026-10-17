@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -270,5 +270,14 @@ describe('Plan promotion', () => {
     const captured = captureWorkBoardAttachments([file]);
     file.filename = 'changed.txt';
     expect(captured[0].filename).toBe('notes.txt');
+  });
+  test('a busy review session continues by adopting, an idle one keeps the banner text', () => {
+    // Continuing a frozen lane whose session is running again adopts that live
+    // turn; the confirmation has to say so instead of repeating the review text.
+    expect(workBoardReviewConfirmWording('skip', true)).toBe('adopt');
+    // Idle, or the retry action, keeps the banner's own wording.
+    expect(workBoardReviewConfirmWording('skip', false)).toBe('banner');
+    expect(workBoardReviewConfirmWording('retry', true)).toBe('banner');
+    expect(workBoardReviewConfirmWording(undefined, true)).toBe('banner');
   });
 });

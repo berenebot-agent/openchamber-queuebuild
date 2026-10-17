@@ -24,6 +24,8 @@ export const dict = {
   'buildQueue.recovery.description': 'Bestätige das gemeldete Problem und gib diesen Build frei. Seine Änderungen bleiben auf der Festplatte. Er wird nicht erneut ausgeführt. Der nächste Build startet, sobald die Warteschlange bereit ist.',
   'buildQueue.recovery.confirm': 'Bestätigen und fortsetzen',
   'buildQueue.recovery.fallback': 'Der vorherige Build muss überprüft werden.',
+  'buildQueue.adopt.title': 'Fortsetzen der Warteschlange?',
+  'buildQueue.adopt.description': 'In dieser Sitzung läuft bereits ein Durchlauf. Beim Fortsetzen wird er als aktiver Build übernommen, und die Warteschlange läuft weiter, sobald er endet.',
   'buildQueue.force.action': 'Build erzwingen',
   'buildQueue.force.title': 'Diesen Build jetzt erzwingen?',
   'buildQueue.force.description': 'Dieser Build startet jetzt, parallel zum bereits laufenden Build. Er wird nicht als Teil der Warteschlange behandelt, und die Warteschlange wartet nicht auf ihn. Fortfahren?',

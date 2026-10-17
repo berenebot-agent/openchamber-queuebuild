@@ -25,6 +25,8 @@ export const dict: Record<I18nKey, string> = {
   'buildQueue.recovery.description': '報告された問題を確認し、このビルドを解放します。変更はディスクに残り、再実行はされません。キューの準備が整うと次のビルドが開始されます。',
   'buildQueue.recovery.confirm': '確認して続行',
   'buildQueue.recovery.fallback': '前のビルドを確認する必要があります。',
+  'buildQueue.adopt.title': 'キューを続行しますか？',
+  'buildQueue.adopt.description': 'このセッションではすでにターンが実行中です。続行するとそのターンをアクティブなビルドとして引き継ぎ、終了後にキューが再開します。',
   'buildQueue.force.action': 'ビルドを強制実行',
   'buildQueue.force.title': 'このビルドを今すぐ強制実行しますか？',
   'buildQueue.force.description': 'このビルドは、すでに実行中のビルドと並行して今すぐ開始されます。キューの一部として扱われず、キューがこのビルドを待つこともありません。続行しますか？',

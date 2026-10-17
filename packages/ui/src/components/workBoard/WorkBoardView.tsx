@@ -27,7 +27,7 @@ import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-sw
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, markWorkBoardCardViewed, WorkBoardRequestError, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
 import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
-import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, type WorkBoardActivity, type WorkBoardActiveEntry, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
+import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, type WorkBoardActivity, type WorkBoardActiveEntry, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
@@ -664,6 +664,16 @@ export function WorkBoardView() {
     [directory, queue, queueError],
   );
   const needsReview = Boolean(activeBuild?.needsReview);
+  // A review-frozen lane whose session is running again is continued by adopting
+  // that live turn, not by releasing into a void. The board only knows what it
+  // sees, so this is a wording hint: the server decides.
+  const reviewSessionBusy = React.useMemo(() => {
+    const sessionId = activeBuild?.sessionId;
+    if (!sessionId) return false;
+    const card = cards.find(entry => entry.sessionId === sessionId);
+    return card ? Boolean(activities.get(card.id)?.busy) : false;
+  }, [activeBuild?.sessionId, cards, activities]);
+  const reviewConfirmWording = workBoardReviewConfirmWording(resolveConfirm?.action, reviewSessionBusy);
 
   const queueStateFor = (card: WorkBoardCard): WorkBoardQueueState | undefined => {
     if (queueError || !queue || !card.sessionId) return undefined;
@@ -982,8 +992,12 @@ export function WorkBoardView() {
       <DialogContent showCloseButton={!queueBusy}>
         <DialogTitle>{resolveConfirm?.action === 'retry'
           ? t('settings.openchamber.buildQueue.policy.retry')
-          : t('buildQueue.recovery.continue')}</DialogTitle>
-        <DialogDescription>{resolveConfirm?.issue}</DialogDescription>
+          : reviewConfirmWording === 'adopt'
+            ? t('buildQueue.adopt.title')
+            : t('buildQueue.recovery.continue')}</DialogTitle>
+        <DialogDescription>{reviewConfirmWording === 'adopt'
+          ? t('buildQueue.adopt.description')
+          : resolveConfirm?.issue}</DialogDescription>
         <DialogFooter>
           <Button variant="outline" disabled={queueBusy} onClick={() => setResolveConfirm(null)}>{t('workBoard.cancel')}</Button>
           <Button disabled={queueBusy} onClick={confirmResolve}>{t('workBoard.resume')}</Button>
