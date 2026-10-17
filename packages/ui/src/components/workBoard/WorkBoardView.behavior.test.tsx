@@ -181,10 +181,10 @@ test('board actions, live activity and viewed turn attention use shared session 
     await act(async () => completeTodoSave(saved, 'project'));
     expect(useUIStore.getState().isWorkBoardOpen).toBe(true);
     expect(useUIStore.getState().workBoardProjectTabsByRuntime[getRuntimeKey()]?.activeProjectId).toBe('project');
-    const savedDialog = document.querySelector('[role="dialog"]');
-    expect(savedDialog?.textContent).toContain('Saved to To-do');
-    expect(savedDialog?.textContent).toContain(saved.text);
-    expect(savedDialog?.querySelector('a')?.getAttribute('download')).toBe('brief.txt');
+    // The save is announced by the composer's toast; the board itself carries
+    // the card and shows no dialog over it.
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(useWorkBoardSavedTodo.getState().latestSave?.card.id).toBe(saved.id);
     // An existing-session save stays in its session and never opens the board.
     await act(async () => {
       useUIStore.getState().setWorkBoardOpen(false);
@@ -192,7 +192,6 @@ test('board actions, live activity and viewed turn attention use shared session 
     });
     expect(useUIStore.getState().isWorkBoardOpen).toBe(false);
     expect(useSessionUIStore.getState().currentSessionId).toBe('session1');
-    expect(useWorkBoardSavedTodo.getState().confirmation).toBeNull();
     // The move to Done stamps a fresh completion, so the card carries the
     // session list's unread mark until that completion is acknowledged.
     expect(linkedCard().querySelector('[data-session-activity-indicator="unread"]')).not.toBeNull();
@@ -208,7 +207,7 @@ test('board actions, live activity and viewed turn attention use shared session 
     expect(linkedCard().getAttribute('data-work-board-feedback')).toBeNull();
   } finally {
     await act(async () => root.unmount());
-    useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
+    useWorkBoardSavedTodo.setState({ latestSave: null });
     fetchSpy.mockRestore(); draftSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config); useGlobalSessionsStore.setState(sessions);
     useNotificationStore.setState(notifications); useSessionUIStore.setState(sessionUI);

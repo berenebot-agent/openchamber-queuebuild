@@ -35,7 +35,6 @@ import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
-import { SavedTodoBrief } from './SavedTodoBrief';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queue', 'build', 'done'];
 
@@ -466,7 +465,6 @@ export function WorkBoardView() {
   const activeProjectId = useProjectsStore(state => state.activeProjectId);
   const hasServerSnapshot = useProjectsStore(state => state.hasServerSnapshot);
   const runtimeKey = getRuntimeKey();
-  const confirmation = useWorkBoardSavedTodo(state => state.confirmation);
   const storedProjectTabs = useUIStore(state => state.workBoardProjectTabsByRuntime[runtimeKey]);
   const setWorkBoardProjectTabs = useUIStore(state => state.setWorkBoardProjectTabs);
   const projectIds = storedProjectTabs?.projectIds ?? [];
@@ -514,7 +512,6 @@ export function WorkBoardView() {
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
   const includeOlder = useUIStore(state => state.workBoardOlderSessions[JSON.stringify([runtimeKey, directory])] ?? true);
-  const savedCard = confirmation?.runtimeKey === runtimeKey && confirmation.card.directory === directory ? confirmation.card : null;
   // Remember which board the user is on so any chat can return to it, and so a
   // New to-do draft is rooted in this project rather than the sidebar's.
   React.useEffect(() => {
@@ -1166,6 +1163,16 @@ export function WorkBoardView() {
                 onCancelEdits={() => { setEditing(null); setEditVersion(null); }}
                 onSaveEdits={version => void saveEditedCard(version)}
                 actions={<>
+                  {/* A session-less To-do card can start planning from the card
+                      itself, instead of only from the hover-only menu. */}
+                  {!card.sessionId && <button type="button"
+                    disabled={busy || loading || Boolean(error)}
+                    aria-label={t('workBoard.startPlan')}
+                    title={t('workBoard.startPlan')}
+                    onClick={() => promote(card)}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:text-foreground hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                    <Icon name="rocket" className="size-3.5" />
+                  </button>}
                   {canComplete(card) && <button type="button"
                     disabled={busy || loading || Boolean(error)}
                     aria-label={t('workBoard.moveToDone', { title })}
@@ -1219,12 +1226,6 @@ export function WorkBoardView() {
           <Button variant="outline" disabled={busy} onClick={useSavedEditVersion}>{t('workBoard.useSavedVersion')}</Button>
           {!editConflict?.sessionId && !editConflict?.briefRemoved && <Button disabled={busy || !editConflict} onClick={() => { if (editConflict) void saveEditedCard(editConflict.updatedAt); }}>{t('workBoard.keepMyEdits')}</Button>}
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    <Dialog open={savedCard !== null} onOpenChange={open => { if (!open) useWorkBoardSavedTodo.setState({ confirmation: null }); }}>
-      <DialogContent className="max-w-2xl">
-        <DialogTitle>{t('workBoard.saved')}</DialogTitle>
-        <div className="max-h-[65vh] overflow-y-auto">{savedCard && <SavedTodoBrief card={savedCard} />}</div>
       </DialogContent>
     </Dialog>
     <Dialog open={resolveConfirm !== null} onOpenChange={open => { if (!open && !queueBusy) setResolveConfirm(null); }}>

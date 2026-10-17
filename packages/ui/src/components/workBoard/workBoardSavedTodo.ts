@@ -7,11 +7,10 @@ import { readWorkBoardMemory, rememberWorkBoard } from './workBoardMemory';
 
 type SavedTodo = { runtimeKey: string; card: WorkBoardCard };
 
-/** Transient save confirmation. The server card remains the durable source. */
+/** Transient save notice. The server card remains the durable source. */
 export const useWorkBoardSavedTodo = create<{
   latestSave: SavedTodo | null;
-  confirmation: SavedTodo | null;
-}>(() => ({ latestSave: null, confirmation: null }));
+}>(() => ({ latestSave: null }));
 
 export function completeTodoSave(card: WorkBoardCard, newDraftProjectId?: string): void {
   const runtimeKey = getRuntimeKey();
@@ -24,7 +23,7 @@ export function completeTodoSave(card: WorkBoardCard, newDraftProjectId?: string
     cards: remembered.cards.some(entry => entry.id === card.id)
       ? remembered.cards.map(entry => entry.id === card.id ? card : entry) : [...remembered.cards, card],
   });
-  useWorkBoardSavedTodo.setState({ latestSave: saved, confirmation: newDraftProjectId ? saved : null });
+  useWorkBoardSavedTodo.setState({ latestSave: saved });
   if (!newDraftProjectId) return;
 
   const ui = useUIStore.getState();

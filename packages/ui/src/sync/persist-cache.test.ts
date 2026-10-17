@@ -439,7 +439,7 @@ describe("persisted work board cards", () => {
     completeTodoSave(removed)
     expect(readWorkBoardCards(boardDirectory)).toEqual([removed])
     expect(readWorkBoardMemory(getRuntimeKey(), boardDirectory)?.cards).toEqual([removed])
-    useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null })
+    useWorkBoardSavedTodo.setState({ latestSave: null })
   })
 
   test("drops a foreign record and forgets a directory's cards", () => {

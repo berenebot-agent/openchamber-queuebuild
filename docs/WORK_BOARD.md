@@ -107,8 +107,9 @@ to finish before parking an existing session. The composer clears only after
 the server confirms the save. If the session becomes busy while To-do is
 selected, its notes stay in the composer and cannot be queued for execution.
 
-Saving a new-session draft returns to that project's board with a
-**Saved to To-do** dialog showing the full saved text and attachment downloads.
+Saving a new-session draft returns to that project's board, where the card is
+now in the To-do lane, and confirms with a **Saved to To-do** toast. The board
+itself opens no dialog over the card.
 Saving in an existing session keeps that session open. Its saved brief appears
 at the end of the transcript in a **Saved to To-do** entry, including after
 reopening the session or refreshing the page. Existing linked cards also appear
@@ -160,7 +161,9 @@ To-do cards live on the board. They do not add empty sessions to the sidebar.
 
 **Start Plan** creates a Plan session and submits the card's text and files as
 its first prompt. The card retains its saved contents and links to the session.
-Opening a linked card takes you to its chat.
+A card that has no session yet carries the control on the card itself, next to
+its completion button, and also in the card's actions menu. Opening a linked
+card takes you to its chat.
 The board starts the Plan turn on the model the Plan agent would use in a fresh
 chat, resolved through the usual defaults. The board has no model picker; to run
 a particular model, open the card's session and change it in the chat composer.

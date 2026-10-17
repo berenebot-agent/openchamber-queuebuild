@@ -416,14 +416,15 @@ for (const scenario of ['session', 'draft'] as const) {
         await act(async () => { save!.click(); });
         expect(writes).toEqual([scenario === 'draft' ? '/api/work-board' : '/api/work-board/sessions/ses_typing/todo']);
         expect(useWorkBoardSavedTodo.getState().latestSave?.card.text).toBe('Full saved brief\nFollow-up details');
-        expect(useWorkBoardSavedTodo.getState().confirmation !== null).toBe(scenario === 'draft');
+        // Only a new-session draft returns to the board; the save is announced
+        // by a toast on both paths.
         expect(useUIStore.getState().isWorkBoardOpen).toBe(scenario === 'draft');
         expect(view.state.doc.toString()).toBe('');
       });
     } finally {
       useProjectsStore.setState(projects);
       useUIStore.setState(ui);
-      useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
+      useWorkBoardSavedTodo.setState({ latestSave: null });
     }
   });
 }
@@ -433,7 +434,7 @@ const prepareSavedTodo = async () => {
   const { useSelectionStore } = await import('@/sync/selection-store');
   const { useAuthSessionStore } = await import('@/lib/runtime-auth-expiry');
   useAuthSessionStore.setState({ state: 'ok' });
-  useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
+  useWorkBoardSavedTodo.setState({ latestSave: null });
   patches.length = 0;
   writes.length = 0;
   failBoardWrite = false;

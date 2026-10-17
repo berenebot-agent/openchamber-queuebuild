@@ -42,7 +42,7 @@ test('session view restores full to-do text and attachments, preserves it on fai
     expect(container.querySelector('a')?.getAttribute('download')).toBe('notes.txt');
     // A cold remount must read the server, without transient save state.
     await act(async () => root.render(null));
-    useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
+    useWorkBoardSavedTodo.setState({ latestSave: null });
     await render('plan1');
     expect(container.textContent).toContain(card.text);
     fail = true;
@@ -79,7 +79,7 @@ test('session view restores full to-do text and attachments, preserves it on fai
     await act(async () => root.unmount());
     switchRuntimeEndpoint(originalRuntime);
     fetchSpy.mockRestore();
-    useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
+    useWorkBoardSavedTodo.setState({ latestSave: null });
     for (const [name, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, name, descriptor); else Reflect.deleteProperty(globalThis, name); }
     await dom.happyDOM.close();
   }
