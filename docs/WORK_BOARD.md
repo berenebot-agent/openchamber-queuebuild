@@ -277,10 +277,30 @@ failed cards. Refresh before retrying cards that changed during confirmation.
 
 ## Supported interfaces
 
-The first version provides the board in web and Electron desktop chat. VS Code
-and the dedicated mobile layouts do not provide a board entry point.
-Hosted mobile and Capacitor session views can read saved linked briefs from the
-same server. VS Code does not request board-backed session entries.
+Web and Electron desktop display the existing four-column Work Board.
+Hosted mobile and Capacitor Android/iOS now expose the same board from the
+sessions drawer, using the shared WorkBoardView state, card actions and
+server APIs. The phone/tablet version shows one lane at a time, a project
+selector, lane counts, a queue enable switch and touch-friendly queue actions.
+New To-do drafts can be saved from the shared mobile composer. Selecting a
+session from the board dismisses the mobile surface, returning to chat.
+VS Code still does not expose the board or use the server-owned queue.
+
+The project's Build queue enablement is persisted on the OpenChamber server
+inside the existing message-queue state file, instead of being independently
+chosen by each browser profile. The first successful preference refresh
+migrates legacy local enabled flags into any previously unconfigured server
+projects, without overriding explicit server settings. The server also tags
+Build-agent messages submitted to the shared message-queue API as managed
+builds when the project is enabled, even if the client carries stale flags.
+Web, Electron and mobile composers refresh this server setting before an
+ordinary Build submit and refuse to bypass it when the server cannot confirm
+the current setting.
+
+**Scope limitation:** An external client that sends directly to the OpenCode
+prompt API does not pass through the OpenChamber message queue. Explicit
+steering into an active session and Force Build also remain outside ordinary
+serial dispatch. These are not silently intercepted by this change.
 Stored cards belong to the OpenChamber server and are available to other
 browser profiles connected to that server.
 The board refreshes stored cards on focus, after writes, and every 30 seconds
