@@ -1359,12 +1359,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }, [attachedFiles.length, hasDrafts, hasLinkedReferences, isBtwActive]);
 
     const [todoMode, setTodoMode] = React.useState(false);
-    const todoSupported = !isMobile && !isCapacitorApp() && !isVSCodeRuntime() && !isBtwActive && !parallelActive
+    // All server-backed clients, including PWA and Capacitor, can park drafts and
+    // sessions on the same Work Board. VS Code has no board server.
+    const todoSupported = !isVSCodeRuntime() && !isBtwActive && !parallelActive
         && !isAutoModel(currentProviderId, currentModelId);
     // A New to-do opened from the Work Board lands ready to save, not ready to
     // send: the button promised a to-do, and defaulting back to Build would run
     // a model the user never asked for. Every other draft still starts in send
-    // mode, and a mode the composer cannot support (mobile, VS Code, Auto) falls
+    // mode, and a mode the composer cannot support (VS Code or Auto) falls
     // back to the ordinary reset below.
     const draftStartsInTodo = newSessionDraftOpen && newSessionDraft?.origin === 'workBoard';
     React.useEffect(() => {
