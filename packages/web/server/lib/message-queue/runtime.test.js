@@ -2163,7 +2163,7 @@ describe('prompt admission', () => {
     expect(result.action).toBe('queued');
     await settle(100);
     expect(openCode.state.sent.filter(entry => entry.path.endsWith('/command')).map(entry => entry.body))
-      .toEqual([{ name: 'ship', text: args, delivery: 'queue' }]);
+      .toEqual([{ name: 'ship', text: args }]);
     expect(openCode.state.sent.filter(entry => entry.path.endsWith('/prompt'))).toEqual([]);
     runtime.stop();
     await runtime.flush();
@@ -2428,20 +2428,20 @@ describe('per-session clear with project build work', () => {
 });
 
 describe('managed dispatch delivery', () => {
-  it('states queue delivery on a managed build prompt so a late-starting turn cannot steer it', async () => {
-    // The idle probe is not atomic with the send. Upstream steers by default, so
-    // a direct Plan turn that started in the gap would swallow the build.
+  it('sends a managed build prompt as the turn initiator, with no queue delivery', async () => {
+    // Stating `queue` parked the prompt in the session inbox, so the turn ran
+    // on the synthetic preamble alone and the user's request was left pending.
     const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30 });
     await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
     await settle(80);
     const prompts = openCode.state.sent.filter((entry) => entry.path.endsWith('/prompt'));
     expect(prompts).toHaveLength(1);
-    expect(prompts[0].body.delivery).toBe('queue');
+    expect(prompts[0].body.delivery).toBeUndefined();
     runtime.stop();
     await runtime.flush();
   });
 
-  it('states queue delivery on an admitted build prompt and keeps its original id', async () => {
+  it('sends an admitted build prompt as the turn initiator and keeps its original id', async () => {
     const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30 });
     const admitted = {
       content: 'ship it', text: 'ship it', attachments: [], context: [], sendConfig: {}, buildQueue: true,
@@ -2453,7 +2453,7 @@ describe('managed dispatch delivery', () => {
     await settle(80);
     const prompts = openCode.state.sent.filter((entry) => entry.path.endsWith('/prompt'));
     expect(prompts[0].body.id).toBe('msg_keep');
-    expect(prompts[0].body.delivery).toBe('queue');
+    expect(prompts[0].body.delivery).toBeUndefined();
     runtime.stop();
     await runtime.flush();
   });

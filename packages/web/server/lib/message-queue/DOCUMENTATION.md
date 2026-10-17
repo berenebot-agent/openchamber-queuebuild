@@ -111,18 +111,21 @@ setting, an unreadable session, or an unknown agent refuses, because "unknown"
 there could be a bypass; a request with no project to place it in, or a project
 with the queue off, passes untouched.
 
-**Delivery.** Upstream steers by default, and the idleness probe is not atomic
-with the send: a direct turn that starts in the gap would swallow a queued build
-as a steer. Every prompt the queue dispatches for a build item therefore states
-`delivery: 'queue'`, which parks it for the next turn instead. The same applies
-to a forced build: it should start its own turn rather than steer into the
-project's running one. An admitted prompt's own delivery is not replayed — a
-steer was already refused a queue entry — so the stated value is always `queue`.
-An explicit `queue` delivery is eligible for Build admission. An explicit `steer`
-bypasses admission only when live status confirms that session is running;
-otherwise a marked Build prompt is admitted as a new queued turn.
-Ordinary queued messages are left as they were, since a steer into a running
-turn is a legitimate thing for the user to have asked for.
+**Delivery.** The prompt the queue dispatches is the turn's own initiator, so it
+carries no `delivery` field at all — the same shape an ordinary queued message is
+sent with. Stating `queue` here was the bug: upstream parks a `queue` delivery in
+the session's inbox, and because the preamble synthetics had just been written to
+that session, the user's request stayed pending while the turn ran on the
+preamble alone. The preamble (`BUILD_INSTRUCTION`, staged leading context,
+attachments, project knowledge) stays context-only (`resume: false`), so it never
+starts a turn of its own. The idleness probe is not atomic with the send, so a
+direct turn that starts in the gap would still swallow the build as a steer; that
+race is the price of the prompt actually starting its turn, and the pre-send
+idleness recheck above is the guard against it. An admitted prompt's own delivery
+is not replayed. An explicit `steer` bypasses admission only when live status
+confirms that session is running; otherwise a marked Build prompt is admitted as a
+new queued turn. Ordinary queued messages are left as they were, since a steer
+into a running turn is a legitimate thing for the user to have asked for.
 
 ## Auto routing
 

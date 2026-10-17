@@ -835,14 +835,16 @@ export function createMessageQueueRuntime({
       if (accepted.length > 0) {
         for (const entry of accepted) {
           const { admission: record, messageId, command } = entry;
-          // An admitted prompt is queued work, and the delivery is stated
-          // rather than left to upstream's default (which steers). The idle
-          // probe is not atomic with this send, so a turn that starts in the
-          // gap would otherwise swallow the build as steering; `queue` leaves
-          // it parked for the next turn instead. A steer the user asked for was
-          // already refused a queue entry, so nothing here is a steer.
+          // The prompt is the turn's own initiator, exactly as an ordinary
+          // queued message is: stating `queue` here parked it in the session's
+          // inbox instead, so the turn ran on the preamble alone and the user's
+          // request was only delivered later. The idle probe is not atomic with
+          // this send, so a turn that starts in the gap would swallow the build
+          // as steering — that race is the price of the prompt actually
+          // starting its turn. A steer the user asked for was already refused a
+          // queue entry, so nothing here is a steer.
           const isCommand = Boolean(command);
-          const body = { text: command ? command.arguments : asText(record.text), delivery: 'queue' };
+          const body = { text: command ? command.arguments : asText(record.text) };
           const promptId = asNonEmptyString(messageId);
           if (command) body.name = command.name;
           else if (promptId) body.id = promptId;
@@ -860,12 +862,11 @@ export function createMessageQueueRuntime({
           });
         }
       } else {
-        // Same reason as above: the serialized lane's own prompt must be
-        // queued, never steered into a turn that began after the probe.
+        // Same reason as above: the serialized lane sends its prompt as the
+        // turn's own initiator, never parked behind it.
         const body = { text: item.text };
         if (promptFiles.length > 0) body.files = promptFiles;
         if (item.agentMention) body.agents = [{ name: item.agentMention }];
-        if (isBuildItem(item)) body.delivery = 'queue';
         await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
           directory,
           method: 'POST',
