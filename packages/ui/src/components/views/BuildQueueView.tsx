@@ -25,6 +25,7 @@ export const BuildQueueView: React.FC = () => {
   const key = projectKey(directory);
   const enabled = useBuildQueuePreferences(state => state.enabled[key] === true);
   const setEnabled = useBuildQueuePreferences(state => state.setEnabled);
+  const preferenceError = useBuildQueuePreferences(state => state.syncError);
   const { snapshot, error, refresh } = useBuildQueueSnapshot();
   const [busy, setBusy] = React.useState(false);
   const [confirmation, setConfirmation] = React.useState<{ directory: string; itemId: string; issue: string } | null>(null);
@@ -139,7 +140,7 @@ export const BuildQueueView: React.FC = () => {
           <div className="flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 bg-surface-elevated shrink-0">
             <span className="text-xs font-medium">{enabled ? 'On' : 'Off'}</span>
             <Switch aria-label="Queue Build agent prompts for this project" checked={enabled}
-              onCheckedChange={checked => setEnabled(directory, checked)} disabled={!directory} />
+              onCheckedChange={checked => { void setEnabled(directory, checked).catch(() => undefined); }} disabled={!directory} />
           </div>
         </div>
         <p className="mt-4 text-xs leading-5 text-muted-foreground">
@@ -148,6 +149,7 @@ export const BuildQueueView: React.FC = () => {
         </p>
       </div>
 
+      {preferenceError && <div role="alert" className="px-5 pt-3 text-xs text-[var(--error-text)]">{preferenceError}</div>}
       <div className="px-5 py-5 space-y-6">
         <SettingsSection divider={false} className="py-0">
           <SettingsStackedField label={t('settings.openchamber.buildQueue.policy.title')}>
