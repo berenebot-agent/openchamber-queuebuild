@@ -1,7 +1,10 @@
 import type { Message } from '@/lib/opencode/model';
 import type { WorkBoardCard, WorkBoardAttachment } from '@/lib/workBoardApi';
 
-export type WorkBoardLane = 'todo' | 'plan' | 'queue' | 'done';
+export type WorkBoardLane = 'todo' | 'plan' | 'queue' | 'build' | 'done';
+
+/** The lanes a card can be dragged into. Build queue membership stays its own. */
+export type WorkBoardCardLane = Exclude<WorkBoardLane, 'queue'>;
 
 /**
  * What the project's build queue says about a card's session. The board shows
@@ -58,6 +61,21 @@ export function workBoardFeedback(activity: WorkBoardActivity | undefined, unava
   return undefined;
 }
 
+/**
+ * Placement state from a manual drag. A card keeps its `updatedAt`: that is the
+ * boundary later session activity has to pass, and a parked To-do and the
+ * stale-completion check compare against it. `placementAt` carries the drag's
+ * own moment, which `updatedAt` cannot hold on its own.
+ */
+export function workBoardPlacement(card: WorkBoardCard, lane: WorkBoardCardLane, at: number) {
+  if (lane === 'done') return { ...card, stage: 'done' as const, placementAt: at, completedAt: card.completedAt ?? at };
+  const next: WorkBoardCard = { ...card, stage: lane === 'build' ? 'done' : lane, placementAt: at };
+  // Leaving Done keeps the completion the card earned, so the mark does not
+  // return the moment it is dragged back into a working lane.
+  if (card.stage === 'done') { next.completedAt = card.completedAt; next.viewedAt = card.viewedAt; }
+  return next;
+}
+
 export function workBoardLane(
   card: WorkBoardCard,
   activity: WorkBoardActivity | undefined,
@@ -69,8 +87,14 @@ export function workBoardLane(
   const lastUser = messages.find(message => message.role === 'user');
   const assistant = messages.find(message => message.role === 'assistant');
   const latestTurn = Math.max(lastUser?.time.created ?? 0, assistant?.time.created ?? 0);
+  // A manual placement holds until something happens in the session after it.
+  if (card.placementAt !== undefined && latestTurn <= card.placementAt && !activity?.busy) {
+    return card.stage === 'done' ? (card.completedAt !== undefined ? 'done' : 'build') : card.stage;
+  }
   const parkedAt = card.stage === 'done' ? card.completedAt ?? card.updatedAt : card.updatedAt;
-  if ((card.stage === 'todo' || card.stage === 'done') && latestTurn <= parkedAt && !activity?.busy) return card.stage;
+  if ((card.stage === 'todo' || card.stage === 'done') && latestTurn <= parkedAt && !activity?.busy) {
+    return card.stage === 'done' ? 'build' : card.stage;
+  }
   if (lastUser && (!assistant || lastUser.time.created > assistant.time.created)) return 'plan';
   if (assistant?.role === 'assistant' && assistant.agent.toLowerCase() === 'build') {
     // A queue lease awaiting review is unfinished work, not history, and the
@@ -78,11 +102,39 @@ export function workBoardLane(
     if (activity?.busy) return 'queue';
     // The last agent was Build and the session is idle. Whether that turn
     // succeeded, failed or was stopped, no work is running, so the card is
-    // history: it belongs in Done. A queue lease is the one exception above --
-    // those keep their own recovery contract.
-    return 'done';
+    // history: it belongs in Build complete. A queue lease is the one exception
+    // above -- those keep their own recovery contract. Only a later move reaches
+    // Done, and the manual placement was already checked above.
+    return 'build';
   }
   return 'plan';
+}
+
+/**
+ * The lane order after a card moves to `toIndex`, or null when the move changes
+ * nothing. `toIndex` is a drop neighbour's index in the lane's own order, or
+ * null when the card was dropped past the last one.
+ */
+export function workBoardMoved(items: readonly string[], id: string, toIndex: number | null): string[] {
+  const from = items.indexOf(id);
+  if (from < 0) return [...items];
+  const to = toIndex === null ? items.length - 1 : Math.max(0, Math.min(toIndex, items.length - 1));
+  if (from === to) return [...items];
+  const next = [...items];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
+/**
+ * The card that comes after `id` in the lane, which is the boundary a drop past
+ * the last card needs: the server stores an order by naming the card the moved
+ * one sits before. Null means the end of the lane.
+ */
+export function workBoardOrderNeighbour(order: readonly string[], id: string): string | null {
+  const index = order.indexOf(id);
+  if (index < 0) return null;
+  return order[index + 1] ?? null;
 }
 
 /**
@@ -100,7 +152,7 @@ export function workBoardShowsCompletionMark(card: WorkBoardCard): boolean {
 export function workBoardCompletionTime(card: WorkBoardCard, activity: WorkBoardActivity | undefined): number {
   const completedAt = card.completedAt ?? card.updatedAt;
   if (card.stage === 'done' && !activity?.busy && !activity?.messages.some(message =>
-    (message.role === 'user' || message.role === 'assistant') && message.time.created > completedAt)) return completedAt;
+    (message.role === 'user' || message.role === 'assistant') && message.time.created > completedAt)) return card.completedAt ?? 0;
   if (workBoardLane(card, activity, undefined) !== 'done') return 0;
   return [...(activity?.messages ?? [])].reverse().find(message => message.role === 'idle')?.time.created ?? 0;
 }

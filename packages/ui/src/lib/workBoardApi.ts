@@ -8,6 +8,7 @@ const attachmentSchema = z.object({
 const cardSchema = z.object({
   id: z.string(), directory: z.string(), text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().optional(), viewedAt: z.number().optional(), sessionId: z.string().optional(), stage: z.enum(['todo', 'plan', 'done']),
+  placementAt: z.number().optional(), placementOrder: z.number().optional(),
   briefRemoved: z.literal(true).optional(),
 });
 export type WorkBoardAttachment = z.infer<typeof attachmentSchema>;
@@ -17,11 +18,10 @@ type CardChanges = {
   removeBrief?: true;
 };
 type BoardWrite = CardChanges | { directory: string; text: string; attachments: WorkBoardAttachment[]; sessionDirectory?: string };
-const completionTargetSchema = z.object({
-  id: z.string(), updatedAt: z.number(), sessionId: z.string().optional(),
-  sessionDirectory: z.string().optional(), text: z.string(),
-});
-type CompletionTarget = z.infer<typeof completionTargetSchema>;
+type PlacementTarget = { id: string; updatedAt: number; text: string; sessionId?: string };
+type PlacementLane = 'todo' | 'plan' | 'build' | 'done';
+type PlacementWrite = { lane: PlacementLane; at: number; before?: string | null }
+  | { directory: string; lane: PlacementLane; at: number; targets: PlacementTarget[] };
 
 export class WorkBoardRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -30,7 +30,7 @@ export class WorkBoardRequestError extends Error {
   }
 }
 
-async function request(path: string, method = 'GET', body?: BoardWrite | { directory: string; targets: CompletionTarget[] }) {
+async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite) {
   const runtime = getRuntimeKey();
   const response = await runtimeFetch(path, {
     method,
@@ -46,9 +46,20 @@ async function request(path: string, method = 'GET', body?: BoardWrite | { direc
   if (runtime !== getRuntimeKey()) throw new Error('Runtime changed during work board request');
   return value;
 }
-export async function completeWorkBoardCards(directory: string, targets: CompletionTarget[]) {
-  return z.object({ completed: z.array(z.string()), failed: z.array(z.object({ id: z.string(), error: z.string() })) })
-    .parse(await request('/api/work-board/complete', 'POST', { directory, targets }));
+/**
+ * Put a card where the user dropped it or checked it off. `at` is the moment of
+ * the drag: the server stores it as the boundary later activity has to pass.
+ * `before` names the card it now sits in front of, which is how one lane's
+ * order travels; null places it at the end.
+ */
+export async function placeWorkBoardCard(card: Pick<WorkBoardCard, 'id' | 'directory' | 'text' | 'sessionId'>, lane: PlacementLane, at: number, before: string | null): Promise<WorkBoardCard> {
+  return z.object({ card: cardSchema })
+    .parse(await request(`/api/work-board/${encodeURIComponent(card.id)}/placement`, 'POST',
+      { lane, at, before, directory: card.directory, sessionId: card.sessionId, text: card.text })).card;
+}
+export async function placeWorkBoardCards(directory: string, lane: PlacementLane, at: number, targets: PlacementTarget[]) {
+  return z.object({ placed: z.array(cardSchema), failed: z.array(z.object({ id: z.string(), error: z.string() })) })
+    .parse(await request('/api/work-board/placement', 'POST', { directory, lane, at, targets }));
 }
 export async function fetchWorkBoard(directory: string): Promise<WorkBoardCard[]> {
   return z.object({ cards: z.array(cardSchema) }).parse(await request(`/api/work-board?directory=${encodeURIComponent(directory)}`)).cards;

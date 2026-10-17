@@ -33,8 +33,14 @@ const updateSchema = z.object({
 const cardSchema = z.object({
   id: nonempty, directory: nonempty, text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number().finite(), updatedAt: z.number().finite(),
-  completedAt: z.number().finite().optional(), viewedAt: z.number().finite().optional(),
-  sessionId: nonempty.optional(), stage: z.enum(['todo', 'plan', 'done']),
+  completedAt: z.number().finite().optional(), viewedAt: z.number().finite().optional(), sessionId: nonempty.optional(),
+  // When the user placed the card on the board by hand. Later session activity
+  // outranks it; nothing else writes it.
+  placementAt: z.number().finite().optional(),
+  // The card's place within its lane, written by a drag. Cards the board adds
+  // outside the store leave it unset and follow the stored ones.
+  placementOrder: z.number().finite().optional(),
+  stage: z.enum(['todo', 'plan', 'done']),
   briefRemoved: z.literal(true).optional(),
 }).refine(value => value.stage !== 'plan' || value.sessionId, 'Plan card requires a session')
   .refine(value => value.briefRemoved
@@ -44,6 +50,38 @@ const storedSchema = z.object({ version: z.literal(1), cards: z.array(cardSchema
   .refine(value => new Set(value.cards.map(card => card.id)).size === value.cards.length, 'Duplicate card ids');
 
 const invalid = (error) => Object.assign(new TypeError(error.message), { status: 400 });
+
+/**
+ * The cards of one project, in board order, with `moved` sitting in front of
+ * `beforeId`. Board order is the stored order where there is one, and the cards
+ * that came from outside the file — a linked session with no card yet — go last,
+ * which is the order the board already shows them in. A lane the store has no
+ * order for keeps the file's own order.
+ */
+function withLaneOrder(cards, moved, beforeId) {
+  const lane = cards.find(card => card.id === moved.id);
+  if (!lane) return cards;
+  const peers = cards.filter(card => card.id !== moved.id && card.directory === lane.directory && card.stage === lane.stage);
+  const stored = new Map(cards.filter(card => card.placementOrder !== undefined).map(card => [card.id, card.placementOrder]));
+  const ordered = [...peers].sort((a, b) => (stored.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (stored.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  if (beforeId !== null) {
+    const at = ordered.findIndex(card => card.id === beforeId);
+    if (at < 0) return cards;
+    ordered.splice(at, 0, moved);
+  } else {
+    ordered.push(moved);
+  }
+  // The lane's own order becomes the file's order too, so a read that has no
+  // arrangement of its own still sees the one the user dragged into place.
+  const position = new Map(ordered.map((card, index) => [card.id, index]));
+  const orderedCards = ordered.map(card => ({ ...card, placementOrder: position.get(card.id) }));
+  const laneIds = new Set(ordered.map(card => card.id));
+  const rest = cards.filter(card => !laneIds.has(card.id));
+  const laneStart = cards.findIndex(card => laneIds.has(card.id));
+  const next = [...rest];
+  next.splice(Math.max(0, Math.min(laneStart, next.length)), 0, ...orderedCards);
+  return next;
+}
 
 export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now, id = crypto.randomUUID }) {
   const filePath = path.join(dataDir, FILE_NAME);
@@ -150,6 +188,48 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       else next[index] = card;
       await write(next);
       return card;
+    }),
+    // A drag on the board writes the user's own placement. `placementAt` is the
+    // boundary later session activity has to pass to take the card back, and it
+    // is never in the future, so a clock skew cannot pin a card that already has
+    // newer history. `updatedAt` deliberately stays put: it is the boundary a
+    // parked To-do and the stale-completion check compare against.
+    placement: (cardId, input) => serialized(async () => {
+      const target = z.object({ lane: z.enum(['todo', 'plan', 'build', 'done']), at: z.number().finite(),
+        before: z.string().min(1).nullable().optional(), directory: nonempty.optional(),
+        sessionId: nonempty.optional(), text: z.string().optional() }).parse(input);
+      const cards = await read();
+      const index = cards.findIndex(card => card.id === cardId);
+      // A card the board derives from a linked session has no stored record
+      // until the user does something with it. A drag is that something, so the
+      // first placement of an inherited card creates it, exactly as its first
+      // completion does.
+      const inherited = index < 0 && cardId === `session:${target.sessionId}` && target.sessionId !== undefined
+        && target.directory !== undefined
+        && !cards.some(card => card.directory === target.directory && card.sessionId === target.sessionId);
+      if (index < 0 && !inherited) throw Object.assign(new Error('Work board card not found'), { status: 404 });
+      const at = Math.min(target.at, now());
+      const created = { id: id(), directory: target.directory, text: target.text ?? '', attachments: [],
+        sessionId: target.sessionId, stage: 'todo', createdAt: at, updatedAt: at };
+      const current = index < 0 ? created : cards[index];
+      // A bulk move names one project's board; a card from another one is not
+      // this request's to place, even though the id exists.
+      if (target.directory !== undefined && current.directory !== target.directory) {
+        throw Object.assign(new Error('Card changed. Refresh the board before moving it.'), { status: 409 });
+      }
+      const placed = { ...current,
+        stage: target.lane === 'plan' ? 'plan' : target.lane === 'todo' ? 'todo' : 'done',
+        placementAt: at };
+      // Only the first arrival in Done stamps a completion; the acknowledgement
+      // stays until the completion is acknowledged on its own.
+      if (target.lane === 'done' && current.completedAt === undefined) placed.completedAt = at;
+      const next = cardSchema.parse(placed);
+      const updated = index < 0 ? [...cards, next] : cards.map(card => card.id === next.id ? next : card);
+      const ordered = target.before === undefined ? updated : withLaneOrder(updated, next, target.before);
+      await write(ordered);
+      // Return what was stored, so the caller sees the position the lane gave
+      // the card rather than the pre-order card it sent in.
+      return ordered.find(card => card.id === next.id) ?? next;
     }),
     create: input => serialized(async () => {
       const parsed = createSchema.safeParse(input);

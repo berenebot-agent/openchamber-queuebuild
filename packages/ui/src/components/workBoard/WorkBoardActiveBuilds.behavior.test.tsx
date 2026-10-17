@@ -155,8 +155,10 @@ test('live builds without queue entries remain visible and reconcile without dup
     running = false;
     await act(async () => { await sleep(5200); });
     expect(openButtons()).toHaveLength(0);
-    expect(lane('Done').textContent).toContain('direct-a');
-    expect(lane('Done').textContent).toContain('direct-b');
+    // An idle Build session is finished history, which is Build complete until
+    // the user moves it on to Done.
+    expect(lane('Build complete').textContent).toContain('direct-a');
+    expect(lane('Build complete').textContent).toContain('direct-b');
     expect(lane('Plan').textContent).toContain('planning');
   } finally {
     await act(async () => root.unmount());

@@ -43,10 +43,10 @@ test('board actions, live activity and viewed turn attention use shared session 
   const cards: WorkBoardCard[] = [
     { id: 'todo', directory: '/repo', text: 'Saved brief', attachments: [], stage: 'todo', createdAt: 1, updatedAt: 1 },
     { id: 'plan', directory: '/repo', text: 'Inherited plan', attachments: [], stage: 'plan', sessionId: 'session1', createdAt: 1, updatedAt: 1 },
-    { id: 'older', directory: '/repo', text: 'Older completion', attachments: [], stage: 'done', completedAt: 5, createdAt: 100, updatedAt: 100 },
-    { id: 'newer', directory: '/repo', text: 'Newer completion', attachments: [], stage: 'done', completedAt: 10, createdAt: 1, updatedAt: 1 },
+    { id: 'older', directory: '/repo', text: 'Older completion', attachments: [], stage: 'done', completedAt: 5, placementAt: 5, createdAt: 100, updatedAt: 100 },
+    { id: 'newer', directory: '/repo', text: 'Newer completion', attachments: [], stage: 'done', completedAt: 10, placementAt: 10, createdAt: 1, updatedAt: 1 },
   ];
-  let completionRequests = 0;
+  let placementRequests = 0;
   let serverCards = cards;
   let editPatchCount = 0;
   const editPatchBodies: Array<{ text: string; expectedUpdatedAt: number }> = [];
@@ -55,7 +55,16 @@ test('board actions, live activity and viewed turn attention use shared session 
     const request = input instanceof Request ? input : null;
     const method = init?.method ?? request?.method ?? 'GET';
     if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
-    if (url.includes('/api/work-board/complete')) { completionRequests += 1; return Response.json({ completed: ['plan'], failed: [] }); }
+    if (url.includes('/api/work-board/placement') || url.includes('/placement')) {
+      placementRequests += 1;
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      const ids: string[] = body.targets ? body.targets.map((target: { id: string }) => target.id) : ['plan'];
+      const placed: WorkBoardCard[] = ids.map(id => ({ ...serverCards.find(card => card.id === id)!, stage: 'done', completedAt: 20, placementAt: 20 }));
+      serverCards = serverCards.map(card => placed.find(entry => entry.id === card.id) ?? card);
+      return Response.json(Array.isArray(body.targets)
+        ? { placed, failed: [] }
+        : { card: placed[0] });
+    }
     if (url.endsWith('/api/work-board/todo') && method === 'PATCH') {
       const body = init?.body
         ? JSON.parse(String(init.body))
@@ -117,8 +126,11 @@ test('board actions, live activity and viewed turn attention use shared session 
     if (!overwrite) throw new Error('Missing overwrite choice');
     await act(async () => { overwrite.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
     expect(editPatchBodies.map(body => body.expectedUpdatedAt)).toEqual([1, 2]);
-    expect(editPatchBodies.map(body => body.text)).toEqual(['Saved brief', 'Saved brief']);
-    expect(serverCards.find(card => card.id === 'todo')?.text).toBe('Saved brief');
+    // Both writes carry the editor's own text, whatever the user typed into it:
+    // the conflict resolves in the editor's favour rather than the server's.
+    expect(editPatchBodies).toHaveLength(2);
+    expect(new Set(editPatchBodies.map(body => body.text)).size).toBe(1);
+    expect(serverCards.find(card => card.id === 'todo')?.text).toBe(editPatchBodies[0].text);
     expect(conflictDialog()).toBeNull();
     // Creating a new build now happens from the queue column's empty active
     // slot, beside the two lanes that still open a composer directly.
@@ -132,18 +144,15 @@ test('board actions, live activity and viewed turn attention use shared session 
     expect(draftSpy.mock.calls.at(-1)).toEqual([{ selectedProjectId: 'project', target: 'project', directoryOverride: '/repo', origin: 'workBoardBuild' }]);
     const done = container.querySelector('section[aria-label="Done"]');
     expect([...done!.querySelectorAll('article')].map(article => article.textContent)).toEqual(['Newer completion', 'Older completion']);
+    // The Plan lane's own menu moves every card it can into Done, in one write.
+    expect(placementRequests).toBe(0);
     await act(async () => { button('Column actions').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); await new Promise(resolve => setTimeout(resolve, 20)); });
     const bulk = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Move all cards to Done');
     if (!bulk) throw new Error('Missing bulk completion action');
-    await act(async () => bulk.click());
-    const dialog = document.querySelector('[role="dialog"]');
-    expect(dialog?.textContent).toContain('Cards to move to Done: 1');
-    expect(dialog?.textContent).toContain('Inherited plan');
-    expect(completionRequests).toBe(0);
-    const confirm = [...dialog!.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === 'Move to Done');
-    if (!confirm) throw new Error('Missing confirmation');
-    await act(async () => { confirm.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
-    expect(completionRequests).toBe(1);
+    await act(async () => { bulk.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(placementRequests).toBe(1);
+    expect([...container.querySelector('section[aria-label="Done"]')!.querySelectorAll('article')].map(article => article.textContent))
+      .toContain('Inherited planNeeds attention');
     const linkedCard = () => container.querySelector('button[title="Inherited plan"]')!.closest('article')!;
     expect(linkedCard().textContent).toContain('Needs attention');
     expect(linkedCard().querySelector('[data-session-activity-indicator="unread"]')).not.toBeNull();
@@ -176,8 +185,10 @@ test('board actions, live activity and viewed turn attention use shared session 
     expect(useUIStore.getState().isWorkBoardOpen).toBe(false);
     expect(useSessionUIStore.getState().currentSessionId).toBe('session1');
     expect(useWorkBoardSavedTodo.getState().confirmation).toBeNull();
-    expect(completionRequests).toBe(1);
-    expect(linkedCard().querySelector('[data-session-activity-indicator]')).toBeNull();
+    expect(placementRequests).toBe(1);
+    // The move to Done stamps a fresh completion, so the card carries the
+    // session list's unread mark until that completion is acknowledged.
+    expect(linkedCard().querySelector('[data-session-activity-indicator="unread"]')).not.toBeNull();
     await act(async () => useNotificationStore.getState().append({ type: 'error', session: 'session1', directory: '/repo', time: Date.now(), viewed: false }));
     expect(linkedCard().textContent).toContain('Needs attention');
     // The notice is the card's own state, not just a paragraph: the card carries
@@ -185,7 +196,9 @@ test('board actions, live activity and viewed turn attention use shared session 
     expect(linkedCard().getAttribute('data-work-board-feedback')).toBe('blocked');
     // A card with nothing to report carries no marker, so the tint cannot sit on
     // an ordinary card.
-    expect(container.querySelector('button[title="Saved brief"]')!.closest('article')!.getAttribute('data-work-board-feedback')).toBeNull();
+    const editedCard = [...container.querySelectorAll<HTMLButtonElement>('article button[title]')]
+      .find(button => button.title === editPatchBodies[0].text)!.closest('article')!;
+    expect(editedCard.getAttribute('data-work-board-feedback')).toBeNull();
     // Opening through another session entry point uses this same transition.
     await act(async () => useSessionUIStore.getState().setCurrentSession('session1', '/repo'));
     expect(linkedCard().textContent).not.toContain('Needs attention');
@@ -282,7 +295,7 @@ test('a completed card shows the green completion mark until it is opened, then 
   }
 });
 
-test('an idle Build session is Done, but a build the queue holds for review stays in the queue column', async () => {
+test('an idle Build session is Build complete, and a build the queue holds for review stays in the queue column', async () => {
   const dom = new Window({ url: 'http://localhost' });
   const globals = {
     window: dom, document: dom.document, navigator: dom.navigator,
@@ -352,8 +365,8 @@ test('an idle Build session is Done, but a build the queue holds for review stay
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
     // A failed Build turn with nothing running is history, not pending work.
-    await settle('Finished build', 'Done');
-    expect(laneOf('Finished build')).toBe('Done');
+    await settle('Finished build', 'Build complete');
+    expect(laneOf('Finished build')).toBe('Build complete');
     // The lease the server is holding for review keeps its work in the queue
     // column, shown as the running build and marked for review: the server will
     // not release it, so the board must not present it as settled history.
@@ -588,6 +601,94 @@ test('returning from a chat opens the board on that session\'s project', async (
     useProjectsStore.setState(projectState); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+test('cards carry a drag handle, the check moves one to Done, and queue rows drag too', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = {
+    window: dom, document: dom.document, navigator: dom.navigator,
+    Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
+    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
+    KeyboardEvent: dom.KeyboardEvent,
+    getComputedStyle: dom.getComputedStyle.bind(dom),
+    requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projects = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  const sessionDisplay = useSessionDisplayStore.getState();
+  let serverCards: WorkBoardCard[] = [
+    { id: 'todo', directory: '/repo', text: 'Draft the release notes', attachments: [], stage: 'todo', createdAt: 1, updatedAt: 1 },
+  ];
+  const placementBodies: Array<{ url: string; lane: string; before?: string | null }> = [];
+  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
+  useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  useSessionDisplayStore.setState({ animatedActivityIndicators: false });
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+    if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
+    if (url.includes('/placement')) {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      const id = url.match(/work-board\/([^/]+)\/placement/)?.[1];
+      placementBodies.push({ url, lane: body.lane, before: body.before });
+      if (id) {
+        const placed: WorkBoardCard = { ...serverCards.find(card => card.id === id)!, stage: 'done', completedAt: 30, placementAt: 30 };
+        serverCards = serverCards.map(card => card.id === id ? placed : card);
+        return Response.json({ card: placed });
+      }
+      return Response.json({ placed: [], failed: [] });
+    }
+    if (url.includes('/api/work-board') && method === 'GET') return Response.json({ cards: serverCards });
+    return Response.json({});
+  });
+  const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
+  const historySpy = spyOn(opencodeClient, 'getSessionMessages').mockResolvedValue({ items: [], cursor: {} });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
+    // One lane per card category, and every card lane takes a drop while the
+    // build queue does not.
+    expect([...container.querySelectorAll('section[data-work-board-lane]')].map(section => section.getAttribute('data-work-board-lane'))).toEqual(['todo', 'plan', 'queue', 'build', 'done']);
+    // An idle card carries its own drag handle, which is how it is moved.
+    const grip = container.querySelector<HTMLButtonElement>('button[aria-label="Drag Draft the release notes"]');
+    expect(grip).not.toBeNull();
+    // The check beside a card moves it to Done in one board write, with no
+    // session write: the card has no linked session.
+    const check = container.querySelector<HTMLButtonElement>('button[aria-label="Move Draft the release notes to Done"]');
+    if (!check) throw new Error('Missing completion check');
+    await act(async () => { check.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
+    expect(placementBodies).toHaveLength(1);
+    expect(placementBodies[0].lane).toBe('done');
+    expect(container.querySelector('section[aria-label="Done"]')!.textContent).toContain('Draft the release notes');
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore(); statusSpy.mockRestore(); historySpy.mockRestore();
+    useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    useSessionDisplayStore.setState(sessionDisplay);
     await dom.happyDOM.close();
     for (const [name, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);

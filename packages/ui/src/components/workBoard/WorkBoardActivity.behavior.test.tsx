@@ -106,7 +106,9 @@ test('the board reads every linked session history together and stops refetching
     await act(async () => { await sleep(5200); });
     expect(historyCalls.length).toBe(settled);
 
-    const doneCards = () => container.querySelector('section[aria-label="Done"]')!.querySelectorAll('article');
+    // Every card's last turn was Build and nothing is running, so all six are
+    // finished history and sit in Build complete.
+    const doneCards = () => container.querySelector('section[aria-label="Build complete"]')!.querySelectorAll('article');
     expect(doneCards()).toHaveLength(6);
     await act(async () => {
       useProjectsStore.setState({ projects: [
@@ -119,7 +121,7 @@ test('the board reads every linked session history together and stops refetching
       useUIStore.getState().setWorkBoardProjectTabs(getRuntimeKey(), { projectIds: ['project', 'other'], activeProjectId: 'project' });
     });
     // Histories are deliberately unresolved. All 6 cards must already be back
-    // in Done, without a fallback through Plan or a false failure notice.
+    // in Build complete, without a fallback through Plan or a false failure notice.
     expect(doneCards()).toHaveLength(6);
     expect(container.textContent).not.toContain('Status unavailable');
     expect(container.querySelector('section[aria-label="Plan"]')!.querySelectorAll('article')).toHaveLength(0);

@@ -46,29 +46,54 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
     } catch (error) { return failure(res, error); }
   });
 
-  app.post('/api/work-board/complete', json, async (req, res) => {
+  // A drag on the board, from the card's menu or with the check. Placing a card
+  // is the user's own categorisation: it writes the board and nothing else, so a
+  // drag never starts a turn. Only a linked session marked done reaches the
+  // session-work state, and that is a separate, best-effort write the client
+  // reports on its own. `before` names the card the moved one now sits in front
+  // of; null puts it at the end of the lane.
+  app.post('/api/work-board/:id/placement', json, async (req, res) => {
     try {
-      const body = z.object({ directory: z.string().trim().min(1), targets: z.array(z.object({
-        id: z.string().min(1), updatedAt: z.number().finite(), text: z.string(),
-        sessionId: z.string().trim().min(1).optional(), sessionDirectory: z.string().trim().min(1).optional(),
-      })).min(1).max(1000) }).parse(req.body);
+      const body = z.object({ lane: z.enum(['todo', 'plan', 'build', 'done']), at: z.number().finite(),
+        before: z.string().min(1).nullable().optional(), directory: z.string().trim().min(1).optional(),
+        sessionId: z.string().trim().min(1).optional(), text: z.string().optional() }).parse(req.body);
+      // A card the board derives from a session has no stored record yet; its
+      // first placement creates one, so the request carries what it needs.
+      const directory = body.directory ? await resolveDirectory(req, body.directory) : undefined;
+      return res.json({ card: await store.placement(req.params.id, { ...body, directory }) });
+    } catch (error) { return failure(res, error); }
+  });
+
+  // The bulk form of the same move. Placing every card of one lane together is
+  // one user action, and each card is still checked and written on its own, so a
+  // card another client changed is reported instead of overwritten while the
+  // rest of the move lands.
+  app.post('/api/work-board/placement', json, async (req, res) => {
+    try {
+      const body = z.object({ directory: z.string().trim().min(1), lane: z.enum(['todo', 'plan', 'build', 'done']),
+        at: z.number().finite(), targets: z.array(z.object({
+          id: z.string().min(1), updatedAt: z.number().finite(), text: z.string(),
+          sessionId: z.string().trim().min(1).optional(),
+        })).min(1).max(1000) }).parse(req.body);
       const directory = await resolveDirectory(req, body.directory);
-      const completed = [];
+      const stored = new Map((await store.list(directory)).map(card => [card.id, card]));
+      const placed = [];
       const failed = [];
       for (const target of body.targets) {
         try {
-          const save = () => store.complete({ ...target, directory });
-          if (target.sessionId) {
-            if (!messageQueueRuntime?.parkSession) throw Object.assign(new Error('Session idle checks are unavailable'), { status: 503 });
-            const sessionDirectory = target.sessionDirectory ? await resolveDirectory(req, target.sessionDirectory) : directory;
-            await messageQueueRuntime.parkSession(target.sessionId, sessionDirectory, save);
-          } else {
-            await save();
+          const current = stored.get(target.id);
+          if (!current && !(target.id === `session:${target.sessionId}` && target.sessionId
+            && ![...stored.values()].some(card => card.sessionId === target.sessionId))) {
+            throw Object.assign(new Error('Card changed. Refresh the board before moving it.'), { status: 409 });
           }
-          completed.push(target.id);
+          if (current && current.updatedAt !== target.updatedAt) {
+            throw Object.assign(new Error('Card changed. Refresh the board before moving it.'), { status: 409 });
+          }
+          placed.push(await store.placement(target.id, { lane: body.lane, at: body.at, directory,
+            sessionId: target.sessionId, text: target.text }));
         } catch (error) { failed.push({ id: target.id, error: error.message }); }
       }
-      return res.json({ completed, failed });
+      return res.json({ placed, failed });
     } catch (error) { return failure(res, error); }
   });
 

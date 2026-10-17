@@ -91,11 +91,31 @@ controls for a review lease stay in the pane's paused banner.
 
 The board's cards have two sizes and the size carries the state: the running
 build, the waiting rows, a running plan turn and any card showing a notice share
-one box, while settled To-do, Plan and Done cards stay compact. Each card that
+one box, while settled To-do, Plan, Build complete and Done cards stay compact. Each card that
 can show a status reserves one line for it, so a notice arriving or leaving does
 not change a card's height. A card's amber notice treatment lives on the card
 itself (`data-work-board-feedback`), with a running plan card keeping its green
 treatment through `data-work-board-working`; both rules are in `index.css`.
+
+The board has five columns: To-do, Plan, Build queue, Build complete, and Done.
+Build complete is where a settled Build turn lands: an idle Build session is
+finished history, and it stays there while the card's own work remains the last
+thing that happened. Done is the user's own call. A card can be moved by dragging
+it, by the check beside it, or through **Move all cards to Done** in a column's
+menu; a drag never starts a turn and never touches the build queue, which keeps
+its own membership and its own controls. Moving a linked card into Done marks its
+session done, and moving it back out returns the session to In work. The board
+writes the placement and the session state as two independent steps, so a card
+that lands is placed even when the session write fails, and the failure is
+reported on its own.
+
+Everything the user arranges lives on the card itself, not in a second list: a
+drag writes `placementAt` for the lane boundary and `placementOrder` for the
+position. A later real turn in the session, or a queue lease that starts
+afterwards, outranks the placement, so a card returns to the lane its work
+belongs in until the user moves it again. Dragging within a lane reorders it;
+dragging a waiting queue row sends the queue's own order, the same call the
+arrow buttons make. The build queue column is the one place drag leaves alone.
 
 A build awaiting review has a red card. On the board's queue column a parked
 lease is the acting build and says so, with no moving band and no additional

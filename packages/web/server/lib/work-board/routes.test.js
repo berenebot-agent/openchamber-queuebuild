@@ -52,46 +52,52 @@ describe('work board HTTP routes', () => {
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
   });
 
-  it('guards every linked completion and reports partial bulk results without touching another project', async () => {
-    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-complete-'));
-    try {
-      const store = createWorkBoardStore({ dataDir });
-      const todo = await store.create({ directory: '/repo', text: 'To-do' });
-      const other = await store.create({ directory: '/other', text: 'Other project' });
-      const checked = [];
-      const app = express();
-      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }), messageQueueRuntime: {
-        parkSession: async (id, directory, save) => {
-          checked.push([id, directory]);
-          if (id === 'busy' || id === 'unknown') throw Object.assign(new Error('Session is not known idle'), { status: 409 });
-          return save([]);
-        },
-      } });
-      const targets = ['idle', 'busy', 'unknown'].map(sessionId => ({ id: `session:${sessionId}`, sessionId, text: sessionId, updatedAt: 1, sessionDirectory: '/repo/worktree' }));
-      const response = await request(app).post('/api/work-board/complete').send({ directory: '/repo', targets: [todo, ...targets, other] }).expect(200);
-      expect(response.body.completed).toEqual([todo.id, 'session:idle']);
-      expect(response.body.failed.map(entry => entry.id)).toEqual(['session:busy', 'session:unknown', other.id]);
-      expect(checked).toEqual([['idle', '/repo/worktree'], ['busy', '/repo/worktree'], ['unknown', '/repo/worktree']]);
-      expect(await store.list('/other')).toEqual([other]);
-      expect((await store.list('/repo')).map(card => card.stage)).toEqual(['done', 'done']);
-    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
-  });
-
-  it('refuses linked completion without idle checks and rejects invalid bulk requests', async () => {
-    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-complete-unavailable-'));
+  it('creates an inherited card on its first placement and refuses a duplicate', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-place-inherited-'));
     try {
       const store = createWorkBoardStore({ dataDir });
       const app = express();
       registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
-      const target = { id: 'session:session1', sessionId: 'session1', text: 'Plan', updatedAt: 1 };
-      const response = await request(app).post('/api/work-board/complete').send({ directory: '/repo', targets: [target] }).expect(200);
-      expect(response.body.completed).toEqual([]);
-      expect(response.body.failed).toHaveLength(1);
-      expect(await store.list()).toEqual([]);
-      await request(app).post('/api/work-board/complete').send({ directory: '/repo', targets: [] }).expect(400);
+      // A card the board derived from a session has no stored record yet.
+      const created = await request(app).post('/api/work-board/session:session1/placement')
+        .send({ lane: 'done', at: 7000, before: null, directory: '/repo', sessionId: 'session1', text: 'Inherited plan' })
+        .expect(200);
+      expect(created.body.card).toMatchObject({ directory: '/repo', sessionId: 'session1', text: 'Inherited plan', stage: 'done' });
+      // The stored card now owns that session, so a second inherited id for the
+      // same session is refused rather than duplicated.
+      await request(app).post('/api/work-board/session:session1/placement')
+        .send({ lane: 'todo', at: 1, directory: '/repo', sessionId: 'session1', text: 'Duplicate' })
+        .expect(404);
+      expect(await createWorkBoardStore({ dataDir }).list('/repo')).toHaveLength(1);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
+  it('places a bulk move per card and leaves another project untouched', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-complete-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const todo = await store.create({ directory: '/repo', text: 'To-do' });
+      const linked = await store.update((await store.create({ directory: '/repo', text: 'Linked' })).id, { sessionId: 'session1' });
+      const other = await store.create({ directory: '/other', text: 'Other project' });
+      const app = express();
+      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      const response = await request(app).post('/api/work-board/placement').send({
+        directory: '/repo', lane: 'done', at: 4000,
+        // `other` is a real card in another project, so its conflict is the
+        // card-level 409 the route reports rather than a project-wide failure.
+        targets: [todo, linked, other].map(card => ({ id: card.id, updatedAt: card.updatedAt, text: card.text })),
+      }).expect(200);
+      expect(response.body.placed.map(card => card.id)).toEqual([todo.id, linked.id]);
+      expect(response.body.failed.map(entry => entry.id)).toEqual([other.id]);
+      expect(await store.list('/other')).toEqual([other]);
+      // Every staged card keeps its session link and its own completion stamp.
+      expect((await store.list('/repo')).map(card => [card.stage, card.completedAt])).toEqual([['done', 4000], ['done', 4000]]);
+      await request(app).post('/api/work-board/placement').send({ directory: '/repo', lane: 'done', at: 1, targets: [] }).expect(400);
+      await request(app).post('/api/work-board/placement').send({ directory: '/repo', lane: 'queue', at: 1, targets: [] }).expect(400);
       await request(app).patch('/api/work-board/arbitrary').send({ stage: 'done' }).expect(400);
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
   });
+
   it('parses writes without a global JSON parser and preserves linked card contents', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-http-'));
     try {
@@ -180,4 +186,60 @@ describe('work board HTTP routes', () => {
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
   });
 
+});
+
+describe('work board placement routes', () => {
+  it('places one card, orders its lane, and leaves the queue alone', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-place-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const app = express();
+      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      const first = await store.create({ directory: '/repo', text: 'First' });
+      const second = await store.create({ directory: '/repo', text: 'Second' });
+      // A move without `before` writes the lane and the completion but leaves
+      // any stored arrangement alone.
+      const moved = await request(app).post(`/api/work-board/${first.id}/placement`)
+        .send({ lane: 'done', at: 5000 }).expect(200);
+      expect(moved.body.card).toMatchObject({ stage: 'done', completedAt: 5000, placementAt: 5000 });
+      // `before` names the card it now sits in front of, and `null` puts it at
+      // the end; the lane is rewritten in that order either way.
+      const second2 = await store.placement(second.id, { lane: 'todo', at: 5000, before: null });
+      const firstBack = await request(app).post(`/api/work-board/${first.id}/placement`)
+        .send({ lane: 'todo', at: 6000, before: null }).expect(200);
+      expect(firstBack.body.card).toMatchObject({ stage: 'todo', placementOrder: 1 });
+      const board = await request(app).get('/api/work-board').query({ directory: '/repo' }).expect(200);
+      expect(board.body.cards.map(card => [card.id, card.placementOrder]))
+        .toEqual([[second.id, 0], [first.id, 1]]);
+      expect(second2.placementOrder).toBe(0);
+      // A placement is the board's own write: it never reaches the queue.
+      await request(app).post(`/api/work-board/${first.id}/placement`).send({ lane: 'queue', at: 1 }).expect(400);
+      await request(app).post(`/api/work-board/missing/placement`).send({ lane: 'done', at: 1 }).expect(404);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
+  it('places a bulk move independently and reports a stale card instead of overwriting it', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-place-bulk-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const app = express();
+      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      const one = await store.create({ directory: '/repo', text: 'One' });
+      const two = await store.create({ directory: '/repo', text: 'Two' });
+      await store.update(two.id, { text: 'Two changed elsewhere' });
+      const response = await request(app).post('/api/work-board/placement').send({
+        directory: '/repo', lane: 'done', at: 9000,
+        targets: [
+          { id: one.id, updatedAt: one.updatedAt, text: one.text },
+          { id: two.id, updatedAt: two.updatedAt, text: two.text },
+        ],
+      }).expect(200);
+      expect(response.body.placed.map(card => card.id)).toEqual([one.id]);
+      expect(response.body.failed).toHaveLength(1);
+      expect(response.body.failed[0].id).toBe(two.id);
+      expect(await createWorkBoardStore({ dataDir }).list('/repo'))
+        .toEqual([expect.objectContaining({ id: one.id, stage: 'done' }), expect.objectContaining({ id: two.id, stage: 'todo' })]);
+      await request(app).post('/api/work-board/placement').send({ directory: '/repo', lane: 'done', at: 1, targets: [] }).expect(400);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
 });

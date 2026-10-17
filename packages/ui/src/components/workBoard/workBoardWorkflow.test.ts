@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardMoved, workBoardOrderNeighbour, workBoardPlacement, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -12,23 +12,27 @@ const waiting = (needsReview = false) => ({ itemId: 'item1', paused: false, acti
 const running = (needsReview = false) => ({ itemId: 'item1', paused: false, active: true, needsReview, order: [] });
 
 describe('work board lanes', () => {
-  test('manual completion persists without Build history and reopens on a later prompt', () => {
-    const completed: WorkBoardCard = { ...card, stage: 'done', completedAt: 6, updatedAt: 6 };
+  test('manual completion holds only while the manual placement is the latest move', () => {
+    const completed: WorkBoardCard = { ...card, stage: 'done', completedAt: 6, placementAt: 6 };
     expect(workBoardLane(completed, undefined, undefined)).toBe('done');
     expect(workBoardLane(completed, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined)).toBe('done');
+    // A turn after the drag takes the card back to the lane its work belongs in.
     expect(workBoardLane(completed, { messages: [user(7)], busy: false }, undefined)).toBe('plan');
     expect(workBoardLane(completed, { messages: [], busy: true }, undefined)).toBe('plan');
+    // The build queue still owns the card while a lease exists.
     expect(workBoardLane(completed, undefined, waiting())).toBe('queue');
     expect(workBoardLane(completed, undefined, running())).toBe('queue');
   });
-  test('Done ordering uses settled Build finish or manual completion, never session update time', () => {
+  test('Done ordering uses the manual completion, never session update time', () => {
     const built: WorkBoardCard = { ...card, stage: 'plan', updatedAt: 1000 };
     const activity = { messages: [user(2), assistant('build', 3), idle], busy: false };
-    expect(workBoardCompletionTime(built, activity)).toBe(5);
-    const completed: WorkBoardCard = { ...card, stage: 'done', completedAt: 6, updatedAt: 1000 };
+    // A Build turn that has not been moved to Done carries no completion time.
+    expect(workBoardCompletionTime(built, activity)).toBe(0);
+    const completed: WorkBoardCard = { ...card, stage: 'done', completedAt: 6, placementAt: 6 };
     expect(workBoardCompletionTime(completed, activity)).toBe(6);
+    // A later Build turn reopens the card, so it has no completion time either.
     const rebuilt = { messages: [user(7), assistant('build', 8), { ...idle, time: { created: 10 } }], busy: false };
-    expect(workBoardCompletionTime(completed, rebuilt)).toBe(10);
+    expect(workBoardCompletionTime(completed, rebuilt)).toBe(0);
     expect(workBoardCompletionTime(built, { ...activity, busy: true })).toBe(0);
   });
   test('new cards stay To-do and queue leases take precedence', () => {
@@ -48,30 +52,30 @@ describe('work board lanes', () => {
     // And with no history read yet, the queue alone still places it.
     expect(workBoardLane(linked, undefined, waiting())).toBe('queue');
   });
-  test('an idle Build card is Done whether or not that turn settled successfully', () => {
+  test('an idle Build card is Build complete whether or not that turn settled successfully', () => {
     const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
     const messages = [user(2), assistant('build', 3), idle];
-    expect(workBoardLane(linked, { messages, busy: false }, undefined)).toBe('done');
+    expect(workBoardLane(linked, { messages, busy: false }, undefined)).toBe('build');
     expect(workBoardLane(linked, { messages, busy: true }, undefined)).toBe('queue');
     // A running turn is Building even before its idle record lands.
     expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: true }, undefined)).toBe('queue');
-    // An idle Build turn is Done with or without its idle record: live status,
-    // not history detail, decides whether the turn is still open.
-    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: false }, undefined)).toBe('done');
+    // An idle Build turn is Build complete with or without its idle record: live
+    // status, not history detail, decides whether the turn is still open.
+    expect(workBoardLane(linked, { messages: messages.slice(0, -1), busy: false }, undefined)).toBe('build');
     // A Plan turn stays in Plan regardless of how it ended.
     expect(workBoardLane(linked, { messages: [user(2), assistant('plan', 3), idle], busy: false }, undefined)).toBe('plan');
   });
-  test('a failed or stopped Build turn is history: Done, not Plan, and never a Plan flash', () => {
+  test('a failed or stopped Build turn is history: Build complete, not Plan, and never a Plan flash', () => {
     const linked = { ...card, stage: 'plan' as const, sessionId: 'session1' };
     const failedIdle: Message = { ...idle, outcome: 'failed', error: undefined };
     const interrupted: Message = { ...idle, outcome: 'interrupted' };
     for (const outcome of [failedIdle, interrupted]) {
       const history = [user(2), assistant('build', 3), outcome];
-      // Idle with nothing running: the card is done history, not pending work.
-      expect(workBoardLane(linked, { messages: history, busy: false }, undefined)).toBe('done');
+      // Idle with nothing running: the card is finished history, not pending work.
+      expect(workBoardLane(linked, { messages: history, busy: false }, undefined)).toBe('build');
       expect(workBoardLane(linked, { messages: history, busy: true }, undefined)).toBe('queue');
       // Nothing running and no idle record on a Build turn is still settled.
-      expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: false }, undefined)).toBe('done');
+      expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: false }, undefined)).toBe('build');
       expect(workBoardLane(linked, { messages: history.slice(0, -1), busy: true }, undefined)).toBe('queue');
       expect(workBoardLane(linked, { messages: history, busy: false }, waiting())).toBe('queue');
     }
@@ -199,6 +203,39 @@ describe('project build badges', () => {
     }, false);
     // Only the user can clear a review, so it is the state worth naming.
     expect(badges.get('a')?.paused).toBe('review');
+  });
+});
+
+describe('manual placement', () => {
+  test('a build turn settles in Build complete and only a move reaches Done', () => {
+    const finished = { ...card, stage: 'done' as const, sessionId: 'session1' };
+    const history = { messages: [user(2), assistant('build', 3), idle], busy: false };
+    expect(workBoardLane(finished, history, undefined)).toBe('build');
+    const moved = workBoardPlacement(finished, 'done', 6);
+    expect(moved.stage).toBe('done');
+    expect(workBoardLane(moved, history, undefined)).toBe('done');
+  });
+  test('a drag between the card lanes rewrites only the stage and the marker', () => {
+    const linked = { ...card, stage: 'plan' as const, sessionId: 'session1', updatedAt: 3 };
+    expect(workBoardPlacement(linked, 'todo', 5)).toMatchObject({ stage: 'todo', placementAt: 5, updatedAt: 3 });
+    expect(workBoardPlacement(linked, 'build', 5)).toMatchObject({ stage: 'done', placementAt: 5 });
+    // Leaving Done keeps the completion the card earned; the placement is what
+    // puts it back in the lane's automatic behaviour.
+    const done = { ...card, stage: 'done' as const, completedAt: 4, viewedAt: 4 };
+    expect(workBoardPlacement(done, 'todo', 9)).toMatchObject({ stage: 'todo', completedAt: 4, viewedAt: 4, placementAt: 9 });
+  });
+  test('reordering lands the card at the dropped index, or at the end', () => {
+    expect(workBoardMoved(['a', 'b', 'c'], 'a', 2)).toEqual(['b', 'c', 'a']);
+    expect(workBoardMoved(['a', 'b', 'c'], 'c', 0)).toEqual(['c', 'a', 'b']);
+    expect(workBoardMoved(['a', 'b', 'c'], 'a', null)).toEqual(['b', 'c', 'a']);
+    // A drop on itself leaves the arrangement alone, and a stranger changes nothing.
+    expect(workBoardMoved(['a', 'b', 'c'], 'b', 1)).toEqual(['a', 'b', 'c']);
+    expect(workBoardMoved(['a', 'b', 'c'], 'missing', 0)).toEqual(['a', 'b', 'c']);
+  });
+  test('the drop neighbour is the card that follows the moved one', () => {
+    expect(workBoardOrderNeighbour(['a', 'b', 'c'], 'a')).toBe('b');
+    expect(workBoardOrderNeighbour(['a', 'b', 'c'], 'c')).toBeNull();
+    expect(workBoardOrderNeighbour(['a'], 'missing')).toBeNull();
   });
 });
 
