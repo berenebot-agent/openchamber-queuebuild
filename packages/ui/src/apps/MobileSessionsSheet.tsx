@@ -138,6 +138,8 @@ type MobileSessionsSheetProps = {
     onOpenUsage: () => void;
     /** The issues and PRs board. */
     onOpenSourceBoard: () => void;
+    /** Shared project work board / build queue. */
+    onOpenWorkBoard: () => void;
     /** Present only while a server update is available (hosted web). */
     onOpenUpdate?: () => void;
   };
@@ -2308,7 +2310,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
             ) : (
               <div className="min-w-0 flex-1" />
             )}
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex min-w-0 shrink items-center gap-0.5 overflow-x-auto">
               {footer.onOpenUpdate ? (
                 <Button
                   type="button"
@@ -2335,6 +2337,18 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                 style={{ touchAction: 'manipulation' }}
               >
                 <Icon name="calendar-schedule" className="size-5" />
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="lg"
+                className="w-10 shrink-0 px-0"
+                onClick={footer.onOpenWorkBoard}
+                aria-label={t('workBoard.title')}
+                title={t('workBoard.title')}
+                style={{ touchAction: 'manipulation' }}
+              >
+                <Icon name="route" className="size-5" />
               </Button>
               <Button
                 type="button"
