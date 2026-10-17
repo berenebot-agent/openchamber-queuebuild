@@ -13,6 +13,12 @@ const LANES = ['todo', 'plan', 'queue', 'build', 'done'];
 const CARD_LANES = ['todo', 'plan', 'build', 'done'];
 const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_PAGES = 4;
+// Which agents are subagent-only comes from the project's own config, not from
+// the board, so one read is reused for this long.
+const SUBAGENT_AGENTS_TTL_MS = 60 * 1000;
+// Delegation answers the session list did not give are remembered per session,
+// bounded like the server's session lineage.
+const DELEGATED_CACHE_LIMIT = 5000;
 
 export async function readWorkBoardSessions(client, directory, { includeOlder = false, recentWindowMs = RECENT_WINDOW_MS } = {}) {
   const sessions = [];
@@ -29,7 +35,9 @@ export async function readWorkBoardSessions(client, directory, { includeOlder = 
     cursor = next;
   }
   const cutoff = includeOlder ? 0 : Date.now() - recentWindowMs;
-  return sessions.filter(session => session?.id && !session.parentID
+  // Delegated sessions are returned with the rest; the projection leaves them
+  // off the board rather than the read hiding them.
+  return sessions.filter(session => session?.id
     && normaliseDirectory(session.location?.directory) === normaliseDirectory(directory)
     && (session.time?.updated ?? 0) >= cutoff);
 }
@@ -117,6 +125,14 @@ function inheritedCard(session, directory) {
   };
 }
 
+/**
+ * A session the board must not card: OpenCode's own subagent child, or a
+ * session on a subagent-only agent. The dispatch API refuses to prompt such an
+ * agent directly, so the session is delegated work, never one the user started.
+ */
+const isDelegatedSession = (session, subagentAgentIds) =>
+  Boolean(session?.parentID) || subagentAgentIds.has(session?.agent);
+
 /** What each card can do, decided once so every surface reads one contract. A
  * linked card is settled only when its status is known and no turn runs. */
 function availableActions(card, lane, status, busy, inheritedAvailable = true) {
@@ -130,17 +146,71 @@ function availableActions(card, lane, status, busy, inheritedAvailable = true) {
   return actions;
 }
 
-export function createWorkBoardProjection({ store, activity, readQueueSnapshot, readQueueEnabled, listSessions = async () => [], readPendingRequests = () => ({}), now = Date.now }) {
+export function createWorkBoardProjection({ store, activity, readQueueSnapshot, readQueueEnabled, listSessions = async () => [], listAgents = async () => [], readSession = async () => null, readPendingRequests = () => ({}), now = Date.now }) {
   /** Inherited cards of the last successful read, per directory: a failed read
    * must not look like "no sessions", so the prior list stands. */
   const inherited = new Map();
+  /** Subagent-only agent ids per directory, reused briefly. */
+  const subagentAgents = new Map();
+  /** sessionId → whether that session is delegated work. Every session the list
+   * read covers is answered here for free; a session only a card links is asked
+   * about once and remembered, so the board does not re-read it each snapshot.
+   * Bounded: the oldest answer goes first, and a forgotten session is unknown
+   * again, which shows its card rather than hiding one. */
+  const delegated = new Map();
+
+  const rememberDelegated = (session, subagentAgentIds) => {
+    const value = isDelegatedSession(session, subagentAgentIds);
+    delegated.delete(session.id);
+    delegated.set(session.id, value);
+    while (delegated.size > DELEGATED_CACHE_LIMIT) delegated.delete(delegated.keys().next().value);
+    return value;
+  };
+
+  const readSubagentAgentIds = async (directory) => {
+    const key = normaliseDirectory(directory);
+    const cached = subagentAgents.get(key);
+    if (cached && now() - cached.at < SUBAGENT_AGENTS_TTL_MS) return cached.ids;
+    try {
+      const agents = await listAgents(directory);
+      if (!Array.isArray(agents)) throw new Error('Agent list is not a list');
+      const ids = new Set(agents.filter(agent => agent?.mode === 'subagent' && agent.id).map(agent => agent.id));
+      subagentAgents.set(key, { at: now(), ids });
+      return ids;
+    } catch {
+      // Unknown agent modes hide nothing: the board only hides a card it can
+      // prove is delegated work.
+      return cached?.ids ?? new Set();
+    }
+  };
+
+  /**
+   * Whether one session is delegated work. An answer the session list already
+   * gave stands; a session the list did not cover — a card older than the read,
+   * or one of a board whose read failed — is asked about directly, once. An
+   * unreadable session is not proof, so its card stays.
+   */
+  const isDelegated = async (sessionId, directory) => {
+    const known = delegated.get(sessionId);
+    if (known !== undefined) return known;
+    try {
+      const session = await readSession(sessionId, directory);
+      if (session?.id !== sessionId) throw new Error('Session read did not answer');
+      return rememberDelegated(session, await readSubagentAgentIds(directory));
+    } catch {
+      return false;
+    }
+  };
 
   const readInherited = async (directory, includeOlder) => {
     const key = normaliseDirectory(directory);
     try {
       const sessions = await listSessions(directory, { includeOlder });
       if (!Array.isArray(sessions)) throw new Error('Session list is not a list');
-      const cards = sessions.filter(session => session?.id).map(session => inheritedCard(session, directory));
+      const subagentAgentIds = await readSubagentAgentIds(directory);
+      const listed = sessions.filter(session => session?.id);
+      const cards = listed.filter(session => !rememberDelegated(session, subagentAgentIds))
+        .map(session => inheritedCard(session, directory));
       inherited.set(key, cards);
       return { cards, available: true };
     } catch {
@@ -152,8 +222,13 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
   const snapshot = async (directory, { includeOlder = false } = {}) => {
     const stored = (await store.list(directory)).filter(card => normaliseDirectory(card.directory) === normaliseDirectory(directory));
     const sessions = await readInherited(directory, includeOlder);
-    const linked = new Set(stored.map(card => card.sessionId));
-    const cards = [...stored, ...sessions.cards.filter(card => !linked.has(card.sessionId))];
+    // A delegated session is not the user's card: neither an inherited card for
+    // it nor a stored card that links it belongs on the board.
+    const onBoard = (await Promise.all(stored.map(async card => (
+      card.sessionId && await isDelegated(card.sessionId, card.directory) ? null : card
+    )))).filter(Boolean);
+    const linked = new Set(onBoard.map(card => card.sessionId));
+    const cards = [...onBoard, ...sessions.cards.filter(card => !linked.has(card.sessionId))];
     const requests = cards.filter(card => card.sessionId).map(card => ({ sessionId: card.sessionId, directory: card.directory, updatedAt: card.updatedAt }));
     const { activity: live, unavailable, missing } = await activity.read(requests).catch(() => ({ activity: new Map(), unavailable: new Set(), missing: new Set() }));
     let queueSnapshot = null;
@@ -242,6 +317,10 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
     snapshot,
     /** Drop inherited-card caches: a session was created or removed. */
     invalidateInherited: () => inherited.clear(),
+    /** Forget one session's delegation answer: its record changed. */
+    forgetDelegated: (sessionId) => delegated.delete(sessionId),
+    /** Drop every per-directory cache: the runtime they were read from changed. */
+    reset: () => { inherited.clear(); subagentAgents.clear(); delegated.clear(); },
   };
 }
 
@@ -249,10 +328,11 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
  * The wiring boundary: `index.js` builds one and passes `projection` to
  * `registerWorkBoardRoutes`. `readPage` returns a v2 message page
  * (`{ data: SessionMessageInfo[] }`), `readSessions` v2 `SessionInfo[]`,
- * `readActiveSessionIds` the `/api/session/active` map, and
- * `readPendingRequests` the permission asks and forms still waiting for an
- * answer by session. A failed session list
- * throws so the projection keeps the previous inherited cards.
+ * `readActiveSessionIds` the `/api/session/active` map, `listAgents` the
+ * directory's agent catalogue (its `mode` says which sessions are delegated
+ * work), `readSession` one v2 `SessionInfo` by id, and `readPendingRequests` the
+ * permission asks and forms still waiting for an answer by session. A failed
+ * session list throws so the projection keeps the previous inherited cards.
  *
  * `processPayload(payload, directoryHint)` is the event lifecycle: call it from
  * the one place translated server payloads flow (next to
@@ -260,14 +340,14 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
  * changed, or null; broadcast `openchamber:work-board.updated` for it. `reset()`
  * drops all caches on a runtime switch.
  */
-export function createWorkBoardProjectionRuntime({ store, readPage, readSessions, readActiveSessionIds, readQueueSnapshot, readQueueEnabled, readPendingRequests, now = Date.now }) {
+export function createWorkBoardProjectionRuntime({ store, readPage, readSessions, readActiveSessionIds, readQueueSnapshot, readQueueEnabled, listAgents = async () => [], readSession = async () => null, readPendingRequests, now = Date.now }) {
   const activity = createWorkBoardActivity({
     now,
     listActiveSessionIds: readActiveSessionIds,
     listMessages: readPage,
   });
   const listSessions = (directory, { includeOlder = false } = {}) => readSessions(directory, { includeOlder, recentWindowMs: RECENT_WINDOW_MS });
-  const projection = createWorkBoardProjection({ store, activity, listSessions, readQueueSnapshot, readQueueEnabled, readPendingRequests, now });
+  const projection = createWorkBoardProjection({ store, activity, listSessions, listAgents, readSession, readQueueSnapshot, readQueueEnabled, readPendingRequests, now });
 
   /**
    * The projection, with the cards whose session OpenCode has proven deleted
@@ -309,10 +389,14 @@ export function createWorkBoardProjectionRuntime({ store, readPage, readSessions
     const askOnly = type === 'permission.asked' || type === 'permission.replied'
       || type === 'form.created' || type === 'form.settled';
     if (sessionId && !askOnly) activity.invalidate(sessionId);
-    // A session added or removed changes the inherited card set.
+    // A session added or removed changes the inherited card set, and a session
+    // whose own record changed is classified again.
     if (type === 'session.created' || type === 'session.deleted') projection.invalidateInherited();
+    if (sessionId && (type === 'session.created' || type === 'session.updated' || type === 'session.deleted')) {
+      projection.forgetDelegated(sessionId);
+    }
     return payload.properties?.directory ?? directoryHint ?? null;
   };
 
-  return { projection: { ...projection, snapshot }, activity, processPayload, reset: () => activity.reset() };
+  return { projection: { ...projection, snapshot }, activity, processPayload, reset: () => { activity.reset(); projection.reset(); } };
 }

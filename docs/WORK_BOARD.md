@@ -182,6 +182,11 @@ in the last 30 days. Running sessions, sessions with running background commands
 or subagents, and queued sessions remain included regardless of age. Saved board
 cards always remain visible. The filter runs before per-session history reads.
 
+Delegated work is never a card. A session OpenCode reports as a subagent's child,
+or one running on a subagent-only agent, is left off the board, and a saved card
+that links such a session is left off with it — a subagent run never becomes a
+card of its own. An agent whose mode is unknown hides nothing.
+
 Use **Include older sessions** on the Settings Work board page to show the older
 inherited sessions too. The choice is saved locally per runtime and project
 directory and defaults to on. It does not archive or delete sessions, or change

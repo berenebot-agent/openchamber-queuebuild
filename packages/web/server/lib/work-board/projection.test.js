@@ -6,9 +6,11 @@ const baseCard = (over = {}) => ({
   createdAt: 1, updatedAt: 1, stage: 'todo', ...over,
 });
 
-const makeProjection = ({ cards = [], queue = null, sessions = [], listSessions, activity = new Map(), unavailable = [], missing = [], enabled = true, pending = {} } = {}) => createWorkBoardProjection({
+const makeProjection = ({ cards = [], queue = null, sessions = [], listSessions, activity = new Map(), unavailable = [], missing = [], enabled = true, pending = {}, listAgents, readSession } = {}) => createWorkBoardProjection({
   store: { list: async () => cards },
   listSessions: listSessions ?? (async () => sessions),
+  listAgents,
+  readSession,
   readQueueSnapshot: () => queue,
   readQueueEnabled: async () => enabled,
   readPendingRequests: () => pending,
@@ -43,6 +45,17 @@ describe('work board session listing', () => {
     expect(await readWorkBoardSessions(client, '/repo')).toEqual([]);
     expect((await readWorkBoardSessions(client, '/repo', { includeOlder: true })).map(session => session.id)).toEqual(['old']);
     await expect(readWorkBoardSessions({ session: { list: async () => ({}) } }, '/repo')).rejects.toThrow('unavailable');
+  });
+
+  it('returns child sessions to the caller, which leaves them off the board', async () => {
+    const session = (id, over = {}) => ({ id, location: { directory: '/repo' }, time: { updated: Date.now() }, ...over });
+    const client = { session: { list: async () => ({ data: [
+      session('root'),
+      session('child', { parentID: 'root' }),
+    ] }) } };
+    expect((await readWorkBoardSessions(client, '/repo')).map(session => session.id)).toEqual(['root', 'child']);
+    const projection = makeProjection({ listSessions: directory => readWorkBoardSessions(client, directory) });
+    expect((await projection.snapshot('/repo')).cards.map(card => card.sessionId)).toEqual(['root']);
   });
 });
 
@@ -248,14 +261,68 @@ describe('work board projection', () => {
     ]);
     expect(snapshot.queue.active).toMatchObject({ content: 'running task', model: { providerID: 'anthropic', id: 'claude' } });
   });
+
+  it('leaves a session delegated to a subagent-only agent off the board, saved card included', async () => {
+    const cards = [
+      baseCard({ id: 'mine', stage: 'plan', sessionId: 's-mine' }),
+      baseCard({ id: 'theirs', stage: 'done', sessionId: 's-delegated' }),
+    ];
+    const sessions = [
+      { id: 's-mine', agent: 'build', time: { updated: 5 } },
+      { id: 's-delegated', agent: 'explore', time: { updated: 5 } },
+      { id: 's-other-delegated', agent: 'explore', time: { updated: 5 } },
+    ];
+    const snapshot = await makeProjection({ cards, sessions, listAgents: async () => [
+      { id: 'build', mode: 'primary' }, { id: 'explore', mode: 'subagent' },
+    ] }).snapshot('/repo');
+    // The inherited card for the delegated session is never built, and the saved
+    // card that links one is not rendered with it.
+    expect(snapshot.cards.map(card => card.id)).toEqual(['mine']);
+    expect(snapshot.lanes.theirs).toBeUndefined();
+  });
+
+  it('hides nothing when the agent catalogue cannot be read', async () => {
+    const cards = [baseCard({ id: 'theirs', stage: 'plan', sessionId: 's-delegated' })];
+    const sessions = [{ id: 's-delegated', agent: 'explore', time: { updated: 5 } }];
+    const snapshot = await makeProjection({ cards, sessions, listAgents: async () => { throw new Error('offline'); } }).snapshot('/repo');
+    // Unknown agent modes are not proof of delegated work: the card stays.
+    expect(snapshot.cards.map(card => card.id)).toEqual(['theirs']);
+  });
+
+  it('asks the session itself about a card the session list did not cover, once', async () => {
+    const cards = [baseCard({ id: 'beyond', stage: 'done', sessionId: 's-beyond' })];
+    const asked = [];
+    const projection = makeProjection({
+      cards,
+      listAgents: async () => [{ id: 'explore', mode: 'subagent' }],
+      readSession: async (sessionId) => { asked.push(sessionId); return { id: sessionId, agent: 'explore' }; },
+    });
+    expect((await projection.snapshot('/repo')).cards).toEqual([]);
+    expect((await projection.snapshot('/repo')).cards).toEqual([]);
+    // The board reads the session list every snapshot; it does not ask again
+    // about a session whose answer it already has.
+    expect(asked).toEqual(['s-beyond']);
+  });
+
+  it('keeps the card of a session it could not read', async () => {
+    const cards = [baseCard({ id: 'beyond', stage: 'plan', sessionId: 's-beyond' })];
+    const snapshot = await makeProjection({
+      cards,
+      listAgents: async () => [{ id: 'explore', mode: 'subagent' }],
+      readSession: async () => { throw new Error('OpenCode is offline'); },
+    }).snapshot('/repo');
+    // An unreadable session is not proof of delegated work.
+    expect(snapshot.cards.map(card => card.id)).toEqual(['beyond']);
+  });
 });
 
 describe('work board projection runtime', () => {
   // The runtime factory is the wiring boundary; these tests use real v2 page and
   // session envelopes, not injected domain shapes.
-  const session = (id, directory, updated) => ({
+  const session = (id, directory, updated, over = {}) => ({
     id, projectID: 'p', title: id, location: { directory }, parentID: undefined,
     time: { created: 1, updated }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    ...over,
   });
   const page = (...records) => ({ data: records, cursor: {} });
   const buildTurn = (sessionId, created) => ([
@@ -264,9 +331,11 @@ describe('work board projection runtime', () => {
     { id: `user-${sessionId}`, type: 'user', text: 'go', time: { created } },
   ]);
 
-  const makeRuntime = ({ cards = [], sessions = [], active = {}, queue = null, pending = () => ({}), now = () => 1000, readPage } = {}) => {
+  const makeRuntime = ({ cards = [], sessions = [], sessionRecords = {}, active = {}, queue = null, pending = () => ({}), agents = [], now = () => 1000, readPage } = {}) => {
     const reads = [];
     const prunes = [];
+    const agentReads = [];
+    const sessionReads = [];
     let live = cards;
     const runtime = createWorkBoardProjectionRuntime({
       store: {
@@ -279,13 +348,15 @@ describe('work board projection runtime', () => {
       },
       readPage: readPage ?? (async sessionId => { reads.push(sessionId); return page(...buildTurn(sessionId, 2)); }),
       readSessions: async directory => sessions.filter(entry => entry.location?.directory === directory),
+      listAgents: async (directory) => { agentReads.push(directory); return agents; },
+      readSession: async (sessionId) => { sessionReads.push(sessionId); return sessionRecords[sessionId] ?? null; },
       readActiveSessionIds: async () => active,
       readQueueSnapshot: () => queue,
       readQueueEnabled: async () => true,
       readPendingRequests: pending,
       now,
     });
-    return { runtime, reads, prunes };
+    return { runtime, reads, prunes, agentReads, sessionReads };
   };
 
   it('reads real v2 envelopes into lanes and hides an in-flight Build turn in the queue', async () => {
@@ -350,6 +421,38 @@ describe('work board projection runtime', () => {
     expect(snapshot.missing).toEqual([]);
     expect(snapshot.cards).toHaveLength(1);
     expect(snapshot.cards[0].status).toBe('unavailable');
+  });
+
+  it('never cards a delegated session, however the board learned about it', async () => {
+    const cards = [
+      { id: 'mine', directory: '/repo', text: 'mine', attachments: [], createdAt: 1, updatedAt: 5, stage: 'plan', sessionId: 'ses_root' },
+      { id: 'mine-out', directory: '/repo', text: 'mine too', attachments: [], createdAt: 1, updatedAt: 5, stage: 'plan', sessionId: 'ses_out' },
+    ];
+    const { runtime, agentReads, sessionReads } = makeRuntime({
+      cards,
+      sessions: [
+        session('ses_root', '/repo', 9, { agent: 'build' }),
+        session('ses_agent', '/repo', 9, { agent: 'explore' }),
+        session('ses_child', '/repo', 9, { parentID: 'ses_root' }),
+      ],
+      // Past the session list read: only the card links this session.
+      sessionRecords: { ses_out: session('ses_out', '/repo', 9, { agent: 'explore' }) },
+      agents: [{ id: 'build', mode: 'primary' }, { id: 'explore', mode: 'subagent' }],
+    });
+    const snapshot = await runtime.projection.snapshot('/repo');
+    // Only the user's own sessions reach the board: the subagent-only agent's
+    // session, OpenCode's own subagent child, and the card outside the list read
+    // are not cards.
+    expect(snapshot.cards.map(card => card.id)).toEqual(['mine']);
+    await runtime.projection.snapshot('/repo');
+    // Agent modes come from config, so one read is reused across snapshots, and
+    // the session only the card named is asked about once.
+    expect(agentReads).toEqual(['/repo']);
+    expect(sessionReads).toEqual(['ses_out']);
+    // A session whose own record changed is classified again.
+    runtime.processPayload({ type: 'session.updated', properties: { sessionID: 'ses_out', directory: '/repo' } });
+    await runtime.projection.snapshot('/repo');
+    expect(sessionReads).toEqual(['ses_out', 'ses_out']);
   });
 
   it('adds real v2 sessions as inherited cards and drops their cache on reset', async () => {

@@ -1163,6 +1163,9 @@ const workBoardProjectionRuntime = createWorkBoardProjectionRuntime({
   }),
   readSessions: (directory, options) => readWorkBoardSessions(workBoardOpenCodeClient(directory), directory, options),
   readActiveSessionIds: () => workBoardActivityProbe.fetchActiveSessionStatuses(),
+  // A session on a subagent-only agent is delegated work, not the user's card.
+  listAgents: (directory) => workBoardOpenCodeClient(directory).agent.list().then((response) => response?.data ?? []),
+  readSession: (sessionId, directory) => workBoardOpenCodeClient(directory).session.get({ sessionID: sessionId }),
   readQueueSnapshot: () => messageQueueRuntime.buildSnapshot(),
   readQueueEnabled: (directory) => messageQueueRuntime.readQueueSettings({ directory }).then((settings) => settings.enabled),
   // The same per-session ask map the space idle stop reads: a session waiting
