@@ -24,6 +24,7 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import type { ProjectEntry } from '@/lib/api/types';
+import { projectLabel } from './workBoardProjectState';
 import type { WorkBoardBuildBadge } from './workBoardWorkflow';
 
 type WorkBoardProjectTabsProps = {
@@ -43,8 +44,6 @@ type WorkBoardProjectTabsProps = {
   /** A tab was dropped on another: the two ids' new order, left to right. */
   onReorder: (activeProjectId: string, overProjectId: string) => void;
 };
-
-const projectLabel = (project: ProjectEntry): string => project.label || project.path.split('/').at(-1) || project.path;
 
 // A lifted tab keeps its own height and follows the row; letting it drift to the
 // header's other controls would only suggest a drop target that is not one.

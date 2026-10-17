@@ -7,13 +7,17 @@ not classify sessions itself.
 ## Ownership
 
 - `WorkBoardView.tsx` — the view: tabs, lanes, drag-and-drop, card editing,
-  queue rows, the project queue toggle, and the recovery dialogs.
+  queue rows, the project queue toggle, and the recovery dialogs. Its `mobile`
+  prop renders the same board as a one-lane phone view for the mobile shells.
+- `workBoardMobileLane.ts` — the last lane the phone showed, remembered per
+  client and connected server.
 - `workBoardWorkflow.ts` — pure helpers: lane ordering within a drop, feedback
   wording, queue rows/entries, tab badges, and the readers that adapt a server
   snapshot into what the view renders (lane, order, queue state).
 - `workBoardSnapshot.fixture.ts` — a test fixture that builds a snapshot the way
   the server projection does.
-- `WorkBoardProjectTabs.tsx`, `workBoardProjectState.ts` — project tab strip.
+- `WorkBoardProjectTabs.tsx`, `workBoardProjectState.ts` — project tab strip and
+  the project's display name.
 - `SavedTodoBrief.tsx`, `SessionSavedTodos.tsx`, `useSavedTodoComposer.ts`,
   `workBoardSavedTodo.ts` — the saved-brief surfaces shared with the chat
   composer and the session transcript.
@@ -77,3 +81,19 @@ The board owns the project's queue enablement (`Queue on` / `Queue off`), read
 from and written to `GET`/`PUT /api/build-queue/settings`. The toggle is
 optimistic and reverts on a failed write. Default is enabled. The Git policy
 selector is not here: it lives in Settings → Work board.
+
+## Mobile presentation
+
+`WorkBoardView` takes a `mobile` prop for the hosted-mobile and Capacitor
+shells, which mount it from the sessions drawer. The board reads the same
+snapshot, writes through the same routes and keeps every action. Only the
+presentation changes. It shows one lane at a time behind a lane picker whose
+counts match the lane it opens, replaces the tab strip with a project selector,
+moves the queue rows' actions into a touch-sized menu, and scrolls vertically.
+The lane picker remembers the last lane per client and connected server in
+`workBoardMobileLane.ts`, and opens on the queue lane when nothing is stored or
+storage is blocked.
+
+The `onLeave` prop dismisses the board. The mobile shells draw the board over
+the chat, so opening a session or starting a draft calls it; the desktop shells
+pass nothing and close the board surface as before.

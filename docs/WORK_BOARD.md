@@ -295,13 +295,21 @@ failed cards. Refresh before retrying cards that changed during confirmation.
 
 ## Supported interfaces
 
-The first version provides the board in web and Electron desktop chat. VS Code
-and the dedicated mobile layouts do not provide a board entry point.
-Hosted mobile and Capacitor session views can read saved linked briefs from the
-same server. VS Code does not request board-backed session entries.
-Stored cards belong to the OpenChamber server and are available to other
-browser profiles connected to that server.
-The board refreshes stored cards on focus, after writes, and every 30 seconds
-while visible. Activity icons subscribe to the session list's live status index.
-Lane classification also checks turn status every 5 seconds. History reads are
-bounded and cached until the session changes.
+The board is available in web, Electron desktop chat, hosted mobile and the
+Capacitor Android/iOS shells. VS Code does not provide a board entry point and
+does not request board-backed session entries.
+
+The mobile shells open the same board from the sessions drawer. A phone or
+tablet shows one lane at a time behind a lane picker with a count per lane, a
+project selector in place of the tab strip, and the queue rows' actions in a
+touch-sized menu. Opening a session or starting a draft closes the board and
+shows the chat. The lane picker reopens on the lane that client last used with
+that server.
+
+Stored cards belong to the OpenChamber server and are available to other browser
+profiles connected to that server. The board re-reads the projection on the
+server's `work-board-updated` and `build-queue-updated` events, after its own
+writes, and when the tab becomes visible. A 15-second interval runs only as a
+safety net for a dropped stream. Activity icons subscribe to the session list's
+live status index. Lanes, order and queue state come from the projection, so the
+client classifies nothing.

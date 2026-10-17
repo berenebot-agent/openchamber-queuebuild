@@ -1,7 +1,13 @@
+import type { ProjectEntry } from '@/lib/api/types';
+
 type WorkBoardProjectTabsRemoval = {
   projectIds: string[];
   activeProjectId: string | null;
 };
+
+/** What the board calls a project in its tabs and in the phone's selector. */
+export const projectLabel = (project: ProjectEntry): string =>
+  project.label || project.path.split('/').at(-1) || project.path;
 
 export function removeWorkBoardProjectTab(
   projectIds: readonly string[],
