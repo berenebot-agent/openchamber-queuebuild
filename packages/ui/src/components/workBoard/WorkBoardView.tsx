@@ -31,6 +31,7 @@ import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoard
 import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
 import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, type WorkBoardActivity, type WorkBoardActiveEntry, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
+import { readMobileWorkBoardLane, rememberMobileWorkBoardLane } from './workBoardMobileLane';
 import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
 import { SavedTodoBrief } from './SavedTodoBrief';
@@ -257,7 +258,16 @@ function WorkBoardCard({ card, lane, activity, checking, statusUnknown, needsRev
 
 export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; onLeave?: () => void } = {}) {
   const { t } = useI18n();
-  const [mobileLane, setMobileLane] = React.useState<WorkBoardLane>('queue');
+  const [mobileLane, setMobileLane] = React.useState<WorkBoardLane>(() => readMobileWorkBoardLane(getRuntimeKey()));
+  // The drawer unmounts when closed; keep the user's lane even across reloads.
+  // A different connected server gets its own remembered lane.
+  React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
+    setMobileLane(readMobileWorkBoardLane(getRuntimeKey()));
+  }), []);
+  const selectMobileLane = (lane: WorkBoardLane) => {
+    setMobileLane(lane);
+    rememberMobileWorkBoardLane(getRuntimeKey(), lane);
+  };
   const projects = useProjectsStore(state => state.projects);
   const activeProjectId = useProjectsStore(state => state.activeProjectId);
   const hasServerSnapshot = useProjectsStore(state => state.hasServerSnapshot);
@@ -850,7 +860,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
         </div>
         <div role="tablist" aria-label={t('workBoard.title')} className="grid grid-cols-4 gap-1">
           {lanes.map(lane => <button type="button" key={lane} role="tab" aria-selected={mobileLane === lane}
-            onClick={() => setMobileLane(lane)}
+            onClick={() => selectMobileLane(lane)}
             className={'flex min-h-12 flex-col items-center justify-center rounded-md border px-1 py-1 text-xs ' +
               (mobileLane === lane ? 'border-[var(--interactive-selection)] bg-background font-semibold text-foreground' : 'border-transparent text-muted-foreground')}>
             <span>{t(`workBoard.${lane}`)}</span><span className="tabular-nums">{mobileLaneCount(lane)}</span>
