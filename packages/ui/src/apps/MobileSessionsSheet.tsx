@@ -34,6 +34,7 @@ import { DirectoryExplorerDialog } from '@/components/session/DirectoryExplorerD
 import { Icon } from '@/components/icon/Icon';
 import { NewWorktreeDialog } from '@/components/session/NewWorktreeDialog';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { toast } from '@/components/ui';
@@ -2310,94 +2311,41 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
             ) : (
               <div className="min-w-0 flex-1" />
             )}
-            <div className="flex min-w-0 shrink items-center gap-0.5 overflow-x-auto">
-              {footer.onOpenUpdate ? (
-                <Button
-                  type="button"
-                  variant="default"
-                  size="lg"
-                  className="w-10 px-0"
-                  onClick={footer.onOpenUpdate}
-                  aria-label={t('mobile.menu.update')}
-                  title={t('mobile.menu.update')}
-                  style={{ touchAction: 'manipulation' }}
-                >
-                  <Icon name="download" className="size-5" />
-                  <span className="absolute inset-e-2 top-2 inline-flex size-2 rounded-full bg-primary" aria-hidden />
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="default"
-                size="lg"
-                className="w-10 px-0"
-                onClick={footer.onOpenScheduled}
-                aria-label={t('sessions.sidebar.header.actions.scheduledTasks')}
-                title={t('sessions.sidebar.header.actions.scheduledTasks')}
-                style={{ touchAction: 'manipulation' }}
-              >
-                <Icon name="calendar-schedule" className="size-5" />
-              </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="lg"
-                className="w-10 shrink-0 px-0"
-                onClick={footer.onOpenWorkBoard}
-                aria-label={t('workBoard.title')}
-                title={t('workBoard.title')}
-                style={{ touchAction: 'manipulation' }}
-              >
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Button type="button" variant="default" size="lg" className="w-10 shrink-0 px-0"
+                onClick={footer.onOpenWorkBoard} aria-label={t('workBoard.title')} title={t('workBoard.title')}
+                style={{ touchAction: 'manipulation' }}>
                 <Icon name="route" className="size-5" />
               </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="lg"
-                className="w-10 px-0"
-                onClick={footer.onOpenSourceBoard}
-                aria-label={t('sourceBoard.title')}
-                title={t('sourceBoard.title')}
-                style={{ touchAction: 'manipulation' }}
-              >
+              <Button type="button" variant="default" size="lg" className="w-10 shrink-0 px-0"
+                onClick={footer.onOpenSourceBoard} aria-label={t('sourceBoard.title')} title={t('sourceBoard.title')}
+                style={{ touchAction: 'manipulation' }}>
                 <Icon name="todo" className="size-5" />
               </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="lg"
-                className="w-10 px-0"
-                onClick={footer.onOpenArchive}
-                aria-label={t('sessions.sidebar.nav.archive')}
-                title={t('sessions.sidebar.nav.archive')}
-                style={{ touchAction: 'manipulation' }}
-              >
+              <Button type="button" variant="default" size="lg" className="w-10 shrink-0 px-0"
+                onClick={footer.onOpenArchive} aria-label={t('sessions.sidebar.nav.archive')} title={t('sessions.sidebar.nav.archive')}
+                style={{ touchAction: 'manipulation' }}>
                 <Icon name="archive" className="size-5" />
               </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="lg"
-                className="w-10 px-0"
-                onClick={footer.onOpenUsage}
-                aria-label={t('usageStats.openAction')}
-                title={t('usageStats.openAction')}
-                style={{ touchAction: 'manipulation' }}
-              >
-                <Icon name="bar-chart" className="size-5" />
-              </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="lg"
-                className="w-10 px-0"
-                onClick={footer.onOpenSettings}
-                aria-label={t('mobile.menu.settings')}
-                title={t('mobile.menu.settings')}
-                style={{ touchAction: 'manipulation' }}
-              >
+              <Button type="button" variant="default" size="lg" className="w-10 shrink-0 px-0"
+                onClick={footer.onOpenSettings} aria-label={t('mobile.menu.settings')} title={t('mobile.menu.settings')}
+                style={{ touchAction: 'manipulation' }}>
                 <Icon name="settings-3" className="size-5" />
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="default" size="lg" className="w-10 shrink-0 px-0"
+                    aria-label="More pages" title="More pages" style={{ touchAction: 'manipulation' }}>
+                    <Icon name="more" className="size-5" />
+                    {footer.onOpenUpdate ? <span className="absolute inset-e-1 top-1 size-2 rounded-full bg-primary" aria-hidden /> : null}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={footer.onOpenScheduled}>{t('sessions.sidebar.header.actions.scheduledTasks')}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={footer.onOpenUsage}>{t('usageStats.openAction')}</DropdownMenuItem>
+                  {footer.onOpenUpdate ? <DropdownMenuItem onClick={footer.onOpenUpdate}>{t('mobile.menu.update')}</DropdownMenuItem> : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         ) : null}
