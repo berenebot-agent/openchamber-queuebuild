@@ -12,7 +12,7 @@ Branch: `tmp-mobile-ui`. Do not commit this work to `main` until it has been tes
 - Project Build queue enablement moves to the OpenChamber server's existing persisted message-queue state, and is read by all clients. Legacy locally enabled projects are migrated on initial preference refresh when no explicit server value exists.
 - The composer refreshes server queue enablement before submitting an ordinary Build turn. A missing server response blocks that direct Build submission rather than running a build outside the queue.
 - The server tags Build-agent messages sent through its shared message-queue API as managed builds when enabled, even if a client's opt-in snapshot was stale.
-- Existing server queue integration tests now cover shared enabled-state persistence, restart and Plan exclusion.
+- Existing server queue integration tests now cover shared enabled-state persistence, restart, Plan exclusion and stale-client submissions. Mobile lane tests cover reopening, server switching and blocked storage.
 
 ## Integration
 
