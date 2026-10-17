@@ -2006,6 +2006,11 @@ describe('project-wide build queue', () => {
       expect(second.runtime.buildSnapshot().queued).toHaveLength(1);
       await second.runtime.setProjectQueueEnabled(DIRECTORY, false);
       expect(second.runtime.buildSnapshot().projectQueueEnabled[DIRECTORY]).toBe(false);
+      second.openCode.state.active[SECOND] = { type: 'running' };
+      await second.runtime.enqueue(SECOND, DIRECTORY, item({
+        content: 'stale client', text: 'stale client', buildQueue: true,
+      }));
+      expect(second.runtime.buildSnapshot().queued.map(entry => entry.content)).toEqual(['mobile build']);
       second.runtime.stop();
       await second.runtime.flush();
     } finally {
