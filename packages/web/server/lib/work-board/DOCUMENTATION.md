@@ -80,4 +80,6 @@ A card's lane is the queue first, then the user's own placement, then the sessio
 The Build queue column renders server queue entries and live Build sessions in
 the board's scope that have no queue entry. Queue entries take presentation
 precedence for their session; a live-only build has no queue mutation controls.
-The column count follows rendered rows, including entries without board cards.
+A live Build the queue adopted as the project's active build is a lease, so it
+renders as the running build and holds the lane until its turn ends. The column
+count follows rendered rows, including entries without board cards.

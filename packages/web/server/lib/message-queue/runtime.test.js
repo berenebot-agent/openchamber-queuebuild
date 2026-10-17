@@ -38,6 +38,8 @@ const createOpenCode = () => {
     active: {},
     // Subagent sessions per parent, as `GET /api/session?parentID=` lists them.
     children: {},
+    // Top-level sessions of a directory, as the header-scoped list returns them.
+    sessions: [],
     tail: [],
     commands: [],
     sent: [],
@@ -45,6 +47,9 @@ const createOpenCode = () => {
     selection: { agent: 'build', model: { providerID: 'anthropic', id: 'claude' } },
     failNext: null,
     failMessages: false,
+    // Keeps the directory-scoped session list failing while true, so a test can
+    // observe the queue waiting rather than dispatching on an unknown answer.
+    failList: false,
     failStatus: 500,
     htmlNext: null,
   };
@@ -66,7 +71,14 @@ const createOpenCode = () => {
     if (pathname === '/api/session/active') return Response.json({ data: state.active });
     if (pathname === '/api/session' && method === 'GET') {
       const parentID = new URL(url).searchParams.get('parentID');
-      return Response.json({ data: (state.children[parentID] ?? []).map((id) => ({ id, parentID })), cursor: {} });
+      if (parentID) return Response.json({ data: (state.children[parentID] ?? []).map((id) => ({ id, parentID })), cursor: {} });
+      if (state.failList) return new Response('unavailable', { status: 503 });
+      // The directory-scoped top-level list `findLiveBuild` reads: only sent
+      // with the `x-opencode-directory` header, like the real server.
+      const header = init.headers?.['x-opencode-directory'];
+      if (!header) return Response.json({ data: [], cursor: {} });
+      const directory = decodeURIComponent(header);
+      return Response.json({ data: state.sessions.filter(session => session.location?.directory === directory), cursor: {} });
     }
     if (/^\/api\/session\/[^/]+$/.test(pathname) && method === 'GET') {
       const id = decodeURIComponent(pathname.split('/').at(-1));
@@ -1183,6 +1195,113 @@ describe('project-wide build queue', () => {
     expect(runtime.buildSnapshot().forced).toHaveLength(0);
     runtime.stop();
     await runtime.flush();
+  });
+
+  it('adopts a Build turn already running in the project instead of starting beside it', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30, buildRecheckMs: 10 });
+    // A build started before this project's queue was on: busy, in this
+    // directory, running the build agent, holding no lease.
+    const live = 'ses_queue_test_live';
+    openCode.state.active[live] = { type: 'running' };
+    openCode.state.sessions = [{ id: live, agent: 'build', location: { directory: DIRECTORY } }];
+
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'queued', text: 'queued', buildQueue: true }));
+    await settle(60);
+
+    // The queued build must not have started; the live turn is the active build.
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([live]);
+    expect(runtime.buildSnapshot().queued.map(entry => entry.sessionId)).toEqual([SESSION]);
+
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('releases an adopted lane when its own turn finishes', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    const live = 'ses_queue_test_live';
+    openCode.state.active[live] = { type: 'running' };
+    openCode.state.sessions = [{ id: live, agent: 'build', location: { directory: DIRECTORY } }];
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'queued', text: 'queued', buildQueue: true }));
+    await settle(50);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([live]);
+
+    // The adopted turn ends: its session goes idle with a completed reply.
+    delete openCode.state.active[live];
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(80);
+    // The adopted lease is what ends here; the queued build then dispatches and
+    // takes its own lane, so the live session is no longer the active build.
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).not.toContain(live);
+    expect(promptCalls(openCode).map(call => call.body.text)).toContain('queued');
+
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does not adopt a forced build or a Plan session', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    // Force needs an idle session to start; it runs outside the queue by design.
+    const forced = 'ses_queue_test_forced';
+    await runtime.enqueue(forced, DIRECTORY, item({ content: 'force me', text: 'force me', buildQueue: true }));
+    const forcedId = (await runtime.snapshot()).sessions.find(entry => entry.sessionId === forced).items[0].id;
+    await runtime.forceDispatch(DIRECTORY, forced, forcedId);
+    expect(runtime.buildSnapshot().forced.map(entry => entry.sessionId)).toEqual([forced]);
+    // The forced turn is running now, and it is a Build session of this project,
+    // so only its exclusion from adoption keeps the lane free.
+    openCode.state.active[forced] = { type: 'running' };
+    // A Plan session running in the same directory is not build work either.
+    const plan = 'ses_queue_test_plan';
+    openCode.state.active[plan] = { type: 'running' };
+    openCode.state.sessions = [
+      { id: forced, agent: 'build', location: { directory: DIRECTORY } },
+      { id: plan, agent: 'plan', location: { directory: DIRECTORY } },
+    ];
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'queued', text: 'queued', buildQueue: true }));
+    await settle(60);
+    // Neither the forced build nor the Plan turn holds the lane, so the queued
+    // build ran rather than waiting for either.
+    expect(promptCalls(openCode).map(call => call.body.text)).toContain('queued');
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('waits while the live build list is unreadable, and dispatches once it reads', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    // Something is running in this project, and the directory list that would
+    // say whether it is a Build keeps failing: a live build cannot be ruled out,
+    // so the queued build must wait rather than start beside it.
+    openCode.state.active.ses_queue_test_other = { type: 'running' };
+    openCode.state.failList = true;
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'queued', text: 'queued', buildQueue: true }));
+    await settle(60);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+
+    // The list reads again and names no Build of this directory, so the queued
+    // build runs as before.
+    openCode.state.failList = false;
+    delete openCode.state.active.ses_queue_test_other;
+    await settle(60);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['queued']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does not persist an adopted lane across a restart', async () => {
+    const { runtime, openCode, dataDir } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    const live = 'ses_queue_test_live';
+    openCode.state.active[live] = { type: 'running' };
+    openCode.state.sessions = [{ id: live, agent: 'build', location: { directory: DIRECTORY } }];
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'queued', text: 'queued', buildQueue: true }));
+    await settle(50);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([live]);
+    runtime.stop();
+    await runtime.flush();
+
+    const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'message-queue.json'), 'utf8'));
+    expect(stored.activeBuilds).toEqual({});
   });
 
   it('refuses to force a build whose session is busy and keeps it queued', async () => {

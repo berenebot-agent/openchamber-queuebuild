@@ -22,6 +22,7 @@ import { unwrapOpenCodeResponse } from '../opencode/response-envelope.js';
 import { createSessionActivityProbe } from '../opencode/session-activity.js';
 import { readMergedSettingsSync } from '../opencode/settings-files.js';
 import { attachmentHint } from '../routing/runtime.js';
+import { isBuildAgentName } from './build-classification.js';
 
 const QUEUE_FILE_NAME = 'message-queue.json';
 const QUEUE_FILE_VERSION = 2;
@@ -82,6 +83,9 @@ const asText = (value) => (typeof value === 'string' ? value : '');
 const asRecord = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : null);
 const asList = (value) => (Array.isArray(value) ? value : null);
 const asCount = (value) => (Number.isFinite(value) && value >= 0 ? Math.floor(value) : null);
+// One directory, one key: the same normalisation the work board projects with,
+// so a Windows path and a trailing slash cannot split a project's lane.
+const directoryKey = (value) => asNonEmptyString(value).replace(/\\/g, '/').replace(/\/+$/, '');
 
 const isValidSessionId = (value) => SESSION_ID_PATTERN.test(asNonEmptyString(value));
 
@@ -391,7 +395,10 @@ export function createMessageQueueRuntime({
     version: QUEUE_FILE_VERSION,
     revision,
     nextBuildOrder,
-    activeBuilds: Object.fromEntries(activeBuilds),
+    // An adopted lease tracks a turn the queue does not own and holds no queued
+    // item; a restart re-detects that live build, so writing it here would only
+    // park a lane whose turn is already over.
+    activeBuilds: Object.fromEntries(Array.from(activeBuilds).filter(([, lease]) => !lease.adopted)),
     forceReservations: Object.fromEntries(forceReservations),
     sessions: Object.fromEntries(
       Array.from(queues.entries()).map(([sessionId, queue]) => [sessionId, { directory: queue.directory, items: queue.items }]),
@@ -629,12 +636,12 @@ export function createMessageQueueRuntime({
 
   // --- OpenCode access -----------------------------------------------------
 
-  const openCodeFetch = async (fetchPath, { directory, method = 'GET', body, query } = {}) => {
+  const openCodeFetch = async (fetchPath, { directory, method = 'GET', body, query, headers: extraHeaders } = {}) => {
     const base = buildOpenCodeUrl(fetchPath, '');
     const params = new URLSearchParams(query || {});
     if (directory) params.set('directory', directory);
     const search = params.toString();
-    const headers = { Accept: 'application/json', ...getOpenCodeAuthHeaders() };
+    const headers = { Accept: 'application/json', ...getOpenCodeAuthHeaders(), ...extraHeaders };
     const init = { method, headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) };
     if (body) {
       headers['Content-Type'] = 'application/json';
@@ -912,6 +919,36 @@ export function createMessageQueueRuntime({
       return 'Cannot verify the Git working tree. Check that Git is installed, or choose Allow continue in Settings.';
     }
   };
+  /**
+   * A Build session of this directory that is running now but holds no lease,
+   * or `null` when there is none. The lane only serializes what it dispatched
+   * itself, so a build started before the project's queue was on, or by a path
+   * outside the queue, would otherwise run beside a queued one.
+   *
+   * `unknown` (the directory list could not be read) is a third answer, and the
+   * caller must not dispatch on it: an unreadable list is not "no live build".
+   * Sessions the user forced are excluded — a Force exists to run beside the
+   * queue, and the queue must not start waiting for it.
+   */
+  const findLiveBuild = async (directory) => {
+    const body = asRecord(await openCodeFetch('/api/session/active').catch(() => null));
+    const statuses = asRecord(body && 'data' in body ? body.data : body);
+    if (!statuses) return undefined;
+    const activeIds = Object.keys(statuses).filter(sessionId => asRecord(statuses[sessionId]) && !forcedBuilds.has(sessionId));
+    if (activeIds.length === 0) return null;
+    // v2 scopes the session list by header, not by query (see the admission
+    // routes). A plain query would name OpenCode's own working directory.
+    const listed = asList(asRecord(await openCodeFetch('/api/session', {
+      headers: { 'x-opencode-directory': encodeURIComponent(directory) },
+    }).catch(() => null))?.data);
+    if (!listed) return undefined;
+    const key = directoryKey(directory);
+    const live = listed.map(asRecord).find(session => session && !session.parentID
+      && activeIds.includes(asNonEmptyString(session.id) ?? '')
+      && directoryKey(asNonEmptyString(asRecord(session.location)?.directory) ?? '') === key
+      && isBuildAgentName(asNonEmptyString(session.agent) ?? ''));
+    return live ? asNonEmptyString(live.id) : null;
+  };
   const wakeProject = (directory) => {
     for (const [sessionId, queue] of queues) {
       // A build item needs the lane; an ordinary item may be sitting behind a
@@ -936,6 +973,30 @@ export function createMessageQueueRuntime({
   async function monitorBuild(directory) {
     const lease = activeBuilds.get(directory);
     if (stopped || !lease) return;
+    // An adopted lane is not queue work: the turn belongs to a session the user
+    // started outside the queue, so it releases exactly as a forced build does —
+    // no review park, and no rerun. The lane only waited for this turn.
+    if (lease.adopted) {
+      if (now() - lease.startedAt < buildMonitorDelayMs) { scheduleBuildMonitor(directory); return; }
+      const adoptedIdle = await isSessionIdle(lease.sessionId, directory);
+      if (activeBuilds.get(directory) !== lease) return;
+      const adoptedChildren = adoptedIdle === true ? await hasWorkingSubagents(lease.sessionId) : null;
+      if (adoptedIdle !== true || adoptedChildren !== false) {
+        delete lease.unconfirmedIdleAt;
+        scheduleBuildMonitor(directory, buildRecheckMs);
+        return;
+      }
+      const adoptedCompleted = await leaseTurnCompleted(lease, directory);
+      if (activeBuilds.get(directory) !== lease) return;
+      if (adoptedCompleted !== true) {
+        lease.unconfirmedIdleAt ??= now();
+        if (now() - lease.unconfirmedIdleAt < buildCompletionGraceMs) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
+      }
+      activeBuilds.delete(directory);
+      commit(lease.sessionId);
+      wakeProject(directory);
+      return;
+    }
     if (lease.needsReview) {
       // A flagged lane is not automatically a lost cause: if its own turn is
       // verifiably finished and the session is quiet, the flag is stale and the
@@ -1070,6 +1131,16 @@ export function createMessageQueueRuntime({
   const flagAbortedBuildLeases = async (sessionId) => {
     for (const [directory, lease] of Array.from(activeBuilds)) {
       if (activeBuilds.get(directory) !== lease || lease.sessionId !== sessionId || lease.needsReview) continue;
+      // An adopted lane owns no queue work, so a Stop needs no review: release
+      // it and let the queued build proceed.
+      if (lease.adopted) {
+        activeBuilds.delete(directory);
+        clearTimeout(buildMonitors.get(directory));
+        buildMonitors.delete(directory);
+        commit(sessionId);
+        wakeProject(directory);
+        continue;
+      }
       lease.needsReview = true;
       lease.reviewReason = 'aborted';
       clearTimeout(buildMonitors.get(directory));
@@ -1522,9 +1593,28 @@ export function createMessageQueueRuntime({
     if (isBuildItem(item)) {
       // Only the oldest head among all sessions for this project may start.
       // The lease is claimed synchronously after the asynchronous probes.
-      if (activeBuilds.has(current.directory)) return;
-      if (preparingBuilds.has(current.directory)) return;
+      if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory)) return;
       if (runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
+      // Nothing in this lane, but a Build of this project may be running outside
+      // it — started before the queue was on, or by a path the queue does not
+      // cover. Adopt that turn as this lane's active build instead of starting a
+      // second one beside it: the queued build waits, and the adopted lane
+      // releases itself when that turn ends. A directory whose live builds could
+      // not be read is unknown, so dispatch waits rather than guessing.
+      {
+        const liveSessionId = await findLiveBuild(current.directory);
+        if (liveSessionId === undefined) { armDispatch(sessionId, buildRecheckMs); return; }
+        // Re-check after the awaits: another tick may have claimed the lane, or
+        // the build may have finished while the list was being read.
+        if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory)) return;
+        if (liveSessionId) {
+          activeBuilds.set(current.directory, { sessionId: liveSessionId, startedAt: now(), phase: 'running', adopted: true });
+          commit(sessionId);
+          scheduleBuildMonitor(current.directory);
+          wakeProject(current.directory);
+          return;
+        }
+      }
       // Claim preparation before awaiting Git or the model. The dispatch lease
       // follows preparation and remains durable before the prompt is sent.
       const policy = buildGitPolicy();

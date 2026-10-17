@@ -54,11 +54,14 @@ work in progress outranks a notice. The running build card keeps its band and it
 blue fill, and a working plan card keeps its green band.
 
 Live Build sessions in the board's scope also appear above the waiting rows when
-they have no server queue entry. These sessions offer Open session only; queue
-pause, reorder, and cancel controls apply only to waiting queue entries. A session
-that gains a queue entry uses that entry's row without a duplicate live card.
-The column count includes the running lease, waiting entries, and these live
-builds. Project-tab badges continue to count server-managed queue work only.
+they have no server queue entry. A live Build the queue has adopted as the
+project's active build holds the lane — a queued build waits for it — and shows
+as the running build rather than as a separate live row. The remaining live
+sessions offer Open session only; queue pause, reorder, and cancel controls apply
+only to waiting queue entries. A session that gains a queue entry uses that
+entry's row without a duplicate live card. The column count includes the running
+lease, waiting entries, and these live builds. Project-tab badges continue to
+count server-managed queue work only.
 
 A waiting build can be forced to start now, outside the queue. Its row on the
 board carries a **Force** control that confirms

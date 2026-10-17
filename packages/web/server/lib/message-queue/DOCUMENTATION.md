@@ -316,6 +316,20 @@ requires:
   (`pendingBuilds(directory)[0]`), and
 - the working tree satisfies the policy selected in Settings.
 
+The lane only knows the builds it dispatched itself, so a Build turn that is
+already running in the directory without a lease — one started before the
+project's queue was on, or by a path the queue does not cover — is detected and
+**adopted** as the lane's active build instead of being run beside. The gate
+then holds the queued build, and the adopted lane releases itself when that turn
+ends. Detection reads `/api/session/active` for the running ids and the
+directory-scoped `GET /api/session` (the encoded `x-opencode-directory` header,
+as in the admission routes) for the agent and location; a session the user
+forced is excluded, because a Force exists to run beside the queue. A directory
+whose list cannot be read is unknown, never "no live build", so dispatch waits
+and retries rather than guessing. An adopted lane is in-memory only — a restart
+re-detects the live build — and it never parks for review or reruns anything: it
+owns no queued item, so a Stop simply releases it.
+
 The Git policy selector in OpenChamber Settings (Chat page) applies to every
 project on the instance, including when its current queue is empty. It has 3
 policies:
