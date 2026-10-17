@@ -831,7 +831,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
           <select className="min-h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
             value={projectId} onChange={event => addProjectTab(event.target.value)}
             aria-label={t('workBoard.projectTabs')}>
-            {projects.map(project => <option key={project.id} value={project.id}>{project.name || project.path}</option>)}
+            {projects.map(project => <option key={project.id} value={project.id}>{project.label || project.path.split('/').at(-1) || project.path}</option>)}
           </select>
         </label>
         <div role="tablist" aria-label={t('workBoard.title')} className="grid grid-cols-4 gap-1">
