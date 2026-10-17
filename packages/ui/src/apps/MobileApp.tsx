@@ -411,7 +411,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       onOpenScheduled: () => openSurface('scheduled'),
       onOpenArchive: () => openSurface('archive'),
       onOpenSourceBoard: () => openSurface('board'),
-      onOpenWorkBoard: () => openSurface('work-board'),
+      onOpenWorkBoard: () => { setSessionsSheetOpen(false); openSurface('work-board'); },
       onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
     }),
     [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
