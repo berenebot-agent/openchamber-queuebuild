@@ -67,6 +67,27 @@ describe('work board persistence', () => {
     } finally { await remove(dataDir); }
   });
 
+  it('rejects stale edits and accepts an explicit overwrite against the latest version', async () => {
+    const { dataDir } = await setup();
+    try {
+      const store = createWorkBoardStore({ dataDir, now: () => 10 });
+      const original = await store.create(input());
+      const savedElsewhere = await store.update(original.id, {
+        text: 'Saved in another window', expectedUpdatedAt: original.updatedAt,
+      });
+      expect(savedElsewhere.updatedAt).toBeGreaterThan(original.updatedAt);
+      await expect(store.update(original.id, {
+        text: 'My unsaved version', expectedUpdatedAt: original.updatedAt,
+      })).rejects.toMatchObject({ status: 409 });
+
+      const overwritten = await store.update(original.id, {
+        text: 'My unsaved version', expectedUpdatedAt: savedElsewhere.updatedAt,
+      });
+      expect(overwritten.text).toBe('My unsaved version');
+      expect(overwritten.updatedAt).toBeGreaterThan(savedElsewhere.updatedAt);
+    } finally { await remove(dataDir); }
+  });
+
   it('serializes concurrent writes and enforces durable session linking and promotion order', async () => {
     const { dataDir, store } = await setup();
     try {

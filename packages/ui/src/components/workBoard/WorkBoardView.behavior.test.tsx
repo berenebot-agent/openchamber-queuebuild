@@ -20,7 +20,8 @@ test('board actions, live activity and viewed turn attention use shared session 
   const globals = {
     window: dom, document: dom.document, navigator: dom.navigator,
     Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
-    HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
+    HTMLIFrameElement: dom.HTMLIFrameElement, HTMLTextAreaElement: dom.HTMLTextAreaElement, MutationObserver: dom.MutationObserver,
+    Event: dom.Event,
     KeyboardEvent: dom.KeyboardEvent,
     getComputedStyle: dom.getComputedStyle.bind(dom),
     requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
@@ -46,11 +47,30 @@ test('board actions, live activity and viewed turn attention use shared session 
     { id: 'newer', directory: '/repo', text: 'Newer completion', attachments: [], stage: 'done', completedAt: 10, createdAt: 1, updatedAt: 1 },
   ];
   let completionRequests = 0;
-  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
+  let serverCards = cards;
+  let editPatchCount = 0;
+  const editPatchBodies: Array<{ text: string; expectedUpdatedAt: number }> = [];
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
+    const request = input instanceof Request ? input : null;
+    const method = init?.method ?? request?.method ?? 'GET';
     if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
     if (url.includes('/api/work-board/complete')) { completionRequests += 1; return Response.json({ completed: ['plan'], failed: [] }); }
-    if (url.includes('/api/work-board')) return Response.json({ cards });
+    if (url.endsWith('/api/work-board/todo') && method === 'PATCH') {
+      const body = init?.body
+        ? JSON.parse(String(init.body))
+        : await request?.clone().json();
+      editPatchBodies.push(body);
+      editPatchCount += 1;
+      if (editPatchCount === 1) {
+        serverCards = serverCards.map(card => card.id === 'todo' ? { ...card, text: 'Saved in another window', updatedAt: 2 } : card);
+        return Response.json({ error: 'Card changed. Choose which version to keep.' }, { status: 409 });
+      }
+      const updated = { ...serverCards.find(card => card.id === 'todo')!, text: body.text, attachments: body.attachments, updatedAt: 3 };
+      serverCards = serverCards.map(card => card.id === 'todo' ? updated : card);
+      return Response.json({ card: updated });
+    }
+    if (url.includes('/api/work-board')) return Response.json({ cards: serverCards });
     return Response.json({});
   });
   const statusSpy = spyOn(opencodeClient, 'getActiveSessionStatuses').mockResolvedValue({});
@@ -76,6 +96,30 @@ test('board actions, live activity and viewed turn attention use shared session 
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 30)); });
     expect(container.querySelector('header button[aria-label="New to-do"]')).toBeNull();
+    const briefTitle = container.querySelector<HTMLButtonElement>('button[title="Saved brief"]');
+    if (!briefTitle) throw new Error('Missing saved brief card');
+    await act(async () => briefTitle.click());
+    const editArea = container.querySelector<HTMLTextAreaElement>('textarea');
+    if (!editArea) throw new Error('Missing brief editor');
+    const setEditArea = Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype, 'value')?.set;
+    await act(async () => {
+      setEditArea?.call(editArea, 'My version');
+      editArea.dispatchEvent(new Event('input', { bubbles: true }));
+      editArea.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const saveEdit = () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === 'Save brief')!;
+    await act(async () => { saveEdit().click(); await new Promise(resolve => setTimeout(resolve, 30)); });
+    const conflictDialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(conflictDialog()?.textContent).toContain('Someone else changed this card while you were editing.');
+    expect(conflictDialog()?.textContent).toContain('Saved in another window');
+    const overwrite = [...conflictDialog()!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(item => item.textContent === 'Overwrite with my edits');
+    if (!overwrite) throw new Error('Missing overwrite choice');
+    await act(async () => { overwrite.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
+    expect(editPatchBodies.map(body => body.expectedUpdatedAt)).toEqual([1, 2]);
+    expect(editPatchBodies.map(body => body.text)).toEqual(['Saved brief', 'Saved brief']);
+    expect(serverCards.find(card => card.id === 'todo')?.text).toBe('Saved brief');
+    expect(conflictDialog()).toBeNull();
     // Creating a new build now happens from the queue column's empty active
     // slot, beside the two lanes that still open a composer directly.
     for (const [label, lane, origin] of [['New to-do', 'To-do', 'workBoard'], ['New Plan session', 'Plan', 'workBoardPlan']]) {

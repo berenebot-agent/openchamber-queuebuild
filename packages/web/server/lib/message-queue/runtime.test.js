@@ -509,6 +509,34 @@ describe('message queue runtime', () => {
     expect(openCode.state.sent).toHaveLength(1);
   });
 
+  it('rechecks session activity after the build gate and releases a lease when another turn started', async () => {
+    let started = false;
+    const { runtime, openCode, emit } = createRuntime({
+      checkBuildGit: async () => {
+        if (!started) {
+          started = true;
+          openCode.state.active = { [SESSION]: { type: 'running' } };
+        }
+        return null;
+      },
+    });
+    runtime.start();
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'build', text: 'build', buildQueue: true }));
+    await settle(40);
+
+    expect(openCode.state.sent).toHaveLength(0);
+    expect(openCode.state.switched).toHaveLength(0);
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+    expect(runtime.buildSnapshot().queued.map(entry => entry.content)).toEqual(['build']);
+
+    openCode.state.active = {};
+    emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
+    await settle(40);
+    expect(openCode.state.sent.at(-1).body.text).toBe('build');
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('delivers past an unfinished tail that predates this runtime (dead pre-restart run)', async () => {
     const { runtime, openCode, emit } = createRuntime({ now: () => 10_000 });
     runtime.start();
@@ -609,6 +637,21 @@ describe('message queue runtime', () => {
     expect(openCode.state.sent).toHaveLength(1);
   });
 
+  it('wakes delivery at the renewed hold expiry instead of waiting for another event', async () => {
+    const { runtime, openCode } = createRuntime();
+    runtime.setHold(SESSION, true, 80);
+    await runtime.enqueue(SESSION, DIRECTORY, item());
+    await settle(30);
+    runtime.setHold(SESSION, true, 160);
+    await settle(70);
+    expect(openCode.state.sent).toHaveLength(0);
+
+    await settle(120);
+    expect(openCode.state.sent).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('survives a restart and delivers once OpenCode reconnects', async () => {
     const dataDir = makeDataDir();
     const first = createRuntime({ dataDir });
@@ -642,9 +685,11 @@ describe('message queue runtime', () => {
     const { runtime, openCode, emit } = createRuntime();
     runtime.start();
     let release;
-    // active map, message tail, the subagent check (empty active map),
-    // model switch, then the prompt itself (held open until released)
+    // Initial and final activity probes, then session selection and the send.
     openCode.fetchImpl.mockImplementationOnce(async () => Response.json({ location: {}, data: {} }))
+      .mockImplementationOnce(async () => Response.json({ data: [], cursor: {} }))
+      .mockImplementationOnce(async () => Response.json({ data: {} }))
+      .mockImplementationOnce(async () => Response.json({ location: {}, data: {} }))
       .mockImplementationOnce(async () => Response.json({ data: [], cursor: {} }))
       .mockImplementationOnce(async () => Response.json({ data: {} }))
       .mockImplementationOnce(async () => new Response(null, { status: 204 }))
@@ -1383,7 +1428,7 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
-  it('keeps a storage-failed review frozen when its session is sent another build', async () => {
+  it('rejects a new build for a storage-failed review without changing the frozen item', async () => {
     // This flag comes from the queue file failing to write at dispatch, so drive
     // that instead of seeding the reason: a restart rewrites it to
     // restart-during-dispatch. Reads stay valid; every write fails because the
@@ -1397,13 +1442,13 @@ describe('project-wide build queue', () => {
       await settle(80);
       expect(runtime.buildSnapshot().active[0]).toMatchObject({ needsReview: true, reviewReason: 'persistence-failed' });
 
-      // Unfreezing here would dispatch onto an enqueue that cannot be persisted
-      // either, so storage stays the fix and the lane stays parked. The new
-      // prompt therefore takes the session's own queue rather than replacing it.
-      await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'replacement', text: 'replacement', buildQueue: true }));
+      // The frozen item cannot safely absorb a new prompt because Continue drops
+      // it. Reject while storage is broken and leave the original item intact.
+      await expect(runtime.enqueue(SESSION, DIRECTORY, item({ content: 'replacement', text: 'replacement', buildQueue: true })))
+        .rejects.toMatchObject({ status: 503 });
       expect(runtime.buildSnapshot().active[0]).toMatchObject({ sessionId: SESSION, needsReview: true });
       expect(runtime.buildSnapshot().queued).toHaveLength(1);
-      expect(runtime.buildSnapshot().queued[0].paused).toBe(false);
+      expect(runtime.buildSnapshot().queued[0].content).toBe('frozen');
     } finally {
       fs.rmSync(tmpPath, { recursive: true, force: true });
       runtime.stop();

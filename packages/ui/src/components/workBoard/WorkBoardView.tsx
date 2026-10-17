@@ -25,9 +25,9 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, markWorkBoardCardViewed, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
+import { fetchWorkBoard, updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, completeWorkBoardCards, markWorkBoardCardViewed, WorkBoardRequestError, type WorkBoardCard, type WorkBoardAttachment } from '@/lib/workBoardApi';
 import { readWorkBoardCards, persistWorkBoardCards } from '@/sync/persist-cache';
-import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, type WorkBoardActivity, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
+import { workBoardLane, workBoardCompletionTime, workBoardFeedback, workBoardShowsCompletionMark, startWorkBoardPlan, captureWorkBoardAttachments, workBoardQueueRows, workBoardReordered, workBoardBuildBadges, workBoardDirectoryKey, type WorkBoardActivity, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
@@ -234,6 +234,8 @@ export function WorkBoardView() {
   const [busy, setBusy] = React.useState(false);
   const [completion, setCompletion] = React.useState<{ cards: WorkBoardCard[]; skipped: number } | null>(null);
   const [editing, setEditing] = React.useState<string | null>(null);
+  const [editVersion, setEditVersion] = React.useState<number | null>(null);
+  const [editConflict, setEditConflict] = React.useState<WorkBoardCard | null>(null);
   const [text, setText] = React.useState('');
   const [files, setFiles] = React.useState<WorkBoardAttachment[]>([]);
   const agents = useConfigStore(state => state.agents);
@@ -321,6 +323,8 @@ export function WorkBoardView() {
     messageCache.current = new Map([...remembered?.activities ?? []].map(([id, activity]) => [id, activity.messages]));
     historyBusy.current = new Set([...remembered?.activities ?? []].filter(([, activity]) => activity.busy).map(([id]) => id));
     setEditing(null);
+    setEditVersion(null);
+    setEditConflict(null);
     setCompletion(null);
     void refresh();
     const onFocus = () => { if (document.visibilityState === 'visible') void refresh(); };
@@ -415,6 +419,49 @@ export function WorkBoardView() {
       setBusy(false);
     }
   };
+  const saveEditedCard = async (expectedUpdatedAt: number) => {
+    if (!editing) return;
+    const cardId = editing;
+    const editedText = text;
+    const editedFiles = files;
+    setBusy(true);
+    setActionError('');
+    try {
+      await updateWorkBoardCard(cardId, {
+        text: editedText, attachments: editedFiles, expectedUpdatedAt,
+      });
+      setEditing(null);
+      setEditVersion(null);
+      setEditConflict(null);
+      await refresh();
+    } catch (cause) {
+      if (cause instanceof WorkBoardRequestError && cause.status === 409) {
+        try {
+          const latest = (await fetchWorkBoard(directory)).find(card => card.id === cardId);
+          if (!latest) {
+            setActionError(t('workBoard.failed'));
+            setEditConflict(null);
+            return;
+          }
+          setCards(previous => previous.map(card => card.id === latest.id ? latest : card));
+          setEditConflict(latest);
+        } catch (loadError) {
+          setActionError(loadError instanceof Error ? loadError.message : t('workBoard.failed'));
+        }
+      } else {
+        setActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const useSavedEditVersion = () => {
+    if (!editConflict) return;
+    setCards(previous => previous.map(card => card.id === editConflict.id ? editConflict : card));
+    setEditing(null);
+    setEditVersion(null);
+    setEditConflict(null);
+  };
   // Acknowledges the completion the user just opened, so every client clears
   // the mark. Only stored cards have a server record; an inherited card is
   // completed on demand and gains one then.
@@ -486,7 +533,7 @@ export function WorkBoardView() {
   // the server snapshot, never from card order, so a queued build the board has
   // no card for still appears, and a move sends the queue's own order.
   const queuedItems = React.useMemo(
-    () => (queueError || !queue ? [] : queue.queued.filter(item => item.directory === directory)),
+    () => (queueError || !queue ? [] : queue.queued.filter(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory))),
     [directory, queue, queueError],
   );
   // Every open tab carries its own project's build count, so the header reads as
@@ -496,7 +543,7 @@ export function WorkBoardView() {
     [visibleProjectTabs, queue, queueError],
   );
   const activeBuild = React.useMemo(
-    () => (!queueError && queue ? queue.active.find(item => item.directory === directory) : undefined),
+    () => (!queueError && queue ? queue.active.find(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory)) : undefined),
     [directory, queue, queueError],
   );
   const sessionTitleFor = React.useCallback(
@@ -511,7 +558,7 @@ export function WorkBoardView() {
   // the user to look at that session; a Git hold only needs the tree cleaned or
   // the policy changed. The two carry different actions below.
   const queueIssue = React.useMemo(
-    () => (!queueError && queue ? queue.issues.find(item => item.directory === directory)?.issue : undefined),
+    () => (!queueError && queue ? queue.issues.find(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory))?.issue : undefined),
     [directory, queue, queueError],
   );
   const needsReview = Boolean(activeBuild?.needsReview);
@@ -742,14 +789,14 @@ export function WorkBoardView() {
                   <label className="text-xs font-medium">{t('workBoard.brief')}<textarea value={text} onChange={event => setText(event.target.value)} className="mt-2 min-h-32 w-full rounded-md border border-border bg-background p-2 text-sm" /></label>
                   <label className="mt-2 block text-xs">{t('workBoard.addFiles')}<input type="file" multiple disabled={busy} onChange={event => { void addFiles(event.target.files); event.target.value = ''; }} className="mt-1 block w-full text-xs" /></label>
                   {files.map(file => <div key={file.id} className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.filename}</span><Button size="xs" variant="ghost" disabled={busy} onClick={() => setFiles(previous => previous.filter(item => item.id !== file.id))} aria-label={t('workBoard.remove')}><Icon name="close" className="size-3" /></Button></div>)}
-                  <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || (!text.trim() && !files.length)} onClick={() => void mutate(async () => { await updateWorkBoardCard(card.id, { text, attachments: files }); setEditing(null); })}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>{t('workBoard.cancel')}</Button></div>
+                   <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || editVersion === null || (!text.trim() && !files.length)} onClick={() => { if (editVersion !== null) void saveEditedCard(editVersion); }}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={() => { setEditing(null); setEditVersion(null); }}>{t('workBoard.cancel')}</Button></div>
                 </> : <div className="flex min-w-0 items-center gap-1">
                   <WorkBoardCardMark card={card} />
                   <button type="button" className={'min-w-0 flex-1 truncate text-start font-medium hover:underline ' + (activePlan ? 'text-sm leading-6' : 'text-xs leading-5')} title={title} onClick={() => {
                     acknowledge(card);
                     if (card.sessionId) { open(card.sessionId, card.directory); return; }
                     if (loading || error) return;
-                    setEditing(card.id); setText(card.text); setFiles(card.attachments);
+                    setEditing(card.id); setEditVersion(card.updatedAt); setText(card.text); setFiles(card.attachments);
                   }}>{title}</button>
                   {(!card.sessionId || canReturnToTodo || canRemove || canComplete(card)) && <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -779,6 +826,20 @@ export function WorkBoardView() {
         </section>;
       })}
     </div>}
+    <Dialog open={editConflict !== null} onOpenChange={open => { if (!open && !busy) setEditConflict(null); }}>
+      <DialogContent>
+        <DialogTitle>{t('workBoard.editConflictTitle')}</DialogTitle>
+        <DialogDescription>{t('workBoard.editConflictDescription')}</DialogDescription>
+        <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border bg-surface-muted p-3">
+          {editConflict?.text && <p dir="auto" className="whitespace-pre-wrap break-words text-sm">{editConflict.text}</p>}
+          {editConflict?.attachments.map(file => <p key={file.id} className="break-all text-xs text-muted-foreground">{file.filename}</p>)}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={useSavedEditVersion}>{t('workBoard.useSavedVersion')}</Button>
+          {!editConflict?.sessionId && <Button disabled={busy || !editConflict} onClick={() => { if (editConflict) void saveEditedCard(editConflict.updatedAt); }}>{t('workBoard.keepMyEdits')}</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={savedCard !== null} onOpenChange={open => { if (!open) useWorkBoardSavedTodo.setState({ confirmation: null }); }}>
       <DialogContent className="max-w-2xl">
         <DialogTitle>{t('workBoard.saved')}</DialogTitle>

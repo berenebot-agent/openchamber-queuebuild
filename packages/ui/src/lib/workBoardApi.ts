@@ -11,13 +11,22 @@ const cardSchema = z.object({
 });
 export type WorkBoardAttachment = z.infer<typeof attachmentSchema>;
 export type WorkBoardCard = z.infer<typeof cardSchema>;
-type CardChanges = { text?: string; attachments?: WorkBoardAttachment[]; sessionId?: string; stage?: 'todo' | 'plan' };
+type CardChanges = {
+  text?: string; attachments?: WorkBoardAttachment[]; sessionId?: string; stage?: 'todo' | 'plan'; expectedUpdatedAt?: number;
+};
 type BoardWrite = CardChanges | { directory: string; text: string; attachments: WorkBoardAttachment[]; sessionDirectory?: string };
 const completionTargetSchema = z.object({
   id: z.string(), updatedAt: z.number(), sessionId: z.string().optional(),
   sessionDirectory: z.string().optional(), text: z.string(),
 });
 type CompletionTarget = z.infer<typeof completionTargetSchema>;
+
+export class WorkBoardRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'WorkBoardRequestError';
+  }
+}
 
 async function request(path: string, method = 'GET', body?: BoardWrite | { directory: string; targets: CompletionTarget[] }) {
   const runtime = getRuntimeKey();
@@ -29,7 +38,7 @@ async function request(path: string, method = 'GET', body?: BoardWrite | { direc
   if (runtime !== getRuntimeKey()) throw new Error('Runtime changed during work board request');
   if (!response.ok) {
     const detail = z.object({ error: z.string() }).safeParse(await response.json().catch(() => null));
-    throw new Error(detail.success ? detail.data.error : `Work board request failed (${response.status})`);
+    throw new WorkBoardRequestError(detail.success ? detail.data.error : `Work board request failed (${response.status})`, response.status);
   }
   const value = await response.json();
   if (runtime !== getRuntimeKey()) throw new Error('Runtime changed during work board request');

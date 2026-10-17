@@ -89,6 +89,24 @@ describe('work board HTTP routes', () => {
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
   });
 
+  it('reports stale edits and accepts an explicit overwrite against the latest card version', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-edit-conflict-'));
+    try {
+      const app = express();
+      registerWorkBoardRoutes(app, { store: createWorkBoardStore({ dataDir }), resolveProjectDirectory: async req => ({ directory: req.query.directory, error: null }) });
+      const created = await request(app).post('/api/work-board').send({ directory: '/repo', text: 'Original' }).expect(201);
+      const initial = created.body.card;
+      const savedElsewhere = await request(app).patch(`/api/work-board/${initial.id}`)
+        .send({ text: 'Other version', expectedUpdatedAt: initial.updatedAt }).expect(200);
+      await request(app).patch(`/api/work-board/${initial.id}`)
+        .send({ text: 'Stale version', expectedUpdatedAt: initial.updatedAt }).expect(409);
+      const overwritten = await request(app).patch(`/api/work-board/${initial.id}`)
+        .send({ text: 'Chosen version', expectedUpdatedAt: savedElsewhere.body.card.updatedAt }).expect(200);
+      expect(overwritten.body.card.text).toBe('Chosen version');
+      expect(overwritten.body.card.updatedAt).toBeGreaterThan(savedElsewhere.body.card.updatedAt);
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
   it('rejects corrupt persisted cards and never overwrites them on a later save', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-corrupt-'));
     try {

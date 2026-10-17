@@ -316,6 +316,7 @@ export function createMessageQueueRuntime({
   /** In-memory only — a restart has no in-flight sends. */
   const sending = new Map(); // sessionId → itemId
   const timers = new Map(); // sessionId → timeout
+  const holdTimers = new Map(); // sessionId → hold-expiry timeout
   const failures = new Map(); // sessionId → { itemId, failures, nextAttemptAt }
   const abortedAt = new Map(); // sessionId → timestamp
   const holds = new Map(); // sessionId → expiresAt
@@ -975,6 +976,30 @@ export function createMessageQueueRuntime({
     }
   };
 
+  const clearHoldTimer = (sessionId) => {
+    const timer = holdTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    holdTimers.delete(sessionId);
+  };
+
+  const scheduleHoldExpiry = (sessionId, expiresAt) => {
+    clearHoldTimer(sessionId);
+    const timer = setTimeout(() => {
+      if (holdTimers.get(sessionId) !== timer) return;
+      holdTimers.delete(sessionId);
+      if (holds.get(sessionId) !== expiresAt) return;
+      const remaining = expiresAt - now();
+      if (remaining > 0) {
+        scheduleHoldExpiry(sessionId, expiresAt);
+        return;
+      }
+      holds.delete(sessionId);
+      armDispatch(sessionId);
+    }, Math.max(0, expiresAt - now()));
+    timer.unref?.();
+    holdTimers.set(sessionId, timer);
+  };
+
   const armDispatch = (sessionId, delayMs = dispatchQuietMs) => {
     if (stopped || !queues.has(sessionId)) return;
     clearTimer(sessionId);
@@ -993,6 +1018,7 @@ export function createMessageQueueRuntime({
     if (expiresAt === undefined) return false;
     if (expiresAt > now()) return true;
     holds.delete(sessionId);
+    clearHoldTimer(sessionId);
     return false;
   };
 
@@ -1137,6 +1163,33 @@ export function createMessageQueueRuntime({
       }
       if (stopped || parkingSessions.has(sessionId) || lease?.itemId !== item.id || queues.get(sessionId)?.items[0]?.id !== item.id) return;
     }
+
+    // The first activity check can be separated from dispatch by Git checks or
+    // durable lease writes. Recheck immediately before marking the item in
+    // flight or changing session state. OpenCode has no atomic send-if-idle
+    // operation, so a direct send can still begin after this check.
+    const finalIdle = await isSessionIdle(sessionId, current.directory);
+    const finalSubagents = finalIdle === true ? await hasWorkingSubagents(sessionId) : null;
+    const held = isHeld(sessionId);
+    const latestQueue = queues.get(sessionId);
+    const stillHead = latestQueue?.items[0]?.id === item.id;
+    const stillOldestBuild = !isBuildItem(item) || runnableBuilds(current.directory)[0]?.item.id === item.id;
+    const leaseBeforeSend = activeBuilds.get(current.directory);
+    const releaseBuildLease = () => {
+      if (!isBuildItem(item) || leaseBeforeSend?.itemId !== item.id) return;
+      activeBuilds.delete(current.directory);
+      commit(sessionId);
+      wakeProject(current.directory);
+    };
+    if (finalIdle !== true || finalSubagents !== false || held || stopped || parkingSessions.has(sessionId)
+      || sending.has(sessionId) || !stillHead || !stillOldestBuild) {
+      releaseBuildLease();
+      if (latestQueue?.items.length && !held && !stopped) {
+        armDispatch(sessionId, finalSubagents === true ? SUBAGENT_RECHECK_MS : retryDelayMs(1));
+      }
+      return;
+    }
+
     sending.set(sessionId, item.id);
     broadcast(sessionId);
     try {
@@ -1231,6 +1284,9 @@ export function createMessageQueueRuntime({
       // left after the unfreeze, not what was there before it.
       unfreezeBuildLeaseForSession(sessionId, directory);
       const lease = activeBuilds.get(directory);
+      if (lease?.sessionId === sessionId && buildReviewBlocksUserUnfreeze(lease)) {
+        throw httpError('Build queue storage is unavailable. Repair server storage before submitting another build.', 503);
+      }
       const current = queues.get(sessionId);
       const slot = (current?.items ?? []).find(entry => isBuildItem(entry));
       if (lease?.sessionId === sessionId && !lease.needsReview) {
@@ -1370,11 +1426,14 @@ export function createMessageQueueRuntime({
     if (held !== true && held !== false) throw new TypeError('held must be a boolean');
     if (held) {
       const ttl = Math.min(asCount(ttlMs) || HOLD_DEFAULT_TTL_MS, HOLD_MAX_TTL_MS);
-      holds.set(sessionId, now() + ttl);
+      const expiresAt = now() + ttl;
+      holds.set(sessionId, expiresAt);
+      scheduleHoldExpiry(sessionId, expiresAt);
       clearTimer(sessionId);
-      return { held: true, expiresAt: holds.get(sessionId) };
+      return { held: true, expiresAt };
     }
     holds.delete(sessionId);
+    clearHoldTimer(sessionId);
     armDispatch(sessionId);
     return { held: false, expiresAt: null };
   };
@@ -1387,6 +1446,8 @@ export function createMessageQueueRuntime({
 
     const deletedSessionId = extractDeletedSessionId(payload);
     if (deletedSessionId) {
+      holds.delete(deletedSessionId);
+      clearHoldTimer(deletedSessionId);
       for (const [directory, lease] of activeBuilds) {
         if (lease.sessionId !== deletedSessionId) continue;
         activeBuilds.delete(directory);
@@ -1460,6 +1521,8 @@ export function createMessageQueueRuntime({
     buildMonitors.clear();
     for (const timer of timers.values()) clearTimeout(timer);
     timers.clear();
+    for (const timer of holdTimers.values()) clearTimeout(timer);
+    holdTimers.clear();
   };
 
   /** Coordinate a To-do save with dispatch; never abort a running turn. */

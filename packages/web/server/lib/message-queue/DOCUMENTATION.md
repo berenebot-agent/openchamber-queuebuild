@@ -144,7 +144,13 @@ persisted "sending" flag would strand a message forever.
    links, including idle intermediate subagents; a deeper chain counts as
    unrelated, as in the UI. Unreadable lineage, cycles and the shared fetch
    deadline keep the queue held with the existing retry policy. It does not scan historical child pages.
-5. The head is marked in flight (broadcast), then sent. The captured model and
+ 5. After the lane and persistence checks, activity and descendants are checked
+    once more before the session model, agent or synthetic context is changed.
+    If another turn started during preparation, the in-flight mark and build
+    lease are cleared and the queued item waits. OpenCode has no atomic
+    send-if-idle operation, so a direct send can still begin after this final
+    check.
+ 6. The head is marked in flight (broadcast), then sent. The captured model and
    agent are switched onto the session first (`POST /session/:id/model`,
    `/agent`), because v2 holds both on the session rather than in the body; a
    captured `openchamber/auto` is resolved into a real pair by the routing
@@ -166,7 +172,7 @@ persisted "sending" flag would strand a message forever.
    Success removes the item, persists, broadcasts, and marks the user
    message sent for notifications. Failure keeps the item, backs off
    2 s → 60 s (doubling per consecutive failure of that item), and re-arms.
-6. The next item goes out after the next busy → idle cycle.
+ 7. The next item goes out after the next busy → idle cycle.
 
 ### Project build queue
 
@@ -287,6 +293,9 @@ into it.
 `persistence-failed` is the one review reason this does not clear. Its cause is
 the queue file failing to write, so an unfreeze would dispatch onto an enqueue
 that cannot be persisted either; the lane stays parked until storage is repaired.
+A Build prompt from the lease-holding session is rejected with a storage error
+while this review is active. The frozen item stays unchanged, so Continue cannot
+discard the newly submitted prompt; retry the prompt after repairing storage.
 
 The saved setting applies without a restart. `createMessageQueueRuntime` takes
 `settingsFilePath` to point at another instance's file (tests, embedders).
@@ -304,7 +313,9 @@ idle between iterations; the UI tells the server to hold that session's queue
 (`PUT .../hold { held: true, ttlMs? }`) while a run is going and releases it
 when the run ends. A hold expires on its own (default 5 min, cap 10 min)
 because the UI that asserted it may be gone; the UI re-asserts it every two
-minutes while the run continues. Releasing arms a dispatch.
+minutes while the run continues. Its expiry timer wakes queued delivery even if
+no session event arrives. Releasing arms a dispatch, and renewing replaces the
+previous expiry timer.
 
 ## Routes (`/api/message-queue`)
 

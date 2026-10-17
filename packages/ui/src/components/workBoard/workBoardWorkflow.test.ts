@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardLane, workBoardCompletionTime, workBoardQueueRows, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardDirectoryKey } from './workBoardWorkflow';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
 import type { Message } from '@/lib/opencode/model';
 
@@ -153,6 +153,7 @@ describe('project build badges', () => {
   test('normalises trailing slashes and backslashes before matching', () => {
     const badges = workBoardBuildBadges([{ id: 'a', path: '/repo/' }], { active: [], queued: [{ directory: '\\repo' }] }, false);
     expect(badges.get('a')).toEqual({ count: 1, error: false });
+    expect(workBoardDirectoryKey('/repo/')).toBe(workBoardDirectoryKey('\\repo'));
   });
   test('a queue error marks every tab rather than reading as idle', () => {
     const projects = [{ id: 'a', path: '/repo' }, { id: 'b', path: '/other' }];

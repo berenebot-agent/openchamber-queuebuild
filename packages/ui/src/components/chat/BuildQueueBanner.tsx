@@ -5,6 +5,7 @@ import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
 import { useUIStore } from '@/stores/useUIStore';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { workBoardDirectoryKey } from '@/components/workBoard/workBoardWorkflow';
 
 export const BuildQueueBanner: React.FC<{ sessionId: string | null; directory: string | null }> = ({ sessionId, directory }) => {
   const { snapshot, refresh } = useBuildQueueSnapshot();
@@ -12,11 +13,11 @@ export const BuildQueueBanner: React.FC<{ sessionId: string | null; directory: s
   const enabled = useBuildQueuePreferences(state => state.enabled[key] === true);
   if (!directory || !sessionId || !snapshot) return null;
 
-  const projectItems = snapshot.queued.filter(item => item.directory === directory);
+  const projectItems = snapshot.queued.filter(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory));
   const index = projectItems.findIndex(item => item.sessionId === sessionId);
   const sessionItems = projectItems.filter(item => item.sessionId === sessionId);
-  const active = snapshot.active.find(item => item.directory === directory);
-  const issue = snapshot.issues.find(item => item.directory === directory)?.issue;
+  const active = snapshot.active.find(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory));
+  const issue = snapshot.issues.find(item => workBoardDirectoryKey(item.directory) === workBoardDirectoryKey(directory))?.issue;
   if (index < 0 && active?.sessionId !== sessionId && !(enabled && (active || issue))) return null;
 
   const queuedItem = index >= 0 ? projectItems[index] : null;

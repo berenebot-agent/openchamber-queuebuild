@@ -27,6 +27,7 @@ const parkSchema = createSchema.extend({ sessionId: nonempty });
 const updateSchema = z.object({
   text: z.string().optional(), attachments: z.array(attachmentSchema).optional(),
   sessionId: nonempty.optional(), stage: z.enum(['todo', 'plan']).optional(),
+  expectedUpdatedAt: z.number().finite().optional(),
 });
 const cardSchema = z.object({
   id: nonempty, directory: nonempty, text: z.string(), attachments: z.array(attachmentSchema),
@@ -133,7 +134,7 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       if (!content.success) throw invalid(content.error);
       const at = now();
       const card = { id: current?.id ?? id(), directory, ...content.data, sessionId,
-        stage: 'todo', createdAt: current?.createdAt ?? at, updatedAt: at };
+        stage: 'todo', createdAt: current?.createdAt ?? at, updatedAt: current ? Math.max(at, current.updatedAt + 1) : at };
       const next = [...cards];
       if (index < 0) next.push(card);
       else next[index] = card;
@@ -159,13 +160,16 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       if (index < 0) throw Object.assign(new Error('Work board card not found'), { status: 404 });
       const current = cards[index];
       const changes = parsed.data;
+      if (changes.expectedUpdatedAt !== undefined && changes.expectedUpdatedAt !== current.updatedAt) {
+        throw Object.assign(new Error('Card changed. Choose which version to keep.'), { status: 409 });
+      }
       const content = contentSchema.safeParse({ text: changes.text ?? current.text, attachments: changes.attachments ?? current.attachments });
       if (!content.success) throw invalid(content.error);
       if (current.sessionId && changes.sessionId && current.sessionId !== changes.sessionId) {
         throw Object.assign(new Error('Work board card is already linked to another session'), { status: 409 });
       }
       const next = { ...current, ...content.data, sessionId: changes.sessionId ?? current.sessionId,
-        stage: changes.stage ?? current.stage, updatedAt: now() };
+        stage: changes.stage ?? current.stage, updatedAt: Math.max(now(), current.updatedAt + 1) };
       if (next.stage === 'plan' && !next.sessionId) throw Object.assign(new Error('A card must be linked before promotion'), { status: 409 });
       const updated = [...cards]; updated[index] = next;
       await write(updated);

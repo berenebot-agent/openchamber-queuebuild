@@ -147,7 +147,7 @@ export type WorkBoardBuildBadge = {
   paused?: 'review' | 'git';
 };
 
-const projectKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
+export const workBoardDirectoryKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
 
 /**
  * One badge per project, keyed by project id, from the server's queue snapshot.
@@ -177,26 +177,26 @@ export function workBoardBuildBadges(
   }
   const running = new Map<string, number>();
   for (const lease of queue.active) {
-    const key = projectKey(lease.directory);
+    const key = workBoardDirectoryKey(lease.directory);
     running.set(key, (running.get(key) ?? 0) + 1);
   }
   const waiting = new Map<string, number>();
   for (const item of queue.queued) {
-    const key = projectKey(item.directory);
+    const key = workBoardDirectoryKey(item.directory);
     waiting.set(key, (waiting.get(key) ?? 0) + 1);
   }
   // A lease awaiting review is a waiting project, and it outranks a Git hold
   // when both apply: the review is the thing only the user can clear.
   const paused = new Map<string, 'review' | 'git'>();
   for (const lease of queue.active) {
-    if (lease.needsReview) paused.set(projectKey(lease.directory), 'review');
+    if (lease.needsReview) paused.set(workBoardDirectoryKey(lease.directory), 'review');
   }
   for (const issue of queue.issues ?? []) {
-    const key = projectKey(issue.directory);
+    const key = workBoardDirectoryKey(issue.directory);
     if (!paused.has(key)) paused.set(key, 'git');
   }
   for (const project of projects) {
-    const key = projectKey(project.path);
+    const key = workBoardDirectoryKey(project.path);
     const state = paused.get(key);
     const count = (running.get(key) ?? 0) + (waiting.get(key) ?? 0);
     if (count <= 0 && !state) continue;
