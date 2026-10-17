@@ -180,9 +180,16 @@ test('board actions, live activity and viewed turn attention use shared session 
     expect(linkedCard().querySelector('[data-session-activity-indicator]')).toBeNull();
     await act(async () => useNotificationStore.getState().append({ type: 'error', session: 'session1', directory: '/repo', time: Date.now(), viewed: false }));
     expect(linkedCard().textContent).toContain('Needs attention');
+    // The notice is the card's own state, not just a paragraph: the card carries
+    // the marker index.css tints amber, so a card needing the user reads as one.
+    expect(linkedCard().getAttribute('data-work-board-feedback')).toBe('blocked');
+    // A card with nothing to report carries no marker, so the tint cannot sit on
+    // an ordinary card.
+    expect(container.querySelector('button[title="Saved brief"]')!.closest('article')!.getAttribute('data-work-board-feedback')).toBeNull();
     // Opening through another session entry point uses this same transition.
     await act(async () => useSessionUIStore.getState().setCurrentSession('session1', '/repo'));
     expect(linkedCard().textContent).not.toContain('Needs attention');
+    expect(linkedCard().getAttribute('data-work-board-feedback')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     useWorkBoardSavedTodo.setState({ latestSave: null, confirmation: null });
@@ -458,6 +465,14 @@ test('the build queue column runs one ordered list with its own row controls', a
     expect(text.indexOf('First build')).toBeLessThan(text.indexOf('Paused'));
     // The running build carries its own mark, and its row is not a queued one.
     expect(lane().querySelector('.oc-build-stripes')).not.toBeNull();
+    // The running build and the waiting rows are the same card size, so the
+    // column reads as one list rather than two slightly different ones. The
+    // class is the whole contract: one padding is the one height.
+    const runningBuild = lane().querySelector<HTMLElement>('button[aria-label^="Open the build running now:"]')!;
+    const waitingRow = lane().querySelector('[aria-label="Move Session s1 up"]')!.closest<HTMLElement>('div.group')!;
+    const cardPadding = (element: HTMLElement) => element.className.match(/\bpx-2\.5 (py-[0-9.]+)\b/)?.[1];
+    expect(cardPadding(runningBuild)).toBe('py-2');
+    expect(cardPadding(waitingRow)).toBe('py-2');
     // Up is a no-op on the first row and the control says so.
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s1 up"]')?.disabled).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s3 down"]')?.disabled).toBe(true);

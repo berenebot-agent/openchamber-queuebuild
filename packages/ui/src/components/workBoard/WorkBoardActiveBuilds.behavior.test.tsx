@@ -91,9 +91,12 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(lane('Plan').textContent).toContain('planning');
     // A running plan turn gets the same moving band as a running build, but in
     // green: the plan card carries the plan stripe and the build card does not.
+    // The card itself is marked as working, which is what paints the green
+    // fill in index.css, so a working plan card is still told apart from a
+    // working build card.
     const planCard = lane('Plan').querySelector('button[title="planning"]')!.closest('article')!;
     expect(planCard.querySelector('.oc-build-stripes-plan')).not.toBeNull();
-    expect(planCard.className).toContain('border-[color-mix(in_srgb,var(--status-success)');
+    expect(planCard.hasAttribute('data-work-board-working')).toBe(true);
     await act(async () => { openButtons()[0].click(); });
     expect(openSpy.mock.calls.at(-1)).toEqual(['direct-a', '/repo']);
 

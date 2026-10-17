@@ -37,6 +37,19 @@ no card for, so it never shows a shorter queue than the project actually has.
 Rows act on the queue's own order, so a move keeps the builds the board cannot
 see. A queued build with no board card has no card action: it is queue work.
 
+Cards come in two sizes, and the size says which state the card is in, not which
+lane it sits in. A card that is being worked, waiting to be worked, or asking for
+the user takes the larger box; everything else stays compact. So the running
+build, the waiting rows, a plan turn that is running now, and a card showing
+**Needs attention** are one height, and a settled card in To-do, Plan or Done is
+the other. Every card of a size reserves one line for the status it may show, so
+a card gaining or losing a notice, a loading line or a review warning keeps the
+height it had, and a card never moves because a status arrived. A card that needs
+the user is tinted, not just worded: the card itself carries the amber treatment,
+while a plan turn that is still running keeps its own green treatment, because
+work in progress outranks a notice. The running build card keeps its band and its
+blue fill, and a working plan card keeps its green band.
+
 Live Build sessions in the board's scope also appear above the waiting rows when
 they have no server queue entry. These sessions offer Open session only; queue
 pause, reorder, and cancel controls apply only to waiting queue entries. A session
@@ -218,7 +231,10 @@ unread failed or stopped turn can show the notice again. Build-queue recovery
 warnings remain until resolved, even after opening the session.
 An unavailable status stays visible as an error and is never treated as proof
 of completion.
-Compact cards retain these notices below their titles. Linked-card removal
+Cards retain these notices below their titles, in the one line every card
+reserves for status. A card carrying a notice takes the larger card size and the
+amber treatment on the card itself, so it reads as a problem card rather than an
+ordinary card with unusual text. Linked-card removal
 and return actions wait for known session and queue state.
 
 Returning an idle card to To-do preserves the linked conversation and saved

@@ -53,17 +53,23 @@ function WorkBoardCardMark({ card }: { card: WorkBoardCard }) {
   return state ? <SessionActivityIndicator state={state} tooltip /> : null;
 }
 
-function WorkBoardSessionFeedback({ sessionId, activity, unavailable, needsReview }: {
-  sessionId: string;
-  activity: WorkBoardActivity | undefined;
-  unavailable: boolean;
-  needsReview: boolean;
-}) {
-  const { t } = useI18n();
+/**
+ * The card and the line under it must agree about the notice, so the card reads
+ * its own feedback through the same two hooks the line uses. The hooks stay
+ * unconditional, like `WorkBoardCardMark`, so render order never changes.
+ */
+function useWorkBoardCardFeedback(card: WorkBoardCard, activity: WorkBoardActivity | undefined, unavailable: boolean, needsReview: boolean): 'unknown' | 'blocked' | undefined {
+  const sessionId = card.sessionId ?? '';
   const unseenCount = useSessionUnseenCount(sessionId);
   const liveActivity = useSessionTurnActivity(sessionId);
-  const feedback = workBoardFeedback(activity, unavailable, needsReview, unseenCount > 0 && liveActivity === null);
-  return feedback ? <p className={feedback === 'blocked' ? 'text-xs text-[var(--status-warning-text)]' : 'text-xs text-muted-foreground'}>{t(`workBoard.${feedback}`)}</p> : null;
+  return card.sessionId
+    ? workBoardFeedback(activity, unavailable, needsReview, unseenCount > 0 && liveActivity === null)
+    : undefined;
+}
+
+function WorkBoardSessionFeedback({ feedback }: { feedback: 'unknown' | 'blocked' | undefined }) {
+  const { t } = useI18n();
+  return feedback ? <p className={'min-h-[1lh] text-xs leading-5 ' + (feedback === 'blocked' ? 'text-[var(--status-warning-text)]' : 'text-muted-foreground')}>{t(`workBoard.${feedback}`)}</p> : null;
 }
 
 /**
@@ -103,12 +109,14 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, liveBuilds, order, bu
     {!rows.length && <p className="px-1 py-3 text-xs text-muted-foreground">{t('workBoard.queueEmpty')}</p>}
     <div className="space-y-3">
       {rows.map((row, index) => <div key={row.itemId}
-        className="group relative flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5">
+        className="group relative flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-2.5 py-2">
         <span className="flex size-5 shrink-0 items-center justify-center rounded bg-[var(--interactive-selection)] text-[10px] font-semibold tabular-nums text-muted-foreground">{index + 1}</span>
         <button type="button" className="min-w-0 flex-1 truncate text-start"
           onClick={() => onOpen(row.sessionId)}>
           <span dir="auto" className="block truncate text-xs font-medium leading-5 hover:underline">{row.title}</span>
-          <span dir="auto" className="block truncate text-[11px] text-muted-foreground">{row.paused ? t('workBoard.paused') : row.snippet || row.sessionId.slice(0, 9)}</span>
+          {/* One line of subtitle space, reserved: a row keeps its height
+              whether it shows the prompt, "Paused", or a fallback session id. */}
+          <span dir="auto" className="block min-h-[1lh] truncate text-[11px] leading-5 text-muted-foreground">{row.paused ? t('workBoard.paused') : row.snippet || row.sessionId.slice(0, 9)}</span>
         </button>
         <div className="flex shrink-0 items-center gap-0.5 opacity-40 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
           <Button size="icon" variant="ghost" className="size-6" disabled={busy || index === 0}
@@ -151,13 +159,81 @@ function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailabl
       </span>
       <span className="min-w-0 flex-1">
         <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
-        <span className="block truncate text-[11px] text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : 'workBoard.buildingNow')}</span>
+        <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : 'workBoard.buildingNow')}</span>
       </span>
       {!needsReview && !checking && <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--status-info)]">
         <span className="size-1.5 rounded-full bg-[var(--status-success)] motion-safe:animate-pulse" />{t('workBoard.active')}
       </span>}
     </span>
   </button>;
+}
+
+/**
+ * One lane card. It is a component rather than inline markup because the card's
+ * own notice reads session state through hooks, and hooks cannot be called from
+ * inside a collection's map: the hook would be counted per row and the render
+ * order would change the moment a card appeared or left.
+ */
+function WorkBoardCard({ card, lane, activity, checking, statusUnknown, needsReview, title, large, editing, text, setText, files, setFiles, busy, loading, error, editVersion, actions, onOpenCard, onStartEditing, onSaveEdits, onCancelEdits, onAddFiles, onAcknowledge }: {
+  card: WorkBoardCard;
+  lane: WorkBoardLane;
+  activity: WorkBoardActivity | undefined;
+  checking: boolean;
+  statusUnknown: boolean;
+  needsReview: boolean;
+  title: string;
+  large: boolean;
+  editing: boolean;
+  text: string;
+  setText: (text: string) => void;
+  files: WorkBoardAttachment[];
+  setFiles: (files: WorkBoardAttachment[]) => void;
+  busy: boolean;
+  loading: boolean;
+  error: string;
+  editVersion: number | null;
+  actions?: React.ReactNode;
+  onOpenCard: () => void;
+  onStartEditing: () => void;
+  onSaveEdits: (version: number) => void;
+  onCancelEdits: () => void;
+  onAddFiles: (list: FileList | null) => void;
+  onAcknowledge: () => void;
+}) {
+  const { t } = useI18n();
+  // The card and the notice under it read the same inputs, so the amber
+  // treatment and the notice it belongs to can never disagree.
+  const feedback = useWorkBoardCardFeedback(card, activity, statusUnknown, needsReview);
+  // A plan turn running now: its card carries the band and the green treatment,
+  // and it is one of the two states that take the larger box.
+  const activePlan = lane === 'plan' && Boolean(activity?.busy);
+  return <article
+    data-work-board-feedback={feedback ?? undefined}
+    data-work-board-working={activePlan ? '' : undefined}
+    className={'group relative overflow-hidden rounded-md border bg-surface-elevated '
+      + (activePlan ? '' : 'border-border ')
+      + (large ? 'px-2.5 py-2 ' : 'px-2.5 py-1.5 ')}>
+    {activePlan && <span aria-hidden="true" className="oc-build-stripes oc-build-stripes-plan pointer-events-none absolute inset-0" />}
+    <div className="relative">
+    {editing ? <>
+      <label className="text-xs font-medium">{t('workBoard.brief')}<textarea value={text} onChange={event => setText(event.target.value)} className="mt-2 min-h-32 w-full rounded-md border border-border bg-background p-2 text-sm" /></label>
+      <label className="mt-2 block text-xs">{t('workBoard.addFiles')}<input type="file" multiple disabled={busy} onChange={event => { onAddFiles(event.target.files); event.target.value = ''; }} className="mt-1 block w-full text-xs" /></label>
+      {files.map(file => <div key={file.id} className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.filename}</span><Button size="xs" variant="ghost" disabled={busy} onClick={() => setFiles(files.filter(item => item.id !== file.id))} aria-label={t('workBoard.remove')}><Icon name="close" className="size-3" /></Button></div>)}
+      <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || editVersion === null || (!text.trim() && !files.length)} onClick={() => { if (editVersion !== null) onSaveEdits(editVersion); }}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={onCancelEdits}>{t('workBoard.cancel')}</Button></div>
+    </> : <div className="flex min-w-0 items-center gap-1">
+      <WorkBoardCardMark card={card} />
+      <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title} onClick={() => {
+        onAcknowledge();
+        if (card.sessionId) { onOpenCard(); return; }
+        if (loading || error) return;
+        onStartEditing();
+      }}>{title}</button>
+      {actions}
+    </div>}
+    {checking ? <p className="min-h-[1lh] text-xs leading-5 text-muted-foreground">{t('common.loading')}</p>
+      : <WorkBoardSessionFeedback feedback={feedback} />}
+    </div>
+  </article>;
 }
 
 export function WorkBoardView() {
@@ -780,58 +856,64 @@ export function WorkBoardView() {
               const checking = Boolean(card.sessionId) && !verifiedActivities.has(card.id) && !unavailable.has(card.id);
               const statusUnknown = Boolean(card.sessionId) && (!verifiedActivities.has(card.id) || unavailable.has(card.id));
               const hasRunningTurn = Boolean(activity?.busy);
-              // A plan card whose session is running now: it gets the same
-              // moving band as a running build, in green and on a larger card,
-              // so a plan still being worked is visible without opening it.
-              const activePlan = lane === 'plan' && hasRunningTurn;
               const canReturnToTodo = !loading && !error && Boolean(card.sessionId) && lane !== 'todo' && !hasRunningTurn
                 && !statusUnknown && !queueError && queue !== null;
               const canRemove = !loading && !error && lane === 'todo' && !hasRunningTurn
                 && (!card.sessionId || (!statusUnknown && !queueError && queue !== null));
               const title = card.briefRemoved && card.sessionId
                 ? sessionTitleFor(card.sessionId) : workBoardCardTitle(card.text, card.attachments);
-              return <article key={card.id} className={'group relative overflow-hidden rounded-md border bg-surface-elevated '
-                + (activePlan
-                  ? 'border-[color-mix(in_srgb,var(--status-success)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_12%,var(--surface-elevated))] px-3.5 py-3 '
-                  : 'border-border px-2.5 py-1.5 ')}>
-                {activePlan && <span aria-hidden="true" className="oc-build-stripes oc-build-stripes-plan pointer-events-none absolute inset-0" />}
-                <div className="relative">
-                {editing === card.id ? <>
-                  <label className="text-xs font-medium">{t('workBoard.brief')}<textarea value={text} onChange={event => setText(event.target.value)} className="mt-2 min-h-32 w-full rounded-md border border-border bg-background p-2 text-sm" /></label>
-                  <label className="mt-2 block text-xs">{t('workBoard.addFiles')}<input type="file" multiple disabled={busy} onChange={event => { void addFiles(event.target.files); event.target.value = ''; }} className="mt-1 block w-full text-xs" /></label>
-                  {files.map(file => <div key={file.id} className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.filename}</span><Button size="xs" variant="ghost" disabled={busy} onClick={() => setFiles(previous => previous.filter(item => item.id !== file.id))} aria-label={t('workBoard.remove')}><Icon name="close" className="size-3" /></Button></div>)}
-                   <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || editVersion === null || (!text.trim() && !files.length)} onClick={() => { if (editVersion !== null) void saveEditedCard(editVersion); }}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={() => { setEditing(null); setEditVersion(null); }}>{t('workBoard.cancel')}</Button></div>
-                </> : <div className="flex min-w-0 items-center gap-1">
-                  <WorkBoardCardMark card={card} />
-                  <button type="button" className={'min-w-0 flex-1 truncate text-start font-medium hover:underline ' + (activePlan ? 'text-sm leading-6' : 'text-xs leading-5')} title={title} onClick={() => {
-                    acknowledge(card);
-                    if (card.sessionId) { open(card.sessionId, card.directory); return; }
-                    if (loading || error) return;
-                    setEditing(card.id); setEditVersion(card.updatedAt); setText(card.text); setFiles(card.attachments);
-                  }}>{title}</button>
-                  {(!card.sessionId || canReturnToTodo || canRemove || canComplete(card)) && <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button type="button" disabled={busy || loading || Boolean(error)} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" title="Card actions" aria-label={`Actions for ${title}`}>
-                        <Icon name="more" className="size-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {canComplete(card) && <DropdownMenuItem onClick={() => complete([card])}>{t('workBoard.complete')}</DropdownMenuItem>}
-                      {!card.sessionId && <DropdownMenuItem onClick={() => promote(card)}>{t('workBoard.startPlan')}</DropdownMenuItem>}
-                      {canReturnToTodo && <DropdownMenuItem onClick={() => void mutate(async () => {
-                        const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
-                        await saveSessionToTodo(card.sessionId!, card.directory, actualDirectory, card.text, []);
-                      })}>{t('workBoard.backTodo')}</DropdownMenuItem>}
-                      {canRemove && <DropdownMenuItem onClick={() => void mutate(async () => {
-                        await deleteWorkBoardCard(card.id);
-                      })}>{t('workBoard.remove')}</DropdownMenuItem>}
-                    </DropdownMenuContent>
-                  </DropdownMenu>}
-                </div>}
-                {checking ? <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-                  : card.sessionId && <WorkBoardSessionFeedback sessionId={card.sessionId} activity={activity} unavailable={statusUnknown} needsReview={Boolean(queueStateFor(card)?.needsReview)} />}
-                </div>
-              </article>;
+              // A card is one of two sizes. Every card that can carry a status
+              // line — a working plan, or any card linked to a session, which
+              // can gain "Needs attention" or a loading line — takes the larger
+              // box. That is what makes the running build, the waiting rows and
+              // a working plan card in the queue column one height. A card with
+              // nothing to report, and an unstarted To-do with no session to
+              // report on, stays compact.
+              const large = (lane === 'plan' && hasRunningTurn) || lane !== 'todo' || Boolean(card.sessionId);
+              return <WorkBoardCard
+                key={card.id}
+                card={card}
+                lane={lane}
+                activity={activity}
+                checking={checking}
+                statusUnknown={statusUnknown}
+                needsReview={Boolean(queueStateFor(card)?.needsReview)}
+                title={title}
+                large={large}
+                editing={editing === card.id}
+                text={text}
+                setText={setText}
+                files={files}
+                setFiles={setFiles}
+                busy={busy}
+                loading={loading}
+                error={error}
+                editVersion={editVersion}
+                onOpenCard={() => open(card.sessionId!, card.directory)}
+                onStartEditing={() => { setEditing(card.id); setEditVersion(card.updatedAt); setText(card.text); setFiles(card.attachments); }}
+                onAcknowledge={() => acknowledge(card)}
+                onAddFiles={list => { void addFiles(list); }}
+                onCancelEdits={() => { setEditing(null); setEditVersion(null); }}
+                onSaveEdits={version => void saveEditedCard(version)}
+                actions={(!card.sessionId || canReturnToTodo || canRemove || canComplete(card)) ? <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" disabled={busy || loading || Boolean(error)} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" title="Card actions" aria-label={`Actions for ${title}`}>
+                      <Icon name="more" className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {canComplete(card) && <DropdownMenuItem onClick={() => complete([card])}>{t('workBoard.complete')}</DropdownMenuItem>}
+                    {!card.sessionId && <DropdownMenuItem onClick={() => promote(card)}>{t('workBoard.startPlan')}</DropdownMenuItem>}
+                    {canReturnToTodo && <DropdownMenuItem onClick={() => void mutate(async () => {
+                      const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
+                      await saveSessionToTodo(card.sessionId!, card.directory, actualDirectory, card.text, []);
+                    })}>{t('workBoard.backTodo')}</DropdownMenuItem>}
+                    {canRemove && <DropdownMenuItem onClick={() => void mutate(async () => {
+                      await deleteWorkBoardCard(card.id);
+                    })}>{t('workBoard.remove')}</DropdownMenuItem>}
+                  </DropdownMenuContent>
+                </DropdownMenu> : null}
+              />;
             })}
           </div>}
         </section>;

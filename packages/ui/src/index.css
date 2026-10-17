@@ -2229,6 +2229,27 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
   --oc-stripe-color: var(--status-success);
 }
 
+/* A card that needs the user: failed or stopped unread turns, an unavailable
+   status, or a lease parked for review. The notice line under the card already
+   says so in words; tinting the card itself makes it read as a problem card at
+   a glance instead of as an ordinary card with unusual text. The tint sits on
+   the card because the notice can arrive and go while the card stays mounted,
+   and the card keeps its padding either way, so nothing moves when it does. */
+[data-work-board-feedback='blocked'] {
+  border-color: color-mix(in srgb, var(--status-warning) 45%, transparent);
+  background-color: color-mix(in srgb, var(--status-warning) 10%, var(--surface-elevated));
+}
+
+/* A plan turn running now, and the same green treatment on a working card that
+   also has a notice: the card takes the colour of the band it already carries,
+   so a plan still being worked reads as active without being taller than the
+   build card beside it. Work in progress outranks the notice; the notice text
+   still says what is wrong. */
+[data-work-board-working] {
+  border-color: color-mix(in srgb, var(--status-success) 42%, transparent);
+  background-color: color-mix(in srgb, var(--status-success) 12%, var(--surface-elevated));
+}
+
 @keyframes oc-build-stripes-drift {
   from { background-position: 0 0; }
   to { background-position: 14px 0; }

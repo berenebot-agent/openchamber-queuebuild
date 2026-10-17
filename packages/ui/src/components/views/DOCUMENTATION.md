@@ -83,6 +83,14 @@ the board (`oc-build-stripes`, hue from `status.info`, still under reduced
 motion); a lease parked for review keeps its error treatment instead. Recovery
 controls for a review lease stay in the pane's paused banner.
 
+The board's cards have two sizes and the size carries the state: the running
+build, the waiting rows, a running plan turn and any card showing a notice share
+one box, while settled To-do, Plan and Done cards stay compact. Each card that
+can show a status reserves one line for it, so a notice arriving or leaving does
+not change a card's height. A card's amber notice treatment lives on the card
+itself (`data-work-board-feedback`), with a running plan card keeping its green
+treatment through `data-work-board-working`; both rules are in `index.css`.
+
 A build awaiting review has a red card. On the board's queue column a parked
 lease is the acting build and says so, with no moving band and no additional
 controls on the session card. Open session opens its chat. Continue queue opens a shared dialog showing the reported problem and
