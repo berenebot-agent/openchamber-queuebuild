@@ -12,7 +12,6 @@ import {
 } from '@/sync/global-blocking-requests';
 import { compareSessionsByLifecycleOrder, useSessionOrderingStore } from '@/sync/session-ordering';
 import { useNotificationStore } from '@/sync/notification-store';
-import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { respondToPermission } from '@/sync/session-actions';
 import { canSavePermission } from '@/components/chat/permissionSummary';
 import {
@@ -119,11 +118,14 @@ const permissionLabel = (request: BlockingPermissionRequest): string => {
 
 const formLabel = (request: BlockingFormRequest): string => request.title.trim() || 'Question';
 
+// The tray lists sessions by activity alone; pins only order the sidebar.
+const NO_PINNED_SESSIONS = new Set<string>();
+
 const compareSessionOrder = (left: Session, right: Session): number => (
   compareSessionsByLifecycleOrder(
     left,
     right,
-    useSessionPinnedStore.getState().ids,
+    NO_PINNED_SESSIONS,
     useSessionOrderingStore.getState().rankById,
   )
 );
@@ -402,7 +404,9 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
       seen.add(request.id);
       approvals.push({ kind: 'permission', id: request.id, sessionId, sessionTitle, label: permissionLabel(request), directory: pending.directory, canSave: canSavePermission(request.save) });
     }
-    for (const request of pending.forms) {
+    // A page that waits for the user's answer is listed like a form: the tray
+    // only opens the session for either.
+    for (const request of [...pending.forms, ...pending.pages]) {
       if (seen.has(request.id)) continue;
       seen.add(request.id);
       approvals.push({ kind: 'form', id: request.id, sessionId, sessionTitle, label: formLabel(request), directory: pending.directory, canSave: false });
@@ -521,7 +525,6 @@ export const useTraySync = (): void => {
     const unsubscribeGlobalStatus = useGlobalSessionStatusStore.subscribe(() => scheduleFlush());
     const unsubscribeGlobalRequests = useGlobalBlockingRequestsStore.subscribe(() => scheduleFlush());
     const unsubscribeSessionOrder = useSessionOrderingStore.subscribe(() => scheduleFlush());
-    const unsubscribePinnedSessions = useSessionPinnedStore.subscribe(() => scheduleFlush());
 
     // Usage: push to the tray whenever the quota store changes, and do one
     // initial fetch for enabled providers so the submenu isn't empty on launch.
@@ -549,7 +552,6 @@ export const useTraySync = (): void => {
       unsubscribeGlobalStatus();
       unsubscribeGlobalRequests();
       unsubscribeSessionOrder();
-      unsubscribePinnedSessions();
       unsubscribeQuota();
       unsubscribeRegistry?.();
       for (const unsub of storeUnsubs.values()) unsub();

@@ -18,6 +18,7 @@ import {
   deleteProjectNote,
   deleteProjectPlan,
   fetchProjectContext,
+  linkProjectPlanSession,
   shareProjectPlan,
   unshareProjectPlan,
   resolveProjectContextId,
@@ -25,10 +26,12 @@ import {
   setProjectPlanPinned,
   updateProjectNote,
   updateProjectPlan,
+  writeProjectTodo,
   type ProjectNote,
   type ProjectNoteSource,
   type ProjectPlanLink,
   type ProjectRef,
+  type ProjectTodoChange,
   type ProjectTodoItem,
 } from '@/lib/projectContextApi';
 
@@ -62,7 +65,7 @@ interface ProjectContextState {
 interface ProjectContextActions {
   getEntry: (project: ProjectRef | null | undefined) => ProjectContextEntry;
   load: (project: ProjectRef, options?: { force?: boolean }) => Promise<void>;
-  saveTodos: (project: ProjectRef, todos: ProjectTodoItem[]) => Promise<boolean>;
+  saveTodos: (project: ProjectRef, todos: ProjectTodoItem[], change?: ProjectTodoChange) => Promise<boolean>;
   createNote: (
     project: ProjectRef,
     value: { body: string; source?: ProjectNoteSource; origin?: { sessionId: string; messageId?: string } },
@@ -76,6 +79,8 @@ interface ProjectContextActions {
   deletePlan: (project: ProjectRef, planId: string) => Promise<boolean>;
   /** Move a plan into the team's shared folder, or back; the plan gets a new id. */
   movePlan: (project: ProjectRef, planId: string, direction: 'share' | 'unshare') => Promise<boolean>;
+  /** Remember the session a plan was just sent to; its card then leads there. */
+  linkPlanSession: (project: ProjectRef, planId: string, sessionId: string) => Promise<boolean>;
   reset: () => void;
 }
 
@@ -232,10 +237,13 @@ export const useProjectContextStore = create<ProjectContextStore>((set, get) => 
     /**
      * Optimistically apply todos, then persist.
      *
-     * On failure the previous list is restored, so the panel never shows a
-     * state that is not on disk without also showing the error.
+     * With `change` only that one todo is sent, so a todo an agent added since
+     * the last read is not overwritten by this list; without it (reorder,
+     * clearing completed) the whole list is. On failure the previous list is
+     * restored, so the panel never shows a state that is not on disk without
+     * also showing the error.
      */
-    saveTodos: async (project, todos) => {
+    saveTodos: async (project, todos, change) => {
       const projectId = resolveProjectContextId(project);
       if (!projectId) return false;
 
@@ -244,10 +252,19 @@ export const useProjectContextStore = create<ProjectContextStore>((set, get) => 
 
       const flags = flagsFor(projectId);
       flags.todos = true;
+      let refreshAfterWrite = false;
 
       try {
-        const committed = await enqueueWrite(projectId, 'todos', () => saveProjectTodos(project, todos));
-        patchEntry(projectId, { todos: committed.todos, loaded: true });
+        const committed = await enqueueWrite(projectId, 'todos', () => (
+          change ? writeProjectTodo(project, change) : saveProjectTodos(project, todos)
+        ));
+        if (committed) {
+          patchEntry(projectId, { todos: committed.todos, loaded: true });
+        } else {
+          // Someone, usually an agent, removed the todo first: nothing failed,
+          // the list on screen is just behind.
+          refreshAfterWrite = true;
+        }
         return true;
       } catch (error) {
         patchEntry(projectId, {
@@ -257,6 +274,7 @@ export const useProjectContextStore = create<ProjectContextStore>((set, get) => 
         return false;
       } finally {
         flags.todos = false;
+        if (refreshAfterWrite) void get().load(project, { force: true });
       }
     },
 
@@ -486,6 +504,26 @@ export const useProjectContextStore = create<ProjectContextStore>((set, get) => 
         return true;
       } catch (error) {
         patchEntry(projectId, { error: errorMessage(error, direction === 'share' ? 'Failed to share plan' : 'Failed to make plan personal') });
+        return false;
+      } finally {
+        flags.plans = false;
+      }
+    },
+
+    linkPlanSession: async (project, planId, sessionId) => {
+      const projectId = resolveProjectContextId(project);
+      if (!projectId) return false;
+
+      const flags = flagsFor(projectId);
+      flags.plans = true;
+
+      try {
+        const result = await enqueueWrite(projectId, 'plans', () => linkProjectPlanSession(project, planId, sessionId));
+        if (!result) return false;
+        patchEntry(projectId, { plans: result.context.plans, error: null });
+        return true;
+      } catch (error) {
+        patchEntry(projectId, { error: errorMessage(error, 'Failed to link plan to session') });
         return false;
       } finally {
         flags.plans = false;

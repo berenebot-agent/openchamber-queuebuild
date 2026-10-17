@@ -372,6 +372,12 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.sidebarShowWorkSection === 'boolean') {
       result.sidebarShowWorkSection = candidate.sidebarShowWorkSection;
     }
+    if (candidate.sidebarShowPinnedSection === true || candidate.sidebarShowPinnedSection === false) {
+      result.sidebarShowPinnedSection = candidate.sidebarShowPinnedSection;
+    }
+    if (candidate.sidebarDetailedZoneRows === true || candidate.sidebarDetailedZoneRows === false) {
+      result.sidebarDetailedZoneRows = candidate.sidebarDetailedZoneRows;
+    }
 
     if (Array.isArray(candidate.securityScopedBookmarks)) {
       result.securityScopedBookmarks = normalizeStringArray(candidate.securityScopedBookmarks);
@@ -736,14 +742,17 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.agentMemoryToolEnabled === 'boolean') {
       result.agentMemoryToolEnabled = candidate.agentMemoryToolEnabled;
     }
+    if (candidate.agentKnowledgeToolEnabled === true || candidate.agentKnowledgeToolEnabled === false) {
+      result.agentKnowledgeToolEnabled = candidate.agentKnowledgeToolEnabled;
+    }
     if (typeof candidate.agentNotifyToolEnabled === 'boolean') {
       result.agentNotifyToolEnabled = candidate.agentNotifyToolEnabled;
     }
+    if (candidate.agentRenderToolEnabled === true || candidate.agentRenderToolEnabled === false) {
+      result.agentRenderToolEnabled = candidate.agentRenderToolEnabled;
+    }
     if (typeof candidate.agentToolsCodeMode === 'boolean') {
       result.agentToolsCodeMode = candidate.agentToolsCodeMode;
-    }
-    if (candidate.agentWorktreeMoveWithoutAsking === true || candidate.agentWorktreeMoveWithoutAsking === false) {
-      result.agentWorktreeMoveWithoutAsking = candidate.agentWorktreeMoveWithoutAsking;
     }
     if (typeof candidate.isolatedSpacesEnabled === 'boolean') {
       result.isolatedSpacesEnabled = candidate.isolatedSpacesEnabled;

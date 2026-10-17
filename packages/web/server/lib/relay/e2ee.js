@@ -4,7 +4,7 @@
 // plain JS and cannot import from packages/ui, so the logic is copied verbatim
 // (converted to JSDoc'd JS) and MUST stay byte-compatible with those modules.
 // WebCrypto only: `globalThis.crypto.subtle` (Node >= 22).
-// Spec: .opencode/plans/private-relay/01-protocol-spec.md (Layer 2).
+// Spec: packages/web/server/lib/relay/DOCUMENTATION.md (Layer 2).
 
 const subtle = globalThis.crypto.subtle;
 
@@ -19,6 +19,7 @@ export const MAX_PLAINTEXT_FRAME_BYTES = 64 * 1024;
 
 // Relay-assigned WebSocket close codes (subset the host needs).
 export const RelayCloseCode = {
+  ControlReplaced: 4001,
   RekeyMismatch: 1008,
   ChannelFailure: 1011,
 };

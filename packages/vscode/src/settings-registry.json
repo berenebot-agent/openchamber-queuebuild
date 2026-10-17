@@ -178,13 +178,16 @@
     "agentNotifyToolEnabled": {
       "scope": "instance"
     },
+    "agentRenderToolEnabled": {
+      "scope": "instance"
+    },
     "agentToolsCodeMode": {
       "scope": "instance"
     },
-    "agentWorktreeMoveWithoutAsking": {
+    "agentMemoryToolEnabled": {
       "scope": "instance"
     },
-    "agentMemoryToolEnabled": {
+    "agentKnowledgeToolEnabled": {
       "scope": "instance"
     },
     "isolatedSpacesEnabled": {
@@ -303,6 +306,14 @@
       "perSurface": true
     },
     "sidebarShowWorkSection": {
+      "scope": "profile",
+      "perSurface": true
+    },
+    "sidebarShowPinnedSection": {
+      "scope": "profile",
+      "perSurface": true
+    },
+    "sidebarDetailedZoneRows": {
       "scope": "profile",
       "perSurface": true
     },
@@ -778,10 +789,6 @@
       "local": true
     },
     "contextEditorTreeWidth": {
-      "scope": "device",
-      "local": true
-    },
-    "notesPanelHeight": {
       "scope": "device",
       "local": true
     },

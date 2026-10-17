@@ -8,7 +8,6 @@ import {
 
 const baseOptions = {
   railOrder: [],
-  planModeEnabled: true,
   isVSCode: false,
   screenWidth: 1200,
   tabs: [],
@@ -16,17 +15,6 @@ const baseOptions = {
 } as const;
 
 describe('getVisibleContextRailSurfaces', () => {
-  test('hides the plan surface while plan mode is disabled', () => {
-    const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, planModeEnabled: false });
-    expect(surfaces.some((surface) => surface.id === 'plan')).toBe(false);
-    expect(surfaces.some((surface) => surface.id === 'context')).toBe(true);
-  });
-
-  test('shows the plan surface while plan mode is enabled', () => {
-    const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, planModeEnabled: true });
-    expect(surfaces.some((surface) => surface.id === 'plan')).toBe(true);
-  });
-
   test('hides the walkthrough on VS Code and below the min width', () => {
     expect(getVisibleContextRailSurfaces({ ...baseOptions, isVSCode: true }).some((s) => s.id === 'walkthrough')).toBe(false);
     expect(
@@ -65,9 +53,11 @@ describe('getVisibleContextRailSurfaces', () => {
     expect(surfaces.slice(0, 2).map((surface) => surface.id)).toEqual(['git', 'context']);
   });
 
-  test('hides the pull request surface until GitHub is connected', () => {
+  test('hides the Tracker until a repository host is connected or an item is open in it', () => {
     expect(getVisibleContextRailSurfaces({ ...baseOptions, sourceControlConnected: false }).some((s) => s.id === 'pr')).toBe(false);
     expect(getVisibleContextRailSurfaces({ ...baseOptions, sourceControlConnected: true }).some((s) => s.id === 'pr')).toBe(true);
+    const tabs: { mode: 'pr'; targetPath: string }[] = [{ mode: 'pr', targetPath: 'https://linear.app/acme/issue/ENG-7' }];
+    expect(getVisibleContextRailSurfaces({ ...baseOptions, sourceControlConnected: false, tabs }).some((s) => s.id === 'pr')).toBe(true);
   });
 
   test('appends installed guest panels except on VS Code', () => {
@@ -79,7 +69,7 @@ describe('getVisibleContextRailSurfaces', () => {
       labelKey: 'contextRail.surface.plugin' as const,
       descriptionKey: 'contextRail.surface.plugin.description' as const,
       availability: 'always' as const,
-      defaultWidth: 540,
+      width: 'regular' as const,
     };
     expect(getVisibleContextRailSurfaces({ ...baseOptions, extras: [hello] }).some((s) => s.id === 'plugin:hello')).toBe(true);
     expect(getVisibleContextRailSurfaces({ ...baseOptions, extras: [hello], isVSCode: true }).some((s) => s.id === 'plugin:hello')).toBe(false);

@@ -38,7 +38,6 @@ import type { AttachIssueRequest } from '@openchamber/sdk';
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
-import { startReviewFlow } from '@/lib/reviewFlow';
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
@@ -50,9 +49,10 @@ import {
     type ChatDraftSnapshot,
 } from '@/lib/chatDraftPersistence';
 import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
-import { ReviewFlowDialog, type ReviewFlowExecution } from '@/components/session/ReviewFlowDialog';
+import { ReviewFlowDialog } from '@/components/session/ReviewFlowDialog';
+import { useReviewFlowStart } from '@/components/session/useReviewFlowStart';
 import { BtwPanel } from './btw/BtwPanel';
-import { useBtwPanelState } from './btw/useBtwPanelState';
+import { btwHoldsDock, useBtwPanelState } from './btw/useBtwPanelState';
 import { btwModelAvailability, resolveBtwSelection, useBtwStore } from '@/stores/useBtwStore';
 import { buildBtwSyntheticTexts, preparePendingBtwSend, startBtwSession } from '@/lib/btw';
 import { AttachedFilesList, AttachedVSCodeFileChips, ActiveEditorFileSuggestion } from './FileAttachment';
@@ -76,6 +76,7 @@ import { useChatSurfaceMode } from './useChatSurfaceMode';
 import { MobileAgentButton } from './MobileAgentButton';
 import { MobileModelButton } from './MobileModelButton';
 import { useSessionActivity } from '@/hooks/useSessionActivity';
+import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
 import { toast } from '@/components/ui';
 // useMessageStore removed — messages now come from sync system
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -521,7 +522,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         ? `btw-pending:${currentSessionId}`
         : btwSessionId;
     const isBtwActive = Boolean(btwComposerSessionId) && !btwPanel.collapsed;
-    const isBtwPanelVisible = Boolean((btwPanel.btwSessionId && btwPanel.btwDirectory) || btwPanel.creating || btwPanel.pending);
+    const isBtwPanelVisible = btwHoldsDock(btwPanel, hasPendingForm);
     const immediateBtwSubmitRef = React.useRef<{ identity: ChatDraftIdentity; text: string } | null>(null);
     const draftCaretModeRef = React.useRef({ btw: isBtwActive, atEnd: isBtwActive });
     const inputMode = isBtwActive ? 'normal' : storedInputMode;
@@ -592,7 +593,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // close animation still plays afterwards.
     const [reviewDialogMounted, setReviewDialogMounted] = React.useState(false);
     if (reviewDialogOpen && !reviewDialogMounted) setReviewDialogMounted(true);
-    const [reviewFlowSubmitting, setReviewFlowSubmitting] = React.useState(false);
+    const closeReviewDialog = React.useCallback(() => setReviewDialogOpen(false), []);
 
     // A pinned column's composer sends with its own selection; the app-wide
     // current model, agent and effort belong to the main chat.
@@ -807,35 +808,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         });
     }, [clearGitDiffCache, currentDirectory, runtimeGit, fetchGitStatus]);
 
-    const handleStartReviewFlow = React.useCallback(async (execution: ReviewFlowExecution) => {
-        if (!currentSessionId) return;
-        const directory = useSessionUIStore.getState().getDirectoryForSession(currentSessionId) || currentDirectory || '';
-        if (!directory) {
-            toast.error(t('diffView.reviewDialog.toast.noSessionDirectory'));
-            return;
-        }
-
-        setReviewFlowSubmitting(true);
-        try {
-            await startReviewFlow({
-                originalSessionID: currentSessionId,
-                directory,
-                providerID: execution.providerID,
-                modelID: execution.modelID,
-                agent: execution.agent || undefined,
-                variant: execution.variant || undefined,
-                generateHandoff: execution.generateHandoff,
-                returnAfterHandoffRequest: execution.generateHandoff,
-                autoReview: execution.autoReview,
-            });
-            setReviewDialogOpen(false);
-        } catch (error) {
-            console.error('[review-flow] failed to start review flow', error);
-            toast.error(error instanceof Error ? error.message : t('diffView.reviewDialog.toast.startFailed'));
-        } finally {
-            setReviewFlowSubmitting(false);
-        }
-    }, [currentSessionId, currentDirectory, t]);
+    const { submitting: reviewFlowSubmitting, start: handleStartReviewFlow } = useReviewFlowStart(currentSessionId, currentDirectory, closeReviewDialog);
 
     const isDesktopExpanded = isExpandedInput && !isMobile;
     // Mobile fullscreen composer (entered via the drag handle's swipe-up).
@@ -946,7 +919,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         [],
     );
 
-    const resolveInlineFileMention = React.useCallback((mentionPath: string): { serverPath: string; filename: string } | null => {
+    const resolveInlineFileMention = React.useCallback((mentionPath: string): { serverPath: string; filename: string; root: string } | null => {
         const kind = classifyMention(mentionPath, {
             knownAgentNames: knownAgentNamesRef.current,
             confirmedMentions: confirmedMentionsRef.current,
@@ -969,6 +942,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         return {
             serverPath: serverPath.replace(/\/+/g, '/'),
             filename: normalizedMentionPath.split('/').filter(Boolean).pop() || normalizedMentionPath,
+            root,
         };
     }, [chatSearchDirectory]);
 
@@ -1039,7 +1013,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     continue;
                 }
                 try {
-                    const response = await runtimeFetch('/api/fs/raw', { query: { path: mention.serverPath } });
+                    // The directory bounds the read, and sends it to the space that holds the file.
+                    const response = await runtimeFetch('/api/fs/raw', {
+                        query: { path: mention.serverPath, directory: mention.root || undefined },
+                    });
                     if (!response.ok) throw new Error(`Failed to read ${mention.filename}`);
                     const sourceBlob = await response.blob();
                     if (getRuntimeKey() !== runtimeKey) return { status: 'runtime-changed' };
@@ -1194,6 +1171,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             text: initialDraftRef.current ?? '',
             identity: initialDraftIdentityRef.current,
         },
+        newSessionDraftId: newSessionDraftOpen ? newSessionDraft.draftId : null,
         onIdentityChange: () => {
             setInputMode('normal');
             draftCaretModeRef.current.atEnd = isBtwActive || draftCaretModeRef.current.btw;
@@ -1344,6 +1322,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const canSend = (hasContent || hasQueuedMessages) && !(isBtwActive && (btwPanel.creating || preparingBtwSend));
 
     const canAbort = sessionPhase !== 'idle';
+    // While a page the agent showed waits for the user's answer, the turn
+    // cannot end, so a queued message would never go out. The message is sent
+    // at once instead: OpenCode hands it to the agent's plugin, which ends the
+    // wait, and the agent reads the message next.
+    const isPageWaiting = useGlobalBlockingRequestsStore(React.useCallback(
+        (state) => Boolean(currentSessionId && state.bySession.get(currentSessionId)?.pages.length),
+        [currentSessionId],
+    ));
 
     // Reads the text through refs, so the send and queue callbacks built on
     // it keep their identity while the user types.
@@ -1776,6 +1762,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             );
             const argument = commandPlan.command.argument.trim();
             handoffDraft(targetIdentity, isBtwActive ? argument : argument || null);
+            // Files pasted with the question go with it; their `[image-1.png]` citations moved above.
+            useInputStore.getState().moveAttachedFiles(chatDraftIdentity, targetIdentity);
             if (argument && targetIdentity) immediateBtwSubmitRef.current = { identity: targetIdentity, text: argument };
             if (btwSessionId) {
                 useBtwStore.getState().setPanelState(currentSessionId, { collapsed: false });
@@ -1874,14 +1862,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const spaceRefusal = spaceTarget ? spaceModelRefusal(spaceTarget, providerIdToSend) : null;
         if (spaceRefusal) {
             const provider = useConfigStore.getState().providers.find((entry) => entry.id === spaceRefusal.providerId)?.name ?? spaceRefusal.providerId;
-            toast.error(spaceRefusal.reason === 'domain_blocked'
-                ? t('spaces.draft.modelDomainBlocked', { domain: spaceRefusal.domain })
+            // No grant gives a space OpenCode's models, so that dialog opens on no provider.
+            toast.error(spaceRefusal.reason === 'opencode'
+                ? t('spaces.draft.modelOpenCode')
                 : spaceRefusal.reason === 'needs_again'
                     ? t('spaces.draft.modelNeedsKeyAgain', { provider })
                     : t('spaces.draft.modelNotGranted', { provider }), {
                 action: {
                     label: t('spaces.group.access.give'),
-                    onClick: () => useSpacesStore.getState().openAccessDialog(spaceRefusal.spaceId, spaceRefusal.providerId, spaceRefusal.reason === 'domain_blocked' ? spaceRefusal.domain : undefined),
+                    onClick: () => useSpacesStore.getState().openAccessDialog(spaceRefusal.spaceId, spaceRefusal.reason === 'opencode' ? null : spaceRefusal.providerId),
                 },
             });
             return;
@@ -2179,6 +2168,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     await sessionActions.waitForConnectionOrThrow();
                     const visibleText = await renderMagicPrompt(command.visiblePrompt, variables.visible);
                     const instructionsText = await renderMagicPrompt(command.instructionsPrompt, variables.instructions);
+                    // Before the sent row commits, as for a plain send below.
+                    scrollToBottom?.();
                     await sendMessage(
                         visibleText,
                         providerIdToSend,
@@ -2428,7 +2419,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // Comment mode owns the composer; its only primary action is attach.
         if (isMobileCommentOpen()) return;
         const inputSnapshot = getCurrentInputSnapshot();
-        const canQueue = !isBtwActive && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
+        const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && inputSnapshot.hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
         if (followUpBehavior === 'queue' && canQueue) {
             void handleQueueMessage();
         } else if (followUpBehavior === 'steer' && canQueue) {
@@ -2436,7 +2427,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         } else {
             void handleSubmitRef.current();
         }
-    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isMobileCommentOpen, todoMode, saveToTodo, parallel.isActive]);
+    }, [inputMode, getCurrentInputSnapshot, currentSessionId, currentSessionPhase, autoReviewRunning, followUpBehavior, handleQueueMessage, isBtwActive, isPageWaiting, isMobileCommentOpen, todoMode, saveToTodo, parallel.isActive]);
 
     // Draft welcome presets: submit immediately.
     const submitPresetPrompt = React.useCallback((text: string, type: 'command' | 'skill') => {
@@ -2690,15 +2681,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         })) {
             e.preventDefault();
 
-            // An empty composer sends nothing from the keyboard. Flushing the
-            // queue is the send button's job; a stray Enter must not push
-            // every queued message into the running turn.
-            if (!hasContent) return;
+            // An empty composer with a queue sends the whole queue now. While
+            // a turn runs Stop replaces the send button, so only Enter does it.
 
             if (todoMode && !isBtwActive && !parallel.isActive) { void saveToTodo(); return; }
             // Queueing / steering only works when there's an existing busy
             // session (or an active auto-review run).
-            const canQueue = !isBtwActive && inputMode === 'normal' && hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
+            const canQueue = !isBtwActive && !isPageWaiting && inputMode === 'normal' && hasContent && currentSessionId && (currentSessionPhase !== 'idle' || autoReviewRunning);
 
             if (followUpBehavior === 'queue') {
                 if (isCtrlEnter || !canQueue) {
@@ -4393,7 +4382,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     className={cn(
                         'flex flex-col',
                         isComposerExpanded && 'flex-1 min-h-0',
-                        'shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]',
                     )}
                     style={{ borderRadius: chatInputRadius }}
                 >
@@ -4401,11 +4389,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     className={cn(
                         "flex flex-col relative overflow-visible",
                         isComposerExpanded && 'flex-1 min-h-0',
-                        "border border-border/80",
                         // Opaque: always on screen over the moving transcript
                         // (see .oc-surface-floating in design-system.css).
                         'oc-surface-floating',
-                        isDragging && "ring-2 ring-primary ring-offset-2"
+                        // Lit like a dropdown (top edge, hairline, shadow). Its
+                        // box-shadow would hide the drag ring, so it steps aside
+                        // while a file is dragged over.
+                        isDragging ? "ring-2 ring-primary ring-offset-2" : 'oc-glass-floating oc-composer-sheen',
                     )}
                     style={{ borderRadius: chatInputRadius }}
                     ref={dropZoneRef}
@@ -4643,7 +4633,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     className={cn('chat-input-column mt-4', draftPresentationClassName)}
                 />
             ) : null}
-            {/* One floating panel at a time: BTW, then a permission, then the form. */}
+            {/* One floating panel at a time: an open BTW, then a permission,
+                then the form, then a collapsed BTW strip. */}
             <PermissionDock
                 sessionId={currentSessionId}
                 directory={currentSessionDirectoryForSync ?? currentDirectory ?? undefined}
@@ -4654,7 +4645,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 directory={currentSessionDirectoryForSync ?? currentDirectory ?? undefined}
                 hidden={newSessionDraftOpen || isBtwActive || isBtwPanelVisible || hasPendingPermission}
             />
-            {currentSessionId ? <BtwPanel parentSessionId={currentSessionId} panel={btwPanel} onExit={handleExitBtw} /> : null}
+            {currentSessionId ? <BtwPanel parentSessionId={currentSessionId} panel={btwPanel} hidden={!isBtwPanelVisible} onExit={handleExitBtw} /> : null}
         </form>
 
         {referencePicker ? (

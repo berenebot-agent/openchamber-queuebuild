@@ -169,9 +169,9 @@ test('board actions, live activity and viewed turn attention use shared session 
     await act(async () => applyGlobalSessionStatusSnapshot('/repo', { session1: { type: 'busy' } }));
     expect(linkedCard().querySelector('[data-session-activity-indicator="running"] use')?.getAttribute('href')).toBe('#oc-circle');
     await act(async () => useSessionDisplayStore.getState().setAnimatedActivityIndicators(true));
-    expect(linkedCard().querySelector('.activity-spinner')).not.toBeNull();
+    expect(linkedCard().querySelector('[data-spinner]')).not.toBeNull();
     await act(async () => applyGlobalSessionStatusSnapshot('/repo', {}));
-    expect(linkedCard().querySelector('.activity-spinner')).toBeNull();
+    expect(linkedCard().querySelector('[data-spinner]')).toBeNull();
     await act(async () => container.querySelector<HTMLButtonElement>('button[title="Inherited plan"]')!.click());
     expect(useSessionUIStore.getState().currentSessionId).toBe('session1');
     expect(linkedCard().textContent).not.toContain('Needs attention');

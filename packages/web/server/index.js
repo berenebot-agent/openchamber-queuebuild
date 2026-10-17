@@ -117,6 +117,7 @@ import { createSessionWorkRuntime } from './lib/session-work/runtime.js';
 import { createSessionLineage } from './lib/session-lineage.js';
 import { createGracefulShutdownRuntime } from './lib/opencode/shutdown-runtime.js';
 import { beginGuestServiceHost, beginGuestServiceShutdown, stopAllGuestServices } from './lib/guests/service.js';
+import { guestServiceRegistryDir } from './lib/guests/service-registry.js';
 import { findInstalledGuest } from './lib/guests/catalog.js';
 import { extensionsPersistPath } from './lib/guests/persist.js';
 import { createGuestSurfaceRuntime } from './lib/guests/surface.js';
@@ -134,7 +135,7 @@ import { readIdleStopSetting, startIdleStop } from './lib/spaces/idle-stop.js';
 import { dockerHostOf } from './lib/spaces/places/ssh-host.js';
 import { SPACE_IDLE_EXIT_CODE } from './lib/spaces/layout.js';
 import { createSwitchController, registerSpaceRoutes } from './lib/spaces/routes.js';
-import { configureGitEnvironment, resolvePrimaryWorktreeRoot, prepareBuildCommit } from './lib/git/service.js';
+import { configureGitEnvironment, getCheckedOutBranch, resolvePrimaryWorktreeRoot, prepareBuildCommit } from './lib/git/service.js';
 import { createEnvironmentStore } from './lib/environment/store.js';
 import { createEnvironmentRuntime } from './lib/environment/runtime.js';
 import { readOpenCodeServiceEnv } from './lib/environment/opencode-service-env.js';
@@ -278,10 +279,6 @@ const shouldSkipApiCompression = () => {
 };
 
 const OPENCHAMBER_VERBOSE_REQUEST_LOGS = isEnvFlagEnabled(process.env.OPENCHAMBER_VERBOSE_REQUEST_LOGS);
-
-const PLAN_MODE_EXPERIMENT_ENABLED =
-  isEnvFlagEnabled(process.env.OPENCODE_EXPERIMENTAL_PLAN_MODE)
-  || isEnvFlagEnabled(process.env.OPENCODE_EXPERIMENTAL);
 
 const fsPromises = fs.promises;
 
@@ -943,6 +940,8 @@ const notificationTriggerRuntime = createNotificationTriggerRuntime({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
   readSessionMetadata: readStoredSessionMetadata,
+  // Read at call time: the isolated-spaces switch turns the host on and off live.
+  spaceFetchFor: (spaceId) => spacesHost?.openCodeFetchFor(spaceId) ?? null,
 });
 
 const maybeSendPushForTrigger = (...args) => notificationTriggerRuntime.maybeSendPushForTrigger(...args);
@@ -1009,6 +1008,14 @@ const sessionGoalRuntime = createSessionGoalRuntime({
     });
   },
 });
+
+/** A directory-scoped OpenCode client for one session-route call. */
+const openCodeSessionClient = (directory) => createOpenCodeClient({
+  baseUrl: buildOpenCodeUrl('/', '').replace(/\/$/, ''),
+  headers: getOpenCodeAuthHeaders(),
+  directory,
+});
+
 /**
  * Owns what a session must be told about the project's knowledge. Every sender
  * asks it — the UI over HTTP, scheduled tasks and agent-dispatched sessions in
@@ -1027,20 +1034,26 @@ const sessionKnowledgeRuntime = createSessionKnowledgeRuntime({
     const settings = await readSettingsFromDiskMigrated().catch(() => null);
     return settings?.agentControlToolEnabled !== false;
   },
-  isWorktreeMoveWithoutAsking: async () => {
+  readCheckoutBranch: getCheckedOutBranch,
+  isPageRenderingAvailable: async () => {
+    if (isExternalOpenCode || ENV_SKIP_OPENCODE_START) return false;
     const settings = await readSettingsFromDiskMigrated().catch(() => null);
-    return settings?.agentWorktreeMoveWithoutAsking === true;
+    return settings?.agentRenderToolEnabled !== false;
   },
   readSessionMetadata: readStoredSessionMetadata,
-  // Pins and the delivered-signature cursor are read from and written to
-  // OpenChamber's own store; nothing here talks to OpenCode any more.
+  // Pins are read from and written to OpenChamber's own store.
   persistSessionMetadata: (sessionID, directory, patch) => persistSessionMetadataPatch(sessionID, patch, { directory }),
+  instructionEntries: {
+    put: (sessionID, directory, key, value) => openCodeSessionClient(directory)
+      .session.instructions.entry.put({ sessionID, key, value }),
+    remove: (sessionID, directory, key) => openCodeSessionClient(directory)
+      .session.instructions.entry.remove({ sessionID, key }),
+  },
 });
 
 const contextObligatoryRuntime = createContextObligatoryRuntime({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
-  sessionKnowledgeRuntime,
   readSessionMetadata: readStoredSessionMetadata,
   persistContextCursor: (sessionID, directory, patch) => persistSessionMetadataPatch(sessionID, patch, { directory }),
 });
@@ -1205,9 +1218,9 @@ const openCodeWatcherRuntime = createOpenCodeWatcherRuntime({
   getOpenCodeAuthHeaders,
   parseSseDataPayload: (...args) => parseSseDataPayload(...args),
   globalEventHub: globalMessageStreamHub,
-  onPayload: (payload) => {
-    maybeCacheSessionInfoFromEvent(payload);
-    void maybeSendPushForTrigger(payload);
+  onPayload: (payload, { spaceId }) => {
+    maybeCacheSessionInfoFromEvent(payload, { spaceId });
+    void maybeSendPushForTrigger(payload, { spaceId });
     sessionRuntime.processOpenCodeSsePayload(payload);
   },
 });
@@ -1251,18 +1264,18 @@ globalMessageStreamHub.subscribeEvent((event) => {
  * the client). The synthetic OpenChamber frames the UI also expects are derived
  * from the translated event, so the translation happens here.
  */
-const processForwardedEventPayload = (payload, emitSyntheticEvent) => {
+const processForwardedEventPayload = (payload, emitSyntheticEvent, { spaceId = null } = {}) => {
   if (!payload || typeof payload !== 'object' || typeof emitSyntheticEvent !== 'function') {
     return;
   }
 
   for (const translated of translateWireEvent(payload)) {
-    processForwardedServerEvent(translated, emitSyntheticEvent);
+    processForwardedServerEvent(translated, emitSyntheticEvent, spaceId);
   }
 };
 
-const processForwardedServerEvent = (payload, emitSyntheticEvent) => {
-  maybeCacheSessionInfoFromEvent(payload);
+const processForwardedServerEvent = (payload, emitSyntheticEvent, spaceId = null) => {
+  maybeCacheSessionInfoFromEvent(payload, { spaceId });
 
   if (payload.type !== 'session.status') {
     return;
@@ -1718,7 +1731,9 @@ const emitAgentMemoryChangedEvent = (event) => {
   for (const client of uiOpenChamberEventClients) {
     try {
       writeSseEvent(client, {
-        type: 'openchamber:service-memory-changed',
+        // The UI listens for exactly this name (`lib/openchamberEvents.ts`);
+        // under any other name the Memory panel only catches up on reload.
+        type: 'openchamber:agent-memory-changed',
         properties: {
           scope: event.scope,
           ...(event.projectId ? { projectId: event.projectId } : {}),
@@ -1855,6 +1870,54 @@ const openChamberControlService = createOpenChamberControlService({
   scheduledTaskService,
   browserControl: browserControlRouter,
   fileOpen: fileOpenRequester,
+  projectContextRuntime,
+  // The resolver session knowledge reads pinned notes and plans through, so
+  // what an agent writes is what the next session is given.
+  resolveProjectContextId: resolveMemoryProjectId,
+  // On by default; a plugin generated before it was switched off must not
+  // keep writing.
+  // Like file.open: every connected window hears it, the ones showing that
+  // project open the plan.
+  showPlan: (request) => {
+    let delivered = 0;
+    for (const client of uiOpenChamberEventClients) {
+      try {
+        writeSseEvent(client, { type: 'openchamber:plan-open-request', properties: request });
+        delivered += 1;
+      } catch {
+        uiOpenChamberEventClients.delete(client);
+      }
+    }
+    return delivered;
+  },
+  isKnowledgeToolEnabled: async () => {
+    const settings = await readSettingsFromDiskMigrated().catch(() => null);
+    return settings?.agentKnowledgeToolEnabled !== false;
+  },
+  // On by default, like knowledge.
+  isRenderToolEnabled: async () => {
+    const settings = await readSettingsFromDiskMigrated().catch(() => null);
+    return settings?.agentRenderToolEnabled !== false;
+  },
+  // A page that waits for the user's answer shows the session as waiting
+  // the way a form does: the pending list the clients seed from, a live event
+  // for the clients already connected, and the "Input needed" notification.
+  onPageWaitChange: (change) => {
+    sessionRuntime.trackWaitingPage(change);
+    if (change.type === 'waiting') {
+      const payload = {
+        type: 'openchamber:page-waiting',
+        properties: { sessionID: change.sessionId, directory: change.directory, page: { id: change.callId, title: change.title } },
+      };
+      broadcastOpenChamberUiEvent(payload);
+      void maybeSendPushForTrigger(payload);
+      return;
+    }
+    broadcastOpenChamberUiEvent({
+      type: 'openchamber:page-settled',
+      properties: { sessionID: change.sessionId, pageID: change.callId },
+    });
+  },
   // The tool is off by default; a plugin generated before it was switched off
   // must not keep paging the user.
   notifyUser: async (input) => {
@@ -1973,7 +2036,7 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
 const gracefulShutdown = (...args) => gracefulShutdownRuntime.gracefulShutdown(...args);
 
 async function main(options = {}) {
-  beginGuestServiceHost();
+  beginGuestServiceHost({ registryDir: guestServiceRegistryDir(OPENCHAMBER_DATA_DIR) });
   // Again at start: the desktop shell merges the login shell's environment,
   // where proxy variables often live, after this module first loaded.
   applyOutboundProxyFromEnv();
@@ -2183,6 +2246,8 @@ async function main(options = {}) {
     sshDockerHost: dockerHostOf((await readSettingsFromDiskMigrated().catch(() => null))?.isolatedSpacesSshHost),
     // Only for a clean-up of the spaces' disk on Colima, to give the freed space back; null without it.
     colimaPath: searchPathFor('colima', buildAugmentedPath()),
+    // For getting Docker ready on this computer: brew, colima, asked again at every look.
+    findProgram: (name) => searchPathFor(name, buildAugmentedPath()) ?? null,
     gitPath: searchPathFor('git', buildAugmentedPath()) ?? 'git',
     // git starts `docker exec` itself when code moves in or out, so its PATH must find docker.
     hostEnvironment: { ...process.env, PATH: buildAugmentedPath() },
@@ -2324,7 +2389,6 @@ async function main(options = {}) {
         nodeBinaryResolved: resolvedNodeBinary || null,
         bunBinaryResolved: resolvedBunBinary || null,
         desktopNotifyEnabled: ENV_DESKTOP_NOTIFY,
-        planModeExperimentalEnabled: PLAN_MODE_EXPERIMENT_ENABLED,
         apiOnly,
       };
     },
@@ -2411,11 +2475,14 @@ async function main(options = {}) {
   // An archived chat of a deleted space is read and deleted, never run or changed.
   app.use(spaceArchive.guard);
   app.use((req, res, next) => (spacesHost ? spacesHost.middleware(req, res, next) : next()));
-  server.on('upgrade', (...args) => { spacesHost?.upgradeHandler(...args); });
+  // First of all upgrade handlers: a socket addressed to a space by its directory carries a path
+  // a host handler would take too, and the space's handler marks it as the space's before they run.
+  server.prependListener('upgrade', (...args) => { spacesHost?.upgradeHandler(...args); });
   const startSpacesHost = (host) => {
     host.prepareUpgrades({ uiAuthController, isRequestOriginAllowed });
-    // Every space's events join the host's hub, and the host asks each space for its live status.
-    void host.startEvents(globalMessageStreamHub).catch((error) => {
+    // Every space's events join the host's hub, and the host asks each space for its live status;
+    // each space's queue changes and permission modes reach the browsers on the streams the host's own use.
+    void host.startEvents(globalMessageStreamHub, { broadcastUiEvent: broadcastOpenChamberUiEvent, broadcastGlobalUiEvent }).catch((error) => {
       console.warn(`[spaces] could not follow the spaces: ${error?.message ?? error}`);
     });
   };
@@ -2431,6 +2498,7 @@ async function main(options = {}) {
   registerSpaceRoutes(app, {
     getJourney: () => spacesHost?.journey ?? null,
     getPlaces: () => spacesHost?.places() ?? [],
+    getDockerSetup: () => (spacesHost ? { placeId: spacesHost.localPlaceId, setup: spacesHost.dockerSetup } : null),
     readSwitch: spacesSwitch.readSwitch,
     setSwitch: spacesSwitch.setSwitch,
     setMachine: spacesSwitch.setMachine,

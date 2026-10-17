@@ -53,7 +53,7 @@ test('a project tab carries its own build count, or an error mark, and nothing w
     expect(running?.textContent).toBe('3');
     expect(running?.querySelector('svg')).not.toBeNull();
     // Animation is off, so the spinner is a static icon, not the stepped one.
-    expect(running?.querySelector('.activity-spinner')).toBeNull();
+    expect(running?.querySelector('[data-spinner]')).toBeNull();
     // A queue that could not be read is an amber mark, not a silent idle tab.
     const error = tabFor('Beta')!.querySelector<HTMLElement>('[data-work-board-build="error"]');
     expect(error?.querySelector('svg')).not.toBeNull();
@@ -163,9 +163,9 @@ test('the spinner steps only when the appearance setting asks for animation', as
   try {
     useSessionDisplayStore.setState({ animatedActivityIndicators: true });
     await act(async () => render());
-    expect(container.querySelector('.activity-spinner')).not.toBeNull();
+    expect(container.querySelector('[data-spinner]')).not.toBeNull();
     await act(async () => useSessionDisplayStore.getState().setAnimatedActivityIndicators(false));
-    expect(container.querySelector('.activity-spinner')).toBeNull();
+    expect(container.querySelector('[data-spinner]')).toBeNull();
     expect(container.querySelector('[data-work-board-build="running"] svg')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());

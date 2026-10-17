@@ -35,19 +35,21 @@ project.
 
 ## Lists and the cache
 
-- A list is cached per key `[runtime, account or Linear workspace, project, kind, filter, search text]`. Switching tabs or filters, or reopening the picker, shows the cached list at once; one older than 60 s refreshes in the background and is replaced when the answer lands.
+- A list is cached per key `[runtime, account or Linear workspace, project, kind, filter, search text]`. Switching tabs or filters, or reopening the picker, shows the cached list at once; one older than 60 s refreshes in the background and is replaced when the answer lands. `revalidateReferences` makes every mounted list, preview and PR status check its age again.
 - A failed first load is an `error` state with Retry. A failed refresh keeps the shown items and shows the error above them. Failure never becomes an empty list.
 - Every first-page request bumps the key's generation; an answer or a later page from an older generation is dropped.
 - Keys someone is subscribed to are never evicted; the 40-entry bound is a soft target.
 - GitHub pages come from `GET /api/source-control/github/references` (server: `packages/web/server/lib/github/DOCUMENTATION.md`), read with the project's GitHub read context (`useGitHubReadContext`): the account its binding names, or the current github.com account for a repository nobody bound. List and preview cache keys carry that account. Linear lists use `linear.issuesList` with the filter's status, whose issues (`assignee=me` or `created`) and priority, combined; picking in the filter menu keeps it open.
 
-- An open PR turns orange on failed checks or a conflict, as in the sidebar. A page does not carry that (mergeability alone made a 30-PR page about three times slower), so once the list shows, `useGitHubPullStatuses` asks `references/status` for the open PRs it lists, ten per request and all at once (a whole page in one query takes GitHub about ten seconds, at the edge of the request timeout), and the rows and the preview recolour when it lands. The preview's Checks line does not wait for that batch: the previewed PR's own detail carries its checks (GitHub's head-commit `statusCheckRollup`, summarized like the batch; GitLab's pipeline). On the board the totals open `SourceBoardChecksDialog`, which reads the PR's runs, steps and failed annotations through `useChangeRequestContextStore` (the PR panel's cache) when it opens, and again while runs are still going. `components/views/git/CheckRunList.tsx` draws the runs for both. Statuses are cached per PR and head commit. Until a status arrives, or when it fails, a PR reads as open. GitLab projects ask nothing and keep their state colour.
+- An open PR turns orange on failed checks, checks still running, or a conflict, as in the sidebar. A page does not carry that (mergeability alone made a 30-PR page about three times slower), so once the list shows, `useGitHubPullStatuses` asks `references/status` for the open PRs it lists, ten per request and all at once (a whole page in one query takes GitHub about ten seconds, at the edge of the request timeout), and the rows and the preview recolour when it lands. The preview's Checks line does not wait for that batch: the previewed PR's own detail carries its checks (GitHub's head-commit `statusCheckRollup`, summarized like the batch; GitLab's pipeline). On the board the totals open `SourceBoardChecksDialog`, which reads the PR's runs, steps and failed annotations through `useChangeRequestContextStore` (the PR panel's cache) when it opens, and again while runs are still going. `components/views/git/CheckRunList.tsx` draws the runs for both. Statuses are cached per PR and head commit. Until a status arrives, or when it fails, a PR reads as open. GitLab projects ask nothing and keep their state colour.
 
 ## Preview and attach
 
 - The preview shows the list item at once and asks for the rest of the item the highlight rests on (250 ms after it stops moving): GitHub comments, and a PR's size, review and newest commits, from `references/detail` with the same read context (a GitLab merge request's pipeline, commits and verdicts come with its detail, read with `includeTimeline`); a Linear issue's description and comments from `linear.issueGet`. Both land in value caches: going back to an item shows what was already read at once, without waiting out the 250 ms, and attaching a previewed Linear issue reuses the answer.
 - A PR's thread is its activity (`referenceTimeline.ts`): comments, review verdicts and commits by time, commits in a row grouped, so a review reads next to the commits it answered. Comments made at the same moment as a commit come first. Each commit names its author: the host account with its avatar on GitHub, the name git recorded on GitLab.
 - Descriptions and comments render with `allowRawHtml`, the Files preview's allowlist: GitHub's `<img>` screenshots, tables and `<details>` show, scripts, styles and author classes are dropped. An image with both `width` and `height` scales by its ratio. The Linear panel and the Git view's PR section render GitHub and Linear text the same way.
+- Clips draw as players: a Linear upload written as an image named `*.mp4` (or `.m4v`, `.mov`, `.webm`), a GitHub `user-attachments/assets` URL alone on its line, and a raw `<video>`. One the browser cannot load, such as a private repository's, becomes a link to it; one signed with the URL token first retries with a fresh token where it stopped (`chat/markdown/markdownVideo.ts`).
+- GitLab writes an attachment as a project path, `/uploads/<secret>/<name>`, readable only by signed-in members. `gitlabUploads.ts` rewrites those paths in the displayed description and notes, outside code: a picture or clip to `GET /api/source-control/gitlab/uploads/:secret/:filename` with the preview's read context and the URL token, kept fresh while a GitLab item is shown; a link to any other file to the file on GitLab. The text attached for the agent keeps GitLab's path. That is why `ReferencePreview` takes the item's `directory`.
 - Attaching reads the full context the agent receives through the provider-neutral source-control reads (`issueGet` + `issueComments`, `changeRequestContext`) with the same read context: issue with all comments, PR context with the diff only when "Also send the diff" is checked for that PR, Linear issue with comments. Chips and context parts use the provider-neutral kinds `repository-issue` and `change-request` (with its provider). Each item resolves on its own; the ones that fail stay checked in the picker with the reason, the rest attach.
 - Linear sub-issues: a sub-issue's row names its parent above the title, a parent's row shows how many sub-issues are finished (`2/5`, or `20+` when the list counted only the first 20). The preview has a Parent row and, once the detail lands, a Sub-issues section. Clicking either previews that issue through `openItem`, kept like a pinned item while the list does not hold it; the picker and the board both pass `onOpenLinearIssue`. A parent or sub-issue comes without labels, so the preview takes labels and parent from its detail when it has one. The agent gets the parent and sub-issues with the issue's JSON.
 - The composer keeps attached items as a list (`chat/composer/composerReferences.ts`). The same item attached again replaces its chip in place.
@@ -79,7 +81,14 @@ preview's footer holds actions instead of what the agent gets.
   whichever way it was opened (its button, a link): the previewed item, the
   search, both scroll positions, a reply draft. A reopen puts focus back in
   the search. A new project or tab still starts a fresh list. The phone's
-  board page is not kept.
+  board page is not kept. It draws its own header: the close button and the
+  scope picker share one row, then the switch, then the search with the
+  filter beside it; an open item puts a back button and its number in that
+  header instead.
+- What the board shows stays current through `sourceBoard/useBoardRevalidation.ts`.
+  While the board is on screen, lists, the preview and PR statuses read more
+  than 60 s ago are read again when it opens and when the window gets focus
+  back.
 - The repository tab is the project's host only: GitHub or GitLab, whichever
   `useRepositoryHostProvider` names; a project with no supported remote shows
   Linear alone.
@@ -95,19 +104,41 @@ preview's footer holds actions instead of what the agent gets.
   (`resolveLinearMappedProjectPath`), else the mapping's default, else the
   board's project; the user can pick another for that issue. Its state pill
   in the preview opens the team's states (`SourceBoardLinearStatus`).
-- An issue, PR or Linear issue a session links to opens on the board, selected:
-  from the work-status panel and from the sidebar's badges and their tooltips
-  (`sourceBoard/openOnBoard.ts`), and from links in chat while
-  `openTrackerLinksOnBoard` is on (`chat/useOpenChatLink.ts`). The board moves to the session's project and
+- An issue, PR or Linear issue a session links to opens from the work-status
+  panel, the sidebar's badges and their tooltips, and links in chat while
+  `openTrackerLinksOnBoard` is on (`chat/useOpenChatLink.ts`), all through
+  `sourceBoard/openTrackerItem.ts`. On desktop and web it opens as a tab of
+  the Tracker beside the chat on screen, read through the session's project
+  without the app moving there (`lib/surfaces/DOCUMENTATION.md`, Tracker): the
+  board is a catalogue people go to, and nothing opens it for them. The phone,
+  which has no side panel, and a window with no folder on screen open it on
+  the board instead, selected. The board moves to the session's project and
   tab and previews the item, read on its own (`focusRepositoryItem` with its
   link, `focusLinearIssue` with its identifier, then the browser's
   `pinnedItem`) while the search stays empty and the list as it was. A link
   finds that one item whatever its state, on GitLab too, where a number or link
-  is read rather than searched; one the host does not know opens in the
+  is read rather than searched. The board takes from that answer only the item
+  whose link names the same repository and number, never just the first row, and
+  each request is shown once, so the item shown for the previous link never
+  answers for a new one. One the host does not know opens in the
   browser, and a Linear identifier Linear cannot read is searched for. The phone opens the found
   item's preview. Cmd or Ctrl-click, VS Code, a session outside any
   project, Linear while disconnected and links the board does not list open in
   the browser. A badge's `+N` does nothing; its tooltip lists the others.
+- A PR's review threads read as the comment that opened them with the
+  replies under it (`ReferenceCommentItem.thread`); a reply is not an entry of
+  its own. A resolved thread folds to one line ("Resolved · N replies") and
+  opens on click; resolving folds it, reopening unfolds it. On the board
+  (`threadActions`, `sourceBoard/threadActions.ts`) a thread can be answered
+  and resolved or reopened, as far as the host says this account may. GitLab
+  merge requests can also start a thread from the reply box; GitHub threads
+  start only from a line in a review, so GitHub has no such button.
+- The board's issue or PR preview has a refresh button beside the host link
+  (`onRefresh`). It asks the server to forget that host's short-lived answers
+  (`sourceControl.refreshProviderReads`, `POST <provider>/read-cache/refresh`)
+  and then reads the item's detail and the list again, so a change made on the
+  host's own site shows without waiting out the cache. VS Code has no board and
+  answers the call as unsupported.
 - The side panel and its rail stay beside the board. A board under 960 px
   wide shows the kinds by icon and drops the list column: a trigger left of the search names the previewed
   item (`#12`, `!12`, `ENG-7`) and opens the list as a dropdown over the
@@ -118,12 +149,17 @@ preview's footer holds actions instead of what the agent gets.
 - Actions: start in a worktree (New Worktree opens with the item chosen,
   `initialSelection`), a new session in the project with the item attached,
   and for a PR its Changes (`usePullRequestSelectionStore.requestDiff` hands the
-  PR to the diff view's PR scope), Walkthrough, Merge (one split button named
+  PR to the diff view's PR scope, keyed by the folder the PR is read through), Walkthrough, Merge (one split button named
   after the remembered method, the arrow picks another; asks first) and Ready
   for review, and Close or Reopen for an issue or a PR that is not merged, in
   the menu of the preview's state pill (no confirmation: both are reversible). Changes and Walkthrough open
-  in the folder the app shows when it belongs to the project, else in a new
-  draft of the project.
+  in the panel beside the chat on screen and read the PR through the folder the
+  app shows when it belongs to the project, else through the project's root,
+  without the app moving there; only with no chat on screen does a draft of the
+  project open first. The phone offers Changes only, in the project's draft when
+  the app shows another: it closes the board and
+  opens the workspace drawer's Git tab, whose PR mode takes the request
+  (keyed by the normalized folder) the way the desktop diff view does.
 - Labels and reviewers (`SourceBoardMetaEditors`, `SourceBoardChoicePicker`):
   the preview's Labels row (shown empty too) and an open PR's Reviewers row
   get a pencil that opens a searchable checklist, read when it opens. The new
@@ -142,9 +178,11 @@ preview's footer holds actions instead of what the agent gets.
   as inline drafts (`pr-comment`, `pr-check`), the way the PR panel always
   did. They go to the session in view or a new session's draft; with neither
   open, a toast says so.
-- The PR panel (`views/git/BranchPullRequestPreview.tsx`) shows the checked-out
+- The Tracker's branch tab (`views/git/BranchPullRequestPreview.tsx`) shows the checked-out
   branch's open PR with this same preview: no new-session or worktree actions,
-  since the branch is already here. `PullRequestSection` keeps the create form
+  since the branch is already here. Its item tabs (`views/TrackerItemView.tsx`)
+  show any issue, PR or Linear issue the same way, also without them: starting
+  work happens on the board and in New Worktree. `PullRequestSection` keeps the create form
   and the merged/closed state. The form is one row of branch → base (picked in
   place), the title (a one-commit branch is titled by that commit until edited),
   the description with Generate on it (its arrow adds notes only the generator

@@ -1,3 +1,48 @@
+## [2.4.0] - 2026-10-17
+
+### Improvements
+
+- Settings: Chat is split into three tabs and Sessions into clear sections.
+
+### Fixes
+
+- Performance: the extension puts much less load on the CPU and GPU, also while it sits idle (thanks to @yulia-ivashko).
+- Chat: text and tables stay in place while the panel gets wider or narrower.
+- Chat: the agent's question or permission request shows while a BTW is collapsed.
+- Chat: with Queue follow-up, Enter in an empty message box sends the whole queue again (thanks to @yulia-ivashko).
+- Usage: the OpenCode Go credit balance showed 100 times the real amount (thanks to @yulia-ivashko).
+- Dialogs: the red Archive and Delete buttons have a readable label (thanks to @yulia-ivashko).
+- Chinese: model tokens are called 词元 and 詞元 (thanks to @eltPlay).
+
+## [2.3.3] - 2026-10-14
+
+### New
+
+- Chat: a video link in a reply plays in place.
+
+### Fixes
+
+- Settings: the Small model list and the model picker in the Changes walkthrough show your models again, so commit messages use the model you picked.
+- Chat: letters like g and p keep their tails in the working status label.
+
+## [2.3.2] - 2026-10-14
+
+### New
+
+- Chat: images in an assistant reply show where the text puts them; a paragraph of screenshots becomes one row.
+
+### Improvements
+
+- Chat: diff previews open in the diff layout set in Appearance, and hunks in side-by-side diffs are set apart.
+
+### Fixes
+
+- Chat: short messages get a bubble that fits them, without empty space on the left (thanks to @timothywang21).
+- Chat: the working status line no longer covers the last line of the chat or grows its own scrollbar.
+- Chat: a step that failed and then recovered in the same turn no longer shows "failed to send message".
+- Settings: the OpenCode config file and agent and command files are replaced in one step, so OpenCode never reads a half-written file. A symlinked config keeps pointing into your dotfiles, and a read-only config stays untouched (thanks to @Ghilteras).
+- Settings/Agents: the permissions editor shows outside folders as allowed by default, as OpenCode treats them.
+
 ## [2.3.1] - 2026-10-13
 
 ### New

@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { getPrStatusLabel } from '../prStatusLabel';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
+import { Spinner } from "@/components/ui/spinner";
 import { FileTreeChevron } from '@/components/views/files/FileTreeRowParts';
 import { sessionTreeRowPaddingLeft } from '../sessions/sessionTreeGeometry';
 import { cn } from '@/lib/utils';
@@ -39,7 +40,7 @@ import { useFreshestSourceControlVisualSummaryForBranch } from '@/stores/useGitH
 type FolderScope = { scopeKey: string; directory: string | null };
 import { getLinkedSidebarIssues, type LinkedSidebarIssue } from '@/lib/linkedIssues';
 import { buildSessionIssueItems } from '../sessions/sessionPrSummaries';
-import { useOpenOnBoard } from '@/components/sourceBoard/openOnBoard';
+import { useOpenTrackerItem } from '@/components/sourceBoard/openTrackerItem';
 import { SIDEBAR_REF_TOOLTIP_CLOSE_DELAY_MS, SidebarRefLinks, type SidebarRefLink } from '../sessions/SidebarRefLinks';
 import { useI18n } from '@/lib/i18n';
 import { useChildStoreManager } from '@/sync/sync-context';
@@ -51,6 +52,7 @@ import { FolderDeleteConfirmDialog } from '../shell/ConfirmDialogs';
 import { getSessionFolderOwnerKey } from '../sessions/sessionFolderIdentity';
 import { SpaceActionsMenu } from '@/components/session/spaces/SpaceActions';
 import { SpaceGroupStatus } from '@/components/session/spaces/SpaceGroupStatus';
+import { spaceLineSaysState } from '@/lib/spaces/space-repair';
 import { useSpaceTakesNoNewSession, useSpacesStore } from '@/lib/spaces/spaces-store';
 import { useShiftKeyHeld } from '@/hooks/useShiftKeyHeld';
 import type { WorktreeMetadata } from '@/types/worktree';
@@ -319,8 +321,12 @@ const EMPTY_GROUP_ISSUES: readonly LinkedSidebarIssue[] = [];
 
 function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNode {
   const { t } = useI18n();
-  const openOnBoard = useOpenOnBoard();
+  const openTrackerItem = useOpenTrackerItem();
   const spaceTakesNoNewSession = useSpaceTakesNoNewSession(props.group.space?.id);
+  const spaceLineSpeaks = useSpacesStore((state) => {
+    const spaceId = props.group.space?.id;
+    return spaceId != null && spaceLineSaysState(state.journey?.get(spaceId), state.spaces.get(spaceId), state.actions.get(spaceId));
+  });
   const {
     group,
     groupKey,
@@ -903,9 +909,10 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
       <Icon name="alert" className="h-3 w-3" />
     </span>
   ) : null;
-  // The space did not answer the host's last read: its last known sessions stand in, and the
-  // user should know they may be old.
-  const spaceStaleIndicator = group.space && group.space.state !== 'complete' ? (
+  // The space did not answer the host's last read in full: its last known sessions stand in, and
+  // the user should know they may be old. Only while the line under the group says nothing, so a
+  // stopped or unreachable space does not get a second warning that reads like a fault.
+  const spaceStaleIndicator = group.space && group.space.state !== 'complete' && !spaceLineSpeaks ? (
     <span
       className="inline-flex flex-shrink-0 items-center text-status-warning"
       title={t('sessions.sidebar.group.spaceStale')}
@@ -928,12 +935,29 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
         : hasSecondHeaderAction
         ? '[--oc-actions-reserve:44px]'
         : '[--oc-actions-reserve:18px]');
-  const headerActionsMaskClass = alwaysShowActions ? undefined : 'group-hover/gh:oc-actions-mask group-focus-within/gh:oc-actions-mask';
-  const headerCoveredFadeClass = alwaysShowActions ? undefined : 'transition-opacity group-hover/gh:opacity-0 group-focus-within/gh:opacity-0';
+  const headerActionsMaskClass = alwaysShowActions ? undefined : 'group-hover/gh:oc-actions-mask group-has-[:focus-visible]/gh:oc-actions-mask';
+  const headerCoveredFadeClass = alwaysShowActions ? undefined : 'transition-opacity group-hover/gh:opacity-0 group-has-[:focus-visible]/gh:opacity-0';
   // An empty group keeps the chevron's place, so its label stays in line.
   const headerChevron = isEmpty
     ? <span aria-hidden className="size-3.5 flex-shrink-0" />
     : <FileTreeChevron expanded={!isCollapsed} />;
+  // Worktree, space and archive headers put their icon in the tree slot, the
+  // column where session rows show their state, and trade it for the chevron
+  // while the header is hovered or has keyboard focus (a click focuses it too,
+  // and must not leave the chevron behind). Their label then starts where the
+  // titles of the root sessions beside them start. Touch layouts have no
+  // hover: the icon stays, and the header still toggles on a tap.
+  const headerSlot = (icon: React.ReactNode): React.ReactNode => (
+    // 6px to the label, like a session row's slot.
+    <span className="relative me-1 inline-flex size-3.5 flex-shrink-0 items-center justify-center">
+      {isEmpty || alwaysShowActions ? icon : <>
+        <span className="inline-flex items-center justify-center transition-opacity group-hover/gh:opacity-0 group-has-[:focus-visible]/gh:opacity-0">{icon}</span>
+        <span className="absolute inset-0 inline-flex items-center justify-center text-muted-foreground opacity-0 transition-opacity group-hover/gh:opacity-100 group-has-[:focus-visible]/gh:opacity-100">
+          {headerChevron}
+        </span>
+      </>}
+    </span>
+  );
   const groupPrLinks: SidebarRefLink[] = groupPrSummary && groupPrStatusLabel ? [{
     key: `pr:${groupPrSummary.number}`,
     icon: 'git-pull-request',
@@ -1043,7 +1067,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
             : bootstrapLoading
               ? (
                 <span className="inline-flex items-center gap-1.5">
-                  <Icon name="loader-4" className="size-3 animate-spin" />
+                  <Spinner className="size-3" />
                   {t('sessions.sidebar.group.empty.loadingSessions')}
                 </span>
               )
@@ -1101,7 +1125,9 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
 
   return (
     <><div className={cn('oc-group', worktreeRemoving && 'opacity-60')} aria-busy={worktreeRemoving || undefined}>
-      <div className={cn('oc-ref-tint-scope group/gh relative flex items-start justify-between gap-1 py-1 min-w-0 rounded-md hover:bg-interactive-hover/60', 'cursor-pointer')}>
+      {/* No hover fill: only session rows take one, so a pointer moving
+          down the sidebar tells sessions from their containers. */}
+      <div className={cn('oc-ref-tint-scope group/gh relative flex items-start justify-between gap-1 py-1 min-w-0 rounded-md', 'cursor-pointer')}>
       <Tooltip disabled={groupPrSummary ? !groupPrStatusLabel : !primaryGroupIssue}>
       <TooltipTrigger asChild closeDelay={SIDEBAR_REF_TOOLTIP_CLOSE_DELAY_MS}>
       <div
@@ -1137,36 +1163,30 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
             <p className="typography-ui-label font-normal truncate text-foreground/92">
               {group.isArchivedBucket ? (
                 <span className="inline-flex min-w-0 max-w-full items-center gap-0.5">
-                  {headerChevron}
-                  <Icon name="archive" className="mx-px h-3 w-3 shrink-0 text-muted-foreground" />
+                  {headerSlot(<Icon name="archive" className="h-3 w-3 shrink-0 text-muted-foreground" />)}
                   <span className="min-w-0 flex-1 truncate">{renderHighlightedText(group.label, normalizedSessionSearchQuery)}</span>
                   {worktreeMissingIndicator}
                   {groupActivityIndicator}
                 </span>
               ) : (!group.isMain || group.worktree) ? (
                 // Worktree header: a file tree folder row with a PR-tinted
-                // branch icon and the PR badge on the right.
-                // 2px gaps: chevron, icon and gaps span the 34px a child row
-                // spends on its indent, slot and gap, so the label starts
-                // where the titles of its sessions start.
+                // branch icon in the slot and the PR badge on the right. Its
+                // sessions sit one level in, under the label.
                 <span className="flex w-full min-w-0 items-center gap-0.5">
-                  {headerChevron}
-                  {worktreeRemoving ? (
+                  {headerSlot(worktreeRemoving ? (
                     <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted-foreground" title={t('sessions.sidebar.group.worktreeRemoving')} role="status" aria-label={t('sessions.sidebar.group.worktreeRemoving')}>
-                      <Icon name="loader-4" className="h-3.5 w-3.5 animate-spin" />
+                      <Spinner className="h-3.5 w-3.5" />
                     </span>
                   ) : (
-                    // 12px glyph in the 14px icon slot (mx-px), so the label
-                    // stays aligned with the session titles below.
                     <Icon name={group.space ? 'box-3' : 'git-branch'}
-                      className={cn('mx-px h-3 w-3 shrink-0', groupPrColor ? 'oc-ref-tint' : 'text-muted-foreground')}
+                      className={cn('h-3 w-3 shrink-0', groupPrColor ? 'oc-ref-tint' : 'text-muted-foreground')}
                       style={groupPrColor ? refTintStyle(groupPrColor) : undefined}
                       aria-label={group.space ? t('sessions.sidebar.group.space') : undefined}
                     />
-                  )}
-                  {/* Medium weight at full strength: a group among the normal
-                      session titles under it, a step below project headers. */}
-                  <span className="min-w-0 truncate typography-ui-label font-medium text-foreground">
+                  ))}
+                  {/* Medium weight a step down from full strength: above the
+                      muted session titles at rest, below the project header. */}
+                  <span className="min-w-0 truncate typography-ui-label font-medium text-foreground/85">
                     {renderHighlightedText(group.label, normalizedSessionSearchQuery)}
                   </span>
                   {worktreeMissingIndicator}
@@ -1185,7 +1205,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
                       onKeyDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (groupPrSummary.url) openOnBoard(groupPrSummary.url, group.directory ?? null, event);
+                        if (groupPrSummary.url) openTrackerItem(groupPrSummary.url, group.directory ?? null, event);
                       }}
                     >
                       {groupPrReference}
@@ -1208,7 +1228,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
                         event.stopPropagation();
                         // The `+N` only counts the others; the tooltip lists them.
                         if (event.target instanceof Element && event.target.closest('[data-ref-more]')) return;
-                        openOnBoard(primaryGroupIssue.url, group.directory ?? null, event);
+                        openTrackerItem(primaryGroupIssue.url, group.directory ?? null, event);
                       }}
                     >
                       <Icon name={primaryGroupIssue.icon} className="h-3 w-3" />
@@ -1257,7 +1277,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
             would replace on the spot. */}
         <TooltipProvider delayDuration={400}>
         {group.isArchivedBucket && allGroupSessions.length > 0 ? (
-          <div className={cn('absolute inset-e-0.5 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
+          <div className={cn('absolute inset-e-0.5 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-has-[:focus-visible]/gh:opacity-100')}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -1280,12 +1300,12 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
           </div>
         ) : null}
         {group.directory && !group.isMain && group.worktree && !worktreeRemoving ? (
-          <div className={cn('absolute inset-e-7 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
+          <div className={cn('absolute inset-e-7 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-has-[:focus-visible]/gh:opacity-100')}>
             <WorktreeDeleteAction label={group.label} sessions={allGroupSessions} worktree={group.worktree} />
           </div>
         ) : null}
         {group.space ? (
-          <div className={cn('absolute inset-e-7 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
+          <div className={cn('absolute inset-e-7 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-has-[:focus-visible]/gh:opacity-100')}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -1305,12 +1325,12 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
           </div>
         ) : null}
         {group.space ? (
-          <div className={cn('absolute inset-e-[3.25rem] top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100 has-[[data-popup-open]]:opacity-100')}>
+          <div className={cn('absolute inset-e-[3.25rem] top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-has-[:focus-visible]/gh:opacity-100 has-[[data-popup-open]]:opacity-100')}>
             <SpaceActionsMenu spaceId={group.space.id} label={group.label} />
           </div>
         ) : null}
         {group.directory ? (
-          <div className={cn('absolute inset-e-0.5 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
+          <div className={cn('absolute inset-e-0.5 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-has-[:focus-visible]/gh:opacity-100')}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -1335,8 +1355,10 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
          ) : null}
         </TooltipProvider>
       </div>
-      {/* Outside the header, which is a button of its own: the status line can hold one. */}
-      {group.space ? <SpaceGroupStatus spaceId={group.space.id} className="pb-1 ps-5" /> : null}
+      {/* Outside the header, which is a button of its own: the status line can hold one.
+          Its 12px icon sits under the header's slot icon and its text starts at 26px, where the
+          header label and the group's other sub-rows start. */}
+      {group.space ? <SpaceGroupStatus spaceId={group.space.id} className="pb-1 ps-2" /> : null}
       {!isCollapsed && renderBody ? <div className={cn('oc-group-body', groupBodyPaddingClass)}>{body}</div> : null}
     </div>{folderDeleteDialog}</>
   );

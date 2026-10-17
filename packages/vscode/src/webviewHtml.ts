@@ -95,7 +95,7 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${styleSrc}; script-src ${scriptSrc}; connect-src ${connectSrc}; img-src ${imgSrc}; font-src ${fontSrc}; worker-src ${workerSrc};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${styleSrc}; script-src ${scriptSrc}; connect-src ${connectSrc}; img-src ${imgSrc}; media-src ${imgSrc}; font-src ${fontSrc}; worker-src ${workerSrc};">
   <style>
     html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; }
     body { 
@@ -122,16 +122,13 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
       opacity: 0;
       pointer-events: none;
     }
-    /* Glow pulse on the OpenCode mark on the cube's top face — signals loading without text. */
-    @keyframes oc-logo-glow {
-      0%, 100% { filter: drop-shadow(0 0 0 transparent); }
-      50% { filter: drop-shadow(0 0 4px var(--vscode-foreground)); }
-    }
-    #initial-loading .logo-inner {
-      animation: oc-logo-glow 1.8s ease-in-out infinite;
+    /* The OpenCode mark on the cube's top face glows on and off once a second
+       (the script below) to signal loading without text. */
+    #initial-loading .logo-inner.glow-on {
+      filter: drop-shadow(0 0 4px var(--vscode-foreground));
     }
     @media (prefers-reduced-motion: reduce) {
-      #initial-loading .logo-inner { animation: none; }
+      #initial-loading .logo-inner.glow-on { filter: none; }
     }
     /* Logo colors use VS Code foreground color */
     #initial-loading .logo-stroke {
@@ -187,6 +184,17 @@ export function getWebviewHtml(options: WebviewHtmlOptions): string {
   <div id="root"></div>
   <script>
     // Polyfill process for Node.js modules running in browser
+    // The splash glow steps once a second until the splash fades; a smooth CSS
+    // glow repainted the logo on every frame.
+    (function () {
+      var timer = setInterval(function () {
+        var splash = document.getElementById('initial-loading');
+        var logo = splash && splash.querySelector('.logo-inner');
+        if (!logo || splash.classList.contains('fade-out')) { clearInterval(timer); return; }
+        logo.classList.toggle('glow-on');
+      }, 1000);
+    })();
+
     window.process = window.process || { env: { NODE_ENV: 'production' }, platform: '', version: '', browser: true };
 
     window.__VSCODE_CONFIG__ = {

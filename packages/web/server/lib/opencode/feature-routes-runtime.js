@@ -1,4 +1,5 @@
 import { registerFsRoutes } from '../fs/routes.js';
+import { createRipgrepResolver } from '../fs/ripgrep.js';
 import { registerEnvironmentRoutes } from '../environment/routes.js';
 import { registerQuotaRoutes } from '../quota/routes.js';
 import { registerSmallModelRoutes } from '../small-model/routes.js';
@@ -77,7 +78,7 @@ import { refreshGitLabAccessToken, resolveGitLabClientId } from '../gitlab/devic
 import { createGitCredentialResolver, createHttpsCredentialReference, parseGitCredentialReference } from '../git/credential-resolver.js';
 import { createGitRepositoryCredentialRuntime } from '../git/repository-credential-runtime.js';
 import { managedSshCommand } from '../git/network-operations.js';
-import { createNetworkOperations } from '../git/network-operations.js';
+import { createNetworkOperations, createTrustedDirectoriesConfig } from '../git/network-operations.js';
 import { createManagedSshCredentialStore } from '../git/ssh-credential-storage.js';
 import { createManagedSshInventory } from '../git/credentials.js';
 import { createContributorProvenanceStore } from '../git/contributor-provenance-storage.js';
@@ -359,7 +360,6 @@ export const createFeatureRoutesRuntime = (dependencies) => {
     registerMarkdownImageGrantRoutes(app, {
       fsPromises,
       path,
-      os,
       crypto,
       validateDirectoryPath,
       buildOpenCodeUrl,
@@ -670,6 +670,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       gitBinary,
       validateGitIdentity,
       resolveGitIdentity,
+      trustedDirectoriesConfig: createTrustedDirectoriesConfig({ gitBinary }),
     });
     await registerBuiltInGuests({ persistPath: extensionsPersistPath(openchamberDataDir), root: routeDependencies.builtInExtensionsDir });
     registerGuestRoutes(app, { openchamberDataDir, openchamberVersion, resolveGitBinaryForSpawn, resolveOptionalProjectDirectory, getSmallModelService, onGuestDeactivated, surfaceViewerHeaders });
@@ -729,6 +730,9 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       path,
       openchamberDataDir,
     });
+    // Content search looks for ripgrep on the same PATH user commands get, so
+    // a desktop app launched from the Dock still finds a Homebrew install.
+    const { resolveRipgrepBinary } = createRipgrepResolver({ fs, path, buildSearchPath: buildAugmentedPath });
     registerFsRoutes(app, {
       os,
       path,
@@ -739,6 +743,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       resolveProjectDirectory,
       buildAugmentedPath,
       resolveGitBinaryForSpawn,
+      resolveRipgrepBinary,
       openchamberUserConfigRoot,
       cloneRepository: networkOperations.cloneRepository,
       managedChatsRoot,

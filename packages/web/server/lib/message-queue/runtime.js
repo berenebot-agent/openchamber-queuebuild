@@ -787,12 +787,9 @@ export function createMessageQueueRuntime({
       })));
     const command = accepted.length ? null : await resolveSlashCommand(item.text, directory);
 
-    // Standing project context rides the send exactly as a UI send would
-    // attach it; a failed lookup sends without it rather than not at all.
-    const knowledge = sessionKnowledgeRuntime
-      ? await sessionKnowledgeRuntime.resolvePendingForSession(sessionId, directory)
-        .catch(() => ({ text: '', signature: '' }))
-      : { text: '', signature: '' };
+    // Standing project context is written into the session first, exactly as
+    // a UI send does it; a failed write sends without it rather than not at all.
+    if (sessionKnowledgeRuntime) await sessionKnowledgeRuntime.sync(sessionId, directory);
 
     // Same order as a UI send: everything attached to the message is admitted
     // before the message itself, so the model reads it as background. This
@@ -815,7 +812,6 @@ export function createMessageQueueRuntime({
       ...leading,
       ...contextMessages,
     ];
-    if (knowledge.text) preamble.push({ text: knowledge.text, resume: false });
     for (const synthetic of preamble) {
       await openCodeFetch(`/api/session/${encodeURIComponent(sessionId)}/synthetic`, {
         directory,
@@ -884,10 +880,6 @@ export function createMessageQueueRuntime({
           body,
         });
       }
-    }
-    if (knowledge.text && sessionKnowledgeRuntime) {
-      // After the send is accepted, so a rejected dispatch carries it again.
-      await sessionKnowledgeRuntime.recordDelivered(sessionId, directory, knowledge.signature).catch(() => undefined);
     }
   };
 

@@ -23,7 +23,7 @@ import { useChildStoreManager } from '@/sync/sync-context';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { ProjectSortOrder, WorktreeSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
-import { Icon } from '@/components/icon/Icon';
+import { Spinner } from '@/components/ui/spinner';
 import { SessionSidebarFolderItem } from '../folders/SessionSidebarFolderItem';
 import { SessionTreeItem } from '../sessions/SessionTreeItem';
 import { RunSidebarRow } from '../sessions/RunSidebarRow';
@@ -44,7 +44,8 @@ import { prepareSessionProjectAction } from './sessionProjectActionContext';
 import { selectArchiveAllSessionIds } from './archiveAllSessions';
 import { useConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from '@/components/ui';
-import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+import { isSessionPinned } from '@/lib/sessionPins';
 import { isSessionBusyNow } from '@/sync/session-actions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { isSessionInWork } from '@/lib/sessionWorkMetadata';
@@ -270,7 +271,7 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
     }
     return <div className="relative py-1 text-start typography-micro text-muted-foreground" style={{ paddingInlineStart: row.flat ? FLAT_TEXT_INSET_PX : sessionTreeTextInset(row.depth ?? 0) }}>
       <span className="inline-flex flex-wrap items-center gap-1.5">
-        {row.status.state === 'loading' ? <Icon name="loader-4" className="size-3 animate-spin" /> : null}
+        {row.status.state === 'loading' ? <Spinner className="size-3" /> : null}
         {label}
         {row.status.canGrantAccess ? <Button variant="link" size="xs" className="h-auto p-0 typography-micro" onClick={() => void grant()}>{t('sessions.sidebar.group.empty.grantAccess')}</Button> : null}
         {row.status.state !== 'loading' ? <Button variant="link" size="xs" className="h-auto p-0 typography-micro" onClick={retry}>{t('sessions.sidebar.group.empty.retry')}</Button> : null}
@@ -381,7 +382,7 @@ function SessionProjectScrollerComponent({ model, view, actions }: Props): React
         {(droppableRef, isDropTarget) => <SessionSidebarFolderItem
           notifyOnSubtasks={model.groupProps.notifyOnSubtasks}
           activityNodes={row.activityNodes}
-          folder={row.folder} displayName={row.displayName} sessions={row.nodes} depth={row.depth} canExpand={row.nodes.length > 0 || row.subFolderCount > 0}
+          folder={row.folder} displayName={row.displayName} sessions={row.nodes} depth={row.depth} canExpand={!row.empty}
           isCollapsed={row.collapsed} onToggle={row.forceExpanded ? () => undefined : () => toggleFolderCollapse(row.folder.id)}
           onRename={(name) => renameFolder(row.scopeKey, row.folder.id, name)}
           onDelete={() => {

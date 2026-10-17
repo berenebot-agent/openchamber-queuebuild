@@ -19,7 +19,7 @@ import { ForkSessionDialog, type ForkSessionExecution } from '@/components/sessi
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ArrowsMerge } from '@/components/icons/ArrowsMerge';
 
-import { MarkdownImageGallery, SimpleMarkdownRenderer } from '../MarkdownRenderer';
+import { SimpleMarkdownRenderer } from '../MarkdownRenderer';
 import { LongErrorText } from '../LongErrorText';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useChatSessionSelection } from '../chatColumnSession';
@@ -47,9 +47,11 @@ import { formatTimestampForDisplay } from './timeFormat';
 import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
 import { StaticToolRow } from './parts/ProgressiveGroup';
 import { isExpandableTool } from './parts/toolRenderUtils';
+import { ShownPage } from './parts/HtmlRenderFrame';
+import { renderedPage } from '@/lib/opencode/tools';
 import { LiveActivityCollapse } from '../components/LiveActivityCollapse';
 import { ActivityRowSkipContext, isActivityRowPart, isToolRowShown } from '../lib/turns/activityRows';
-import { LiveFinalActivityContext } from '../components/liveActivityContext';
+import { LiveFinalActivityContext, LiveTurnHoistedPagesContext } from '../components/liveActivityContext';
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
@@ -71,8 +73,6 @@ import { buildTurnImageExportSource, cloneMessageImageExportSource } from './ima
 const CONTAIN_LAYOUT_STYLE = { contain: 'layout' as const, transform: 'translateZ(0)' };
 const MESSAGE_FOOTER_CONTAINER_STYLE = { containerType: 'inline-size' as const, containerName: 'message-footer' };
 const INLINE_MESSAGE_ACTIONS_CLASS_NAME = 'mt-2 mb-1 flex items-center justify-start gap-1.5';
-// One shared empty list, so the gallery's props stay equal across streamed chunks.
-const NO_FINALIZED_MARKDOWN: readonly string[] = [];
 
 const getDisplayFileName = (file: string): string => {
     const normalized = file.replace(/\\/g, '/');
@@ -80,8 +80,8 @@ const getDisplayFileName = (file: string): string => {
     return segments.at(-1) ?? file;
 };
 
-const CHANGED_FILE_CHIP_CLASS_NAME = 'inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border/30 bg-muted/30 px-2 py-1 text-xs text-muted-foreground';
-const CHANGED_FILE_CHIP_HOVER_CLASS_NAME = 'transition-colors hover:border-border/60 hover:bg-interactive-hover';
+const CHANGED_FILE_CHIP_CLASS_NAME = 'inline-flex max-w-full items-center gap-1.5 rounded-lg oc-tile px-2 py-1 text-xs text-muted-foreground';
+const CHANGED_FILE_CHIP_HOVER_CLASS_NAME = 'oc-tile-hover';
 const CHANGED_FILE_CHIP_STYLE = { lineHeight: 'round(1.35em, 1px)' };
 const CHANGED_FILE_CHIP_BUTTON_CLASS_NAME = 'inline-flex h-8 max-w-full cursor-pointer items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]';
 
@@ -1105,7 +1105,7 @@ const AssistantMessageActionButtons = React.memo(({
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={handleTTSClick}
                         >
-                            <Icon name="volume-up" className={cn('h-3 w-3', isTTSPlaying && 'animate-pulse')} />
+                            <Icon name="volume-up" className={cn('h-3 w-3', isTTSPlaying && 'text-[var(--primary-text)]')} />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent sideOffset={6}>{readAloudTooltip}</TooltipContent>
@@ -1230,11 +1230,6 @@ const AssistantMessageBody = React.memo(({
     const assistantTextParts = React.useMemo(() => {
         return visibleParts.filter((part) => part.type === 'text');
     }, [visibleParts]);
-    const finalizedAssistantMarkdownContents = React.useMemo(() => (
-        isMessageCompleted
-            ? assistantTextParts.map(extractTextContent).filter((text) => text.trim().length > 0)
-            : NO_FINALIZED_MARKDOWN
-    ), [assistantTextParts, isMessageCompleted]);
     const assistantPlanText = React.useMemo(() => flattenAssistantTextParts(assistantTextParts), [assistantTextParts]);
 
     const isVSCode = isVSCodeRuntime();
@@ -1294,6 +1289,7 @@ const AssistantMessageBody = React.memo(({
     const vscodeApi = useRuntimeAPIs().vscode;
     const liveFinalActivity = React.useContext(LiveFinalActivityContext);
     const activityRowSkip = React.useContext(ActivityRowSkipContext);
+    const hoistedPages = React.useContext(LiveTurnHoistedPagesContext);
     const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
     const hasStopFinish = messageFinish === 'stop';
     const effectiveStreamPhase: StreamPhase = hasStopFinish ? 'completed' : streamPhase;
@@ -1663,6 +1659,11 @@ const AssistantMessageBody = React.memo(({
                         />
                     );
                 }
+                if (splitLiveActivity && !hasRenderedAnswerText) {
+                    for (const pagePart of liveFinalActivity?.pages ?? []) {
+                        rendered.push(<ShownPage key={`page-${pagePart.id}`} part={pagePart} />);
+                    }
+                }
                 hasRenderedAnswerText = true;
                 rendered.push(
                     <div key={`assistant-text-${messageId}-${i}`} ref={messageTextContentRef} data-message-text-export-source="true">
@@ -1723,6 +1724,16 @@ const AssistantMessageBody = React.memo(({
                 const toolName = toolPart.tool?.toLowerCase() ?? '';
 
                 if (!isToolRowShown(toolPart)) {
+                    i++;
+                    continue;
+                }
+
+                // A page the agent showed is drawn in place of its row. With
+                // Activity collapsed, the final answer draws it instead.
+                if (renderedPage(toolPart.tool, toolPart.state)) {
+                    if (!hoistedPages?.has(toolPart.id)) {
+                        rendered.push(<ShownPage key={`page-${toolPart.id}`} part={toolPart} />);
+                    }
                     i++;
                     continue;
                 }
@@ -1790,6 +1801,7 @@ const AssistantMessageBody = React.memo(({
     }, [
         activityRowSkip,
         alwaysShowMessageActions,
+        hoistedPages,
         animatedToolIdsLookup,
         collapsibleThinkingBlocks,
         expandedTools,
@@ -1894,7 +1906,7 @@ const AssistantMessageBody = React.memo(({
             actions.push({
                 id: 'tts',
                 label: isFooterTTSPlaying ? t('chat.messageBody.tts.stopSpeaking') : t('chat.messageBody.tts.readAloud'),
-                icon: <Icon name="volume-up" className={cn('h-4 w-4', isFooterTTSPlaying && 'animate-pulse text-[var(--primary-text)]')} />,
+                icon: <Icon name="volume-up" className={cn('h-4 w-4', isFooterTTSPlaying && 'text-[var(--primary-text)]')} />,
                 onSelect: () => {
                     if (isFooterTTSPlaying) {
                         stopFooterTTS();
@@ -1968,7 +1980,7 @@ const AssistantMessageBody = React.memo(({
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={(event) => { event.stopPropagation(); stopFooterTTS(); }}
                         >
-                            <Icon name="volume-up" className="h-3 w-3 animate-pulse" />
+                            <Icon name="volume-up" className="h-3 w-3 text-[var(--primary-text)]" />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent sideOffset={6}>{t('chat.messageBody.tts.stopSpeaking')}</TooltipContent>
@@ -2129,7 +2141,7 @@ const AssistantMessageBody = React.memo(({
                     {renderedParts}
                     {showErrorMessage && (
                         <FadeInOnReveal key="assistant-error">
-                            <div className="group/assistant-text relative mt-3 max-w-full break-words rounded-2xl border border-[var(--status-info-border)] bg-[var(--status-info-background)] px-4 py-3 text-base leading-relaxed">
+                            <div className="group/assistant-text relative mt-3 max-w-full break-words rounded-2xl bg-[var(--status-info-background)] px-4 py-3 text-base leading-relaxed">
                                 <div className="flex items-center gap-3">
                                     <Icon name="information" className="size-4 shrink-0 text-[var(--status-info)]" />
                                     <div className="min-w-0 flex-1 break-words">
@@ -2151,12 +2163,6 @@ const AssistantMessageBody = React.memo(({
                     )}
                 </div>
                 <MessageFilesDisplay files={parts} onShowPopup={onShowPopup} />
-                <MarkdownImageGallery
-                    sessionId={sessionId}
-                    messageId={messageId}
-                    contents={finalizedAssistantMarkdownContents}
-                    onShowPopup={onShowPopup}
-                />
                 {shouldRenderStandaloneActionsAfterContent && (
                     <div className={INLINE_MESSAGE_ACTIONS_CLASS_NAME} data-message-actions="true">
                         <div className="flex items-center gap-1.5" data-message-action-group="true">

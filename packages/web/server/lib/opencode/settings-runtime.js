@@ -45,9 +45,10 @@ const MANAGED_PLUGIN_SETTINGS_KEYS = new Set([
   'agentControlToolEnabled',
   'agentWebToolEnabled',
   'agentMemoryToolEnabled',
+  'agentKnowledgeToolEnabled',
   'agentNotifyToolEnabled',
+  'agentRenderToolEnabled',
   'agentToolsCodeMode',
-  'agentWorktreeMoveWithoutAsking',
 ]);
 
 export const createSettingsRuntime = (deps) => {

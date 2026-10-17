@@ -16,6 +16,45 @@ the user can want independently:
   `POST /api/notifications/emit`). Off by default: enabled only while
   `agentNotifyToolEnabled` is `true`, and the control service refuses the
   action when the setting is off, so a stale plugin cannot keep paging.
+- `openchamber_knowledge` — the project's Notes, Todos and Plans, the items of
+  the Project knowledge panel (`knowledge.list`, `save`, `delete`, `show`,
+  with `kind` naming note, todo or plan; plans are files, so list and save
+  give their path and the agent reads and edits them with its own file tools;
+  dispatched by
+  `../openchamber-control/project-knowledge.js` into
+  `../project-context/runtime.js`). On by default: enabled while
+  `agentKnowledgeToolEnabled` is not `false`, and the control service refuses
+  these actions when it is, so a stale plugin cannot keep writing. Writes are
+  attributed to the session OpenCode reported, never to a payload field.
+- `openchamber_render` — `render.page`, a self-contained HTML page (`html`,
+  `title`) the chat draws inline above the agent's answer, such as a chart or
+  table. The page travels in the call's input, which OpenCode stores and
+  syncs, so the server keeps no copy: `../openchamber-control/render-page.js`
+  only checks the input (`html` at most 200,000 characters so the callback
+  body stays under its 1 MB limit, `title` at most 120) and the setting.
+  On by default: enabled while `agentRenderToolEnabled` is not `false`, and the
+  control service refuses the action when it is, so a stale plugin cannot
+  keep drawing. When to draw (`RENDER_PAGE_WHEN`) is shared with the line
+  every session carries (`../session-knowledge/DOCUMENTATION.md`, *When to
+  draw a page*). The description lists the theme variables the chat injects
+  (`packages/ui/src/components/chat/message/parts/htmlRender.ts`); change both
+  together.
+  The description names the image files a page may show by path, from
+  anywhere on the machine as the image grant route allows, and the temporary
+  directory to save a screenshot in (`os.tmpdir()/opencode`) so it stays out
+  of the project.
+  A mockup of the user's own project is the one page that does not use them:
+  the description tells the agent to take that page's look from the
+  project's code, since the point is how the user's product will look.
+  With `awaitAnswer` the call waits for the user's answer on the page. The
+  plugin sends the call id (`context.id`) with the callback so the server can
+  find the waiting call when the chat answers it, and copies the answer into
+  the call's metadata (`metadata.openchamber.answer`), so every client shows
+  the page as answered. While the call waits, OpenCode holds any chat message
+  for that session until the call returns, so the plugin registers a
+  `session.prompt` hook: a prompt for the session, from any sender, aborts the
+  waiting call, which returns `{ answered: false, reason: "chat" }`, and the
+  agent reads the message next.
 
 Both default to on, are toggled in Settings → General → OpenChamber Tools, and take
 effect in the running OpenCode within a couple of seconds — OpenChamber rewrites
@@ -34,7 +73,10 @@ both settings are `false`.
   size-limited catalog; with a few large MCP servers ours dropped out of it and
   agents concluded the tool did not exist. `agentToolsCodeMode: true` (the
   "Run through Code Mode" checkbox in the same section, off by default) flips
-  all of them to `codemode: true`.
+  all of them to `codemode: true`, except `openchamber_render`: the chat draws
+  a page from that tool's own call (its input and stored result), and inside
+  an `execute` script the call is only an entry in `execute`'s list, so the
+  page never showed.
 - The plugin accepts the action's inputs either inside `parameters` or beside
   `action`, because models produce both shapes; an explicit `parameters` object
   wins on a conflict. Rejecting the flattened shape turned a call that plainly
@@ -87,6 +129,11 @@ both settings are `false`.
   `lastAssistant` on a dispatch with a usage error naming `returnResult`
   (`agentOnlyUsageError`). `session.messages` does not wait either: it reads
   what is there. The control service keeps `wait` for the CLI only.
+- Boolean inputs are checked at the tool boundary: the plugin forwards raw
+  JSON, so a field declared `type: 'boolean'` in any tool's schema that
+  arrives as anything else (the string `"true"`) fails the call with a usage
+  error naming the field (`nonBooleanParameterError`), before any action runs.
+  Downstream `=== true` checks would otherwise read it as false.
 - The description draws the line against OpenCode's own `subagent` tool:
   `subagent` when the agent delegates part of its own task and wants the
   answer for itself, `session.*` when the user asks for a separate session
@@ -110,16 +157,25 @@ both settings are `false`.
   (`../git/DOCUMENTATION.md`, *Worktree creation from a GitHub pull request*);
   everything else about the request is resolved on the server.
 - `session.moveToWorktree` moves the calling session (or `sessionId`) into a
-  new worktree of its repository, carrying the checkout's uncommitted changes
-  along (`../openchamber-sessions/worktree-move.js`). `worktree` is required
-  there and `startRef` defaults to the repository's default branch. When to
-  offer it is stated at the head of the tool description, in the form the
-  `agentWorktreeMoveWithoutAsking` setting selects: asking first by default,
-  or moving unasked and saying so. The setting is read into the plugin source
-  (`materializePlugin({ worktreeMoveWithoutAsking })`), so a toggle rewrites
-  the managed config like the other tool settings and the running OpenCode
-  reads the new description. The session context carries the same rule
-  (`../session-knowledge/`, `WORKTREE_MOVE_GUIDANCE`); change both together.
+  new worktree of its repository (`../openchamber-sessions/worktree-move.js`).
+  `worktree` is required there and `startRef` defaults to the repository's
+  default branch; `existingBranch` checks out a branch that already exists
+  instead, local or remote (`origin/feature`), and cannot be combined with
+  `branch` or `startRef`. `carry` names the files whose uncommitted changes
+  go along; nothing else moves. The head of the tool description introduces
+  the move (`WORKTREE_MOVE_INTRO`): what it does, when a checkout looks busy,
+  and that whether to use it depends on how the user works, so the agent asks
+  first unless the request already calls for separate work. It also says
+  why to prefer it over `git worktree add` (the session moves along) and
+  over OpenCode's own `worktree_create` with `session_move`, which OpenCode
+  suggests in every session: that one checks out a detached copy of the
+  current commit, so on someone else's branch it starts from their commits,
+  and carries no files. It is an
+  introduction on purpose. It used to be a rule in every session, with a
+  setting to move unasked, and that made one person's workflow everybody's.
+  The session context names the branch (`../session-knowledge/`), and
+  OpenCode tells the agent when it changed between its messages, which the
+  agent cannot see for itself.
 - A rule about when to act belongs where the model reads it before choosing a
   tool: the head of the tool description and, when it must hold in every
   session, the session context (`../session-knowledge/`). An action's

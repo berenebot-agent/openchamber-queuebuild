@@ -17,6 +17,8 @@ import type {
   SetStateInput,
   SetLabelsInput,
   SetReviewersInput,
+  ThreadReplyInput,
+  ThreadResolveInput,
   SourceControlAuthStatus,
   SourceControlCapabilities,
   SourceControlDeviceFlowComplete,
@@ -305,6 +307,11 @@ export interface GetGitRangeFilesOptions {
 export interface GitRangeFileEntry {
   path: string;
   status: string;
+  /**
+   * Working-tree listings only: changes exactly when this file's patch can
+   * change (merge base moved, or the file was written). Absent elsewhere.
+   */
+  revision?: string;
 }
 
 export interface GitBranchBaseResponse {
@@ -978,6 +985,8 @@ export interface GitWorktreeCreateResult {
   sourceFetchFailed?: true;
   /** Set when the failed fetch was the repository's access: an account that needs attention, refused credentials. */
   sourceFetchReason?: 'access';
+  /** A leftover local branch of the change request had diverged from its head; its old tip is kept in this branch. */
+  branchBackup?: string;
   provenance?: GitContributorWorktreeProvenance;
 }
 
@@ -1231,6 +1240,40 @@ export interface FileSearchResult {
   preview?: string[];
 }
 
+/** Find in files: lines of workspace files containing a text or a regular expression. */
+export interface FileContentSearchQuery {
+  directory: string;
+  query: string;
+  regex: boolean;
+  limit?: number;
+  includeHidden?: boolean;
+  respectGitignore?: boolean;
+  signal?: AbortSignal;
+}
+
+export interface FileContentSearchMatch {
+  path: string;
+  relativePath: string;
+  line: number;
+  /** 1-based column of the first match on the line, in UTF-16 code units. */
+  column: number;
+  /** The line, without indentation and cut to what a result row can show. */
+  text: string;
+  /** `[start, end)` offsets of the matches inside `text`. */
+  ranges: Array<[number, number]>;
+  /** `text` begins after the line's start, so the row shows an ellipsis first. */
+  cutStart: boolean;
+}
+
+/** Why a search returned fewer matches than exist: the limit or the server's deadline. */
+export type FileContentSearchStop = 'limit' | 'deadline';
+
+export type FileContentSearchOutcome =
+  | { status: 'ok'; matches: FileContentSearchMatch[]; stopped: FileContentSearchStop | null }
+  | { status: 'invalid-pattern'; message: string }
+  /** The server has no ripgrep to search with. */
+  | { status: 'unavailable' };
+
 export interface CommandExecResult {
   command: string;
   success: boolean;
@@ -1255,6 +1298,12 @@ interface FileReadOptions {
 export interface FilesAPI {
   listDirectory(path: string, options?: ListDirectoryOptions): Promise<DirectoryListResult>;
   search(payload: FileSearchQuery): Promise<FileSearchResult[]>;
+  /**
+   * Find in files. Absent on runtimes without it (VS Code has its own
+   * search), so the files tree offers the mode only when it is here.
+   * Resolves to the search outcome; rejects on a transport or server failure.
+   */
+  searchContents?(payload: FileContentSearchQuery): Promise<FileContentSearchOutcome>;
   createDirectory(path: string): Promise<{ success: boolean; path: string }>;
   statFile?(path: string, options?: FileReadOptions): Promise<{ path: string; isFile: boolean; size: number; mtimeMs?: number }>;
   readFile?(path: string, options?: FileReadOptions): Promise<{ content: string; path: string }>;
@@ -1705,6 +1754,20 @@ export type GitHubReferenceComment = {
   path: string | null;
   line: number | null;
   review: 'approved' | 'changes_requested' | 'commented' | 'dismissed' | null;
+  /** Set when the comment opens a review thread. */
+  thread?: GitHubReferenceThread;
+};
+
+/** A review thread a comment opens: the answers under it and whether it is resolved. */
+export type GitHubReferenceThread = {
+  /** The host's id: a GraphQL node id on GitHub, a discussion id on GitLab. */
+  id: string;
+  resolved: boolean;
+  /** Whether this account can resolve the thread, or open it again. */
+  canResolve: boolean;
+  canReply: boolean;
+  /** Oldest first. */
+  replies: GitHubReferenceComment[];
 };
 
 /** Someone asked to review, or who can be; `id` is what the host names them by (a login on GitHub). */
@@ -1865,6 +1928,10 @@ export interface SourceControlAPI {
   changeRequestMerge(payload: MergeChangeRequestInput): Promise<SourceControlMutationReceipt<SourceControlMergeMutationResult>>;
   changeRequestReady(payload: ReadyChangeRequestInput): Promise<SourceControlMutationReceipt<SourceControlReadyMutationResult>>;
   changeRequestComment(payload: CommentInput): Promise<SourceControlMutationReceipt<SourceControlEmptyMutationResult>>;
+  /** Opens a thread on a change request: a comment that waits to be resolved (GitLab). */
+  changeRequestStartThread(payload: CommentInput): Promise<SourceControlMutationReceipt<SourceControlEmptyMutationResult>>;
+  changeRequestReplyToThread(payload: ThreadReplyInput): Promise<SourceControlMutationReceipt<SourceControlEmptyMutationResult>>;
+  changeRequestResolveThread(payload: ThreadResolveInput): Promise<SourceControlMutationReceipt<SourceControlEmptyMutationResult>>;
   changeRequestReview(payload: ReviewChangeRequestInput): Promise<SourceControlMutationReceipt<SourceControlReviewMutationResult>>;
   issueComment(payload: CommentInput): Promise<SourceControlMutationReceipt<SourceControlEmptyMutationResult>>;
   changeRequestSetState(payload: SetStateInput): Promise<SourceControlMutationReceipt<SourceControlStateMutationResult>>;
@@ -1872,6 +1939,8 @@ export interface SourceControlAPI {
   changeRequestSetLabels(payload: SetLabelsInput): Promise<SourceControlMutationReceipt<SourceControlEmptyMutationResult>>;
   issueSetLabels(payload: SetLabelsInput): Promise<SourceControlMutationReceipt<SourceControlEmptyMutationResult>>;
   changeRequestSetReviewers(payload: SetReviewersInput): Promise<SourceControlMutationReceipt<SourceControlEmptyMutationResult>>;
+  /** Forgets the server's short-lived answers from this host, so the next reads ask it again. */
+  refreshProviderReads(identity: SourceControlIdentity): Promise<void>;
   /** One page of a project's labels, for the board's picker. */
   referenceLabels(context: SourceControlReadContext, project: GitHubRepoSelector): Promise<GitHubIssueLabel[]>;
   /** One page of the people who can be asked to review in a project. */
@@ -2001,6 +2070,16 @@ export interface ClientAuthAPI {
   // Direct transports the server can be reached on, for the create-device dialog.
   // LAN reflects the server's actual bind, independent of the UI origin.
   getPairingTransports(): Promise<{ local: string | null; lan: string | null; relayAvailable: boolean }>;
+  // This server's relay host. `identityConflict` is true while another copy of
+  // its data dir, usually on another machine, keeps taking the relay slot.
+  getRelayHostStatus(): Promise<RelayHostStatus>;
+  // Gives this server its own relay identity. Devices paired through the relay
+  // keep reaching the other copy until they are paired here again.
+  resetRelayIdentity(): Promise<RelayHostStatus>;
+}
+
+export interface RelayHostStatus {
+  identityConflict: boolean;
 }
 
 export type LinearUserSummary = {

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui';
 import { Switch } from '@/components/ui/switch';
+import { Spinner } from '@/components/ui/spinner';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { workBoardCardTitle } from './workBoardCardTitle';
@@ -353,7 +354,7 @@ function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailabl
         <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : waiting ? ANSWER_PRESENTATION[waiting].labelKey : forced ? 'workBoard.outsideQueue' : 'workBoard.buildingNow')}</span>
       </span>
       {!needsReview && !checking && !waiting && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (forced ? 'text-[var(--status-warning-text)]' : 'text-[var(--status-info)]')}>
-        <span className="size-1.5 rounded-full bg-[var(--status-success)] motion-safe:animate-pulse" />{t('workBoard.active')}
+        <Spinner className="size-3 text-[var(--status-success)]" />{t('workBoard.active')}
       </span>}
       </span>
     </button>

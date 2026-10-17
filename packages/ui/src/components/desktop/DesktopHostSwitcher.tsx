@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
 import { isElectronShell, isDesktopShell } from '@/lib/desktop';
 import { Icon } from "@/components/icon/Icon";
+import { Spinner } from "@/components/ui/spinner";
 import { useUIStore } from '@/stores/useUIStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useI18n } from '@/lib/i18n';
@@ -96,6 +97,7 @@ const statusDotClass = (status: HostDisplayStatus): string => {
   if (status === 'incompatible') return 'bg-status-error';
   if (status === 'wrong-service') return 'bg-status-error';
   if (status === 'unreachable') return 'bg-status-error';
+  if (status === 'relay-limit') return 'bg-status-error';
   if (status === 'checking') return 'bg-status-info';
   return 'bg-muted-foreground/40';
 };
@@ -104,16 +106,16 @@ const statusDotClass = (status: HostDisplayStatus): string => {
 const statusTextClass = (status: HostDisplayStatus): string => {
   if (status === 'ok') return 'text-[var(--status-success)]';
   if (status === 'auth' || status === 'update-recommended') return 'text-[var(--status-warning)]';
-  if (status === 'incompatible' || status === 'wrong-service' || status === 'unreachable') return 'text-[var(--status-error)]';
+  if (status === 'incompatible' || status === 'wrong-service' || status === 'unreachable' || status === 'relay-limit') return 'text-[var(--status-error)]';
   return 'text-muted-foreground';
 };
 
 const isBlockedHostStatus = (status: HostProbeResult['status'] | null): boolean => {
-  return status === 'unreachable' || status === 'wrong-service' || status === 'incompatible';
+  return status === 'unreachable' || status === 'wrong-service' || status === 'incompatible' || status === 'relay-limit';
 };
 
 const isBlockedDisplayStatus = (status: HostDisplayStatus): boolean => {
-  return status === 'unreachable' || status === 'wrong-service' || status === 'incompatible';
+  return status === 'unreachable' || status === 'wrong-service' || status === 'incompatible' || status === 'relay-limit';
 };
 
 const statusLabelKey = (status: HostDisplayStatus):
@@ -124,6 +126,7 @@ const statusLabelKey = (status: HostDisplayStatus):
   | 'desktopHostSwitcher.status.incompatible'
   | 'desktopHostSwitcher.status.wrongService'
   | 'desktopHostSwitcher.status.unreachable'
+  | 'desktopHostSwitcher.status.relayLimit'
   | 'desktopHostSwitcher.status.unknown' => {
   if (status === 'ok') return 'desktopHostSwitcher.status.connected';
   if (status === 'auth') return 'desktopHostSwitcher.status.authRequired';
@@ -132,6 +135,7 @@ const statusLabelKey = (status: HostDisplayStatus):
   if (status === 'incompatible') return 'desktopHostSwitcher.status.incompatible';
   if (status === 'wrong-service') return 'desktopHostSwitcher.status.wrongService';
   if (status === 'unreachable') return 'desktopHostSwitcher.status.unreachable';
+  if (status === 'relay-limit') return 'desktopHostSwitcher.status.relayLimit';
   return 'desktopHostSwitcher.status.unknown';
 };
 
@@ -556,6 +560,8 @@ export function DesktopHostSwitcherDialog({
           finalStatus = { status: probe.status, latencyMs: probe.latencyMs, via: 'relay' };
           transport = 'relay';
           relayProbeTunnel = 'tunnel' in probe ? probe.tunnel : undefined;
+        } else if (probe.status === 'relay-limit') {
+          finalStatus = { status: probe.status, latencyMs: 0 };
         }
       }
       setDesktopHostStatus(host.id, finalStatus);
@@ -568,7 +574,10 @@ export function DesktopHostSwitcherDialog({
       setSwitchModal((prev) => ({ ...prev, open: false, hostId: null }));
       setSwitchingHostId(null);
       if (!transport) {
-        toast.error(t('desktopHostSwitcher.toast.instanceUnreachable', { host: redactSensitiveUrl(host.label) }));
+        toast.error(t(
+          finalStatus.status === 'relay-limit' ? 'desktopHostSwitcher.toast.relayLimit' : 'desktopHostSwitcher.toast.instanceUnreachable',
+          { host: redactSensitiveUrl(host.label) },
+        ));
         return;
       }
       if (transport === 'relay' && host.relay) {
@@ -1145,7 +1154,7 @@ export function DesktopHostSwitcherDialog({
       <DialogContent className="w-[min(28rem,calc(100vw-2rem))] max-w-none">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Icon name="loader-4" className={cn('h-4 w-4', !switchModal.error && 'animate-spin')} />
+            {switchModal.error ? <Icon name="loader-4" className="h-4 w-4" /> : <Spinner className="h-4 w-4" />}
             {t('desktopHostSwitcher.ssh.connectingTo', { host: switchModal.hostLabel || t('desktopHostSwitcher.ssh.instanceFallback') })}
           </DialogTitle>
           <DialogDescription>

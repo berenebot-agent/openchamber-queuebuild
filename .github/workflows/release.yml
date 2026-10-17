@@ -66,6 +66,11 @@ jobs:
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
           # A release being finished is already public; keep it that way.
+          # Every later upload step sets draft: true. Without it the action
+          # publishes the draft after uploading, and updaters would see the
+          # release before every platform and manifest is on it. Only
+          # finalize-release publishes. On a release that is already public,
+          # draft: true changes nothing.
           draft: ${{ github.event.inputs.finish_published_release != 'true' }}
           generate_release_notes: false
           body_path: artifacts/release-notes.md
@@ -115,6 +120,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
+          draft: true
           files: packages/web/*.tgz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -205,6 +211,7 @@ jobs:
           bun run build:web-assets
           bun run prepare:opencode-cli
           bun run verify:opencode-cli
+          bun run prepare:ripgrep
           bun run bundle:main
           # npmRebuild=false in package.json, so electron-builder won't
           # recompile native deps on its own — we must rebuild against the
@@ -262,6 +269,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
+          draft: true
           files: |
             packages/electron/dist/*.dmg
             packages/electron/dist/*.zip
@@ -331,6 +339,8 @@ jobs:
         run: |
           bun run prepare:opencode-cli
           bun run verify:opencode-cli
+          # Windows arm64 builds on an x64 runner; ripgrep needs the target arch.
+          OPENCHAMBER_TARGET_ARCH=${{ matrix.arch }} bun run prepare:ripgrep
 
       - name: Bundle main process
         working-directory: packages/electron
@@ -358,6 +368,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
+          draft: true
           files: |
             packages/electron/dist/*.exe
             packages/electron/dist/*.blockmap
@@ -449,6 +460,7 @@ jobs:
           bun run build:web-assets
           bun run prepare:opencode-cli
           bun run verify:opencode-cli
+          bun run prepare:ripgrep
           bun run bundle:main
           bun run rebuild:native
           node ./scripts/package.mjs --linux --${{ matrix.arch }} --publish=never
@@ -521,6 +533,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
+          draft: true
           files: |
             artifacts/x64/OpenChamber-${{ needs.create-release.outputs.version }}-linux-x86_64.AppImage
             artifacts/x64/OpenChamber-${{ needs.create-release.outputs.version }}-linux-amd64.deb
@@ -563,6 +576,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
+          draft: true
           files: |
             ${{ runner.temp }}/latest-mac.yml
             ${{ runner.temp }}/latest.yml
@@ -597,10 +611,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
           VERSION: ${{ needs.create-release.outputs.version }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
         run: |
           node - <<'NODE'
           (async () => {
-          const { REPOSITORY: repo, VERSION: version, GITHUB_TOKEN: token } = process.env;
+          const { REPOSITORY: repo, VERSION: version, RELEASE_ID: releaseId, GITHUB_TOKEN: token } = process.env;
           const expected = [
             `OpenChamber-${version}-linux-x86_64.AppImage`,
             `OpenChamber-${version}-linux-amd64.deb`,
@@ -611,7 +626,9 @@ jobs:
             `OpenChamber-${version}-linux-aarch64.rpm`,
             'latest-linux-arm64.yml',
           ];
-          const response = await fetch(`https://api.github.com/repos/${repo}/releases/tags/v${version}`, {
+          // The release is still a draft here, and the by-tag endpoint
+          // answers 404 for drafts; the id reaches it.
+          const response = await fetch(`https://api.github.com/repos/${repo}/releases/${releaseId}`, {
             headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
           });
           if (!response.ok) throw new Error(`Failed to inspect release assets: ${response.status} ${await response.text()}`);

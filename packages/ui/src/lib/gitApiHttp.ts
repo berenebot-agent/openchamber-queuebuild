@@ -1,4 +1,4 @@
-import { spaceApiPath, spaceIdOfDirectory } from '@/lib/spaces/space-route';
+import { spaceIdOfDirectory } from '@/lib/spaces/space-route';
 import { z } from 'zod';
 import type {
   GitStatus,
@@ -67,7 +67,7 @@ import { GitPathUnavailableError, gitPathUnavailableBodySchema, gitSubmoduleStat
 
 const API_BASE = '/api/git';
 const gitRangeDiffSchema = z.object({ diff: z.string() });
-const gitRangeFilesSchema = z.object({ files: z.array(z.object({ path: z.string(), status: z.string() })) });
+const gitRangeFilesSchema = z.object({ files: z.array(z.object({ path: z.string(), status: z.string(), revision: z.string().optional() })) });
 const gitRangeErrorSchema = z.object({ error: z.string() });
 const gitCommitFilesSchema = z.object({ files: z.array(z.object({
   path: z.string(), previousPath: z.string().optional(), changeType: z.string(),
@@ -791,8 +791,8 @@ function buildUrl(
   const query: Record<string, string | number | boolean | undefined> = { ...params };
   if (directory) query.directory = directory;
 
-  // A directory inside an isolated space addresses that space's git.
-  return getRuntimeUrlResolver().api(spaceApiPath(path, directory), query);
+  // The `directory` query also sends a request about a space's directory to that space's git.
+  return getRuntimeUrlResolver().api(path, query);
 }
 
 type ProjectOverviewField = 'repo' | 'status' | 'root' | 'worktrees';

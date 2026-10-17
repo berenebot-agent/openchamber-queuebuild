@@ -18,6 +18,7 @@ import {
 import { CSS as DndCSS } from '@dnd-kit/utilities';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
@@ -90,7 +91,7 @@ function WorkBoardTabBuildBadge({ badge, label }: { badge: WorkBoardBuildBadge; 
     className="me-1 inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--status-info)_16%,transparent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums text-status-info"
     aria-label={title} title={title} data-work-board-build="running"
   >
-    <Icon name="loader-4" className={animated ? 'activity-spinner size-3' : 'size-3'} />
+    {animated ? <Spinner className="size-3" /> : <Icon name="loader-4" className="size-3" />}
     {badge.count}
   </span>;
 }
