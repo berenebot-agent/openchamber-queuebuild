@@ -144,6 +144,10 @@ const snapshotSchema = z.object({
     updatedAt: z.number(), sessionId: z.string().optional(),
   })),
   activities: z.record(z.string(), z.object({ busy: z.boolean(), messages: z.array(activityMessageSchema) })),
+  // The ask a session is waiting on, by session: a session busy because it waits
+  // for the user's answer is not working, so the board must not paint it as such.
+  // Separate from `activities` because an ask survives a failed history read.
+  waitingFor: z.record(z.string(), z.enum(['permission', 'question'])),
   unavailable: z.array(z.string()),
   // False when the session list could not be read and no earlier read stands:
   // the board then cannot promise it has every inherited card.
@@ -153,6 +157,7 @@ const snapshotSchema = z.object({
 export type WorkBoardSnapshot = z.infer<typeof snapshotSchema>;
 export type WorkBoardSnapshotCard = z.infer<typeof snapshotCardSchema>;
 export type WorkBoardActivityMessage = z.infer<typeof activityMessageSchema>;
+export type WorkBoardWaitingKind = WorkBoardSnapshot['waitingFor'][string];
 
 /**
  * Read the board projection. A failure throws, so the caller keeps the board it

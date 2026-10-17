@@ -6,11 +6,12 @@ const baseCard = (over = {}) => ({
   createdAt: 1, updatedAt: 1, stage: 'todo', ...over,
 });
 
-const makeProjection = ({ cards = [], queue = null, sessions = [], listSessions, activity = new Map(), unavailable = [], enabled = true } = {}) => createWorkBoardProjection({
+const makeProjection = ({ cards = [], queue = null, sessions = [], listSessions, activity = new Map(), unavailable = [], enabled = true, pending = {} } = {}) => createWorkBoardProjection({
   store: { list: async () => cards },
   listSessions: listSessions ?? (async () => sessions),
   readQueueSnapshot: () => queue,
   readQueueEnabled: async () => enabled,
+  readPendingRequests: () => pending,
   activity: { read: async requests => ({ activity, unavailable: new Set(unavailable), requests }) },
   now: () => 1000,
 });
@@ -103,6 +104,40 @@ describe('work board projection', () => {
     const snapshot = await makeProjection({ cards, unavailable: ['s1'] }).snapshot('/repo');
     expect(snapshot.cards[0].status).toBe('unavailable');
     expect(snapshot.cards[0].availableActions).not.toContain('complete');
+  });
+
+  it('names the ask each of its own sessions waits on, and no one else\'s', async () => {
+    const cards = [
+      baseCard({ id: 'asked', stage: 'plan', sessionId: 's-asked' }),
+      baseCard({ id: 'blocked', stage: 'plan', sessionId: 's-blocked' }),
+      baseCard({ id: 'settled', stage: 'plan', sessionId: 's-settled' }),
+    ];
+    const snapshot = await makeProjection({ cards, pending: {
+      's-asked': { permissions: [], forms: [{ id: 'q1' }] },
+      's-blocked': { permissions: [{ id: 'p1' }], forms: [] },
+      's-settled': { permissions: [], forms: [] },
+      's-elsewhere': { permissions: [], forms: [{ id: 'q2' }] },
+    } }).snapshot('/repo');
+    // Only this board's sessions: the request map is server-wide.
+    expect(snapshot.waitingFor).toEqual({ 's-asked': 'question', 's-blocked': 'permission' });
+  });
+
+  it('names a waiting session the board has no card for when the queue owns it', async () => {
+    const snapshot = await makeProjection({
+      pending: { 's-lease': { permissions: [], forms: [{ id: 'q1' }] } },
+      queue: { active: [{ directory: '/repo', sessionId: 's-lease', itemId: 'i1', startedAt: 2 }], queued: [], issues: [] },
+    }).snapshot('/repo');
+    expect(snapshot.waitingFor).toEqual({ 's-lease': 'question' });
+  });
+
+  it('keeps the ask when the session history read failed', async () => {
+    const cards = [baseCard({ id: 'asked', stage: 'plan', sessionId: 's-asked' })];
+    const snapshot = await makeProjection({ cards, unavailable: ['s-asked'], pending: {
+      's-asked': { permissions: [], forms: [{ id: 'q1' }] },
+    } }).snapshot('/repo');
+    expect(snapshot.cards[0].status).toBe('unavailable');
+    expect(snapshot.activities['s-asked']).toBeUndefined();
+    expect(snapshot.waitingFor).toEqual({ 's-asked': 'question' });
   });
 
   it('orders Done newest completion first and honours a stored arrangement inside a lane', async () => {
@@ -207,7 +242,7 @@ describe('work board projection runtime', () => {
     { id: `user-${sessionId}`, type: 'user', text: 'go', time: { created } },
   ]);
 
-  const makeRuntime = ({ cards = [], sessions = [], active = {}, queue = null, now = () => 1000 } = {}) => {
+  const makeRuntime = ({ cards = [], sessions = [], active = {}, queue = null, pending = () => ({}), now = () => 1000 } = {}) => {
     const reads = [];
     const runtime = createWorkBoardProjectionRuntime({
       store: { list: async () => cards },
@@ -216,6 +251,7 @@ describe('work board projection runtime', () => {
       readActiveSessionIds: async () => active,
       readQueueSnapshot: () => queue,
       readQueueEnabled: async () => true,
+      readPendingRequests: pending,
       now,
     });
     return { runtime, reads };
@@ -256,6 +292,26 @@ describe('work board projection runtime', () => {
     expect(snapshot.cards.map(card => card.id)).toContain('session:ses_new');
     runtime.projection.invalidateInherited();
     expect((await runtime.projection.snapshot('/repo')).cards.map(card => card.id)).toContain('session:ses_new');
+  });
+
+  it('re-reads the board when an ask appears or settles, without dropping the history cache', async () => {
+    const cards = [{
+      id: 'session:ses_1', directory: '/repo', text: 'go', attachments: [],
+      createdAt: 1, updatedAt: 5, stage: 'plan', sessionId: 'ses_1',
+    }];
+    let pending = {};
+    const { runtime, reads } = makeRuntime({ cards, pending: () => pending });
+    expect((await runtime.projection.snapshot('/repo')).waitingFor).toEqual({});
+    // The ask is not cached here: its events only ask the board to re-read, so
+    // the session's history is not refetched on account of them. The directory
+    // travels beside the payload, as it does for every other event.
+    expect(runtime.processPayload({ type: 'form.created', properties: { sessionID: 'ses_1', form: { id: 'q1', sessionID: 'ses_1' } } }, '/repo')).toBe('/repo');
+    expect(runtime.processPayload({ type: 'permission.replied', properties: { sessionID: 'ses_1', requestID: 'p1' } }, '/repo')).toBe('/repo');
+    pending = { ses_1: { permissions: [], forms: [{ id: 'q1' }] } };
+    expect((await runtime.projection.snapshot('/repo')).waitingFor).toEqual({ ses_1: 'question' });
+    expect(reads).toEqual(['ses_1']);
+    pending = {};
+    expect((await runtime.projection.snapshot('/repo')).waitingFor).toEqual({});
   });
 
   it('invalidates one session on a live event and reports its directory', async () => {

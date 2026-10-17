@@ -1165,6 +1165,9 @@ const workBoardProjectionRuntime = createWorkBoardProjectionRuntime({
   readActiveSessionIds: () => workBoardActivityProbe.fetchActiveSessionStatuses(),
   readQueueSnapshot: () => messageQueueRuntime.buildSnapshot(),
   readQueueEnabled: (directory) => messageQueueRuntime.readQueueSettings({ directory }).then((settings) => settings.enabled),
+  // The same per-session ask map the space idle stop reads: a session waiting
+  // for an answer is not working, so the board must not paint it as running.
+  readPendingRequests: () => sessionRuntime.getPendingBlockingRequestsSnapshot(),
 });
 
 // Sessions an agent dispatched with `returnResult` report back to it: their

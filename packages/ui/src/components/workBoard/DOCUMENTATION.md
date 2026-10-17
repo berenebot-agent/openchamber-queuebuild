@@ -24,7 +24,8 @@ not classify sessions itself.
 
 The board renders `GET /api/work-board/snapshot` through `useWorkBoardSnapshot`
 (`hooks/useWorkBoardSnapshot.ts`). The snapshot carries each card's effective
-lane, each lane's order, live activity per session, and the queue's own state
+lane, each lane's order, live activity per session, the ask each session waits
+for, and the queue's own state
 (rows, positions, running lease, forced builds, issue, enablement). The client
 therefore never:
 

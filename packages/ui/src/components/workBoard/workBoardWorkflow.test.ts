@@ -10,7 +10,7 @@ const idle: WorkBoardActivityMessage = { id: 'idle', sessionID: 'session1', role
 /** A projection carrying only the queue rows a queue-column test needs. */
 const makeProjectionWithRows = (rows: WorkBoardSnapshot['queue']['rows']): WorkBoardSnapshot => ({
   directory: '/repo', revision: 1, lanes: {}, order: { todo: [], plan: [], queue: [], build: [], done: [] },
-  cards: [], placements: {}, activities: {}, unavailable: [], inheritedAvailable: true,
+  cards: [], placements: {}, activities: {}, waitingFor: {}, unavailable: [], inheritedAvailable: true,
   queue: { known: true, enabled: true, rows, order: rows.map(row => row.itemId), active: null, forced: [], issue: null, preparation: null, commit: null },
 });
 
@@ -71,7 +71,7 @@ describe('reading the server projection', () => {
     order: { todo: [], plan: ['card1'], queue: [], build: [], done: [] },
     cards: [],
     placements: { card1: { lane: 'plan', completedAt: 0, updatedAt: 1 }, card2: { lane: 'queue', completedAt: 0, updatedAt: 1 } },
-    activities: {}, unavailable: [], inheritedAvailable: true,
+    activities: {}, waitingFor: {}, unavailable: [], inheritedAvailable: true,
     queue: {
       known: true, enabled: true,
       rows: [{ itemId: 'i1', sessionId: 'session1', directory: '/repo', content: 'wait', paused: false, position: 0 }],

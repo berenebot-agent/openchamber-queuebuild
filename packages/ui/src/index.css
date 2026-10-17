@@ -2250,6 +2250,15 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
   background-color: color-mix(in srgb, var(--status-success) 12%, var(--surface-elevated));
 }
 
+/* A card whose session waits for the user's answer: the turn is still busy in
+   OpenCode's status, but nothing is being worked on until the user replies, so
+   the card takes the waiting colour instead of the running band and names the
+   ask in its notice line. */
+[data-work-board-waiting] {
+  border-color: color-mix(in srgb, var(--status-warning) 45%, transparent);
+  background-color: color-mix(in srgb, var(--status-warning) 10%, var(--surface-elevated));
+}
+
 @keyframes oc-build-stripes-drift {
   from { background-position: 0 0; }
   to { background-position: 14px 0; }

@@ -23,7 +23,7 @@ import { isAutoModel } from '@/lib/routing/autoModel';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, WorkBoardRequestError, updateQueueSettings, type WorkBoardCard, type WorkBoardAttachment, type WorkBoardSnapshotCard } from '@/lib/workBoardApi';
+import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, WorkBoardRequestError, updateQueueSettings, type WorkBoardCard, type WorkBoardAttachment, type WorkBoardSnapshotCard, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
 import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, captureWorkBoardAttachments, workBoardBuildBadges, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -57,17 +57,36 @@ const collide: CollisionDetection = args => {
 const queueErrorSchema = z.object({ error: z.string().optional(), warning: z.string().optional() });
 
 /**
+ * The mark and the words a waiting session shows, reusing the sidebar's own
+ * labels so the board and the session list name the same ask the same way.
+ */
+const ANSWER_PRESENTATION = {
+  permission: { icon: 'shield', labelKey: 'sessions.sidebar.session.status.permissionRequired' },
+  question: { icon: 'question', labelKey: 'sessions.sidebar.session.status.questionPending' },
+} as const;
+
+/**
  * The one mark a card can show before its title: live activity, or — for a
  * finished card the user has not acknowledged — the session list's green
  * completion checkbox. The two are mutually exclusive so a card never carries
  * two marks that mean different things.
+ *
+ * A session waiting for the user's answer outranks both: it is the only one of
+ * the three the user can act on, and the turn is not working while it waits.
  */
-function WorkBoardCardMark({ card }: { card: WorkBoardCard }) {
+function WorkBoardCardMark({ card, waitingFor }: { card: WorkBoardCard; waitingFor: WorkBoardWaitingKind | undefined }) {
   // An unlinked card has no session to look up; the empty id matches nothing in
   // either index. The hooks stay unconditional so render order never changes.
   const sessionId = card.sessionId ?? '';
   const activity = useSessionTurnActivity(sessionId);
   const unseenCount = useSessionUnseenCount(sessionId);
+  const { t } = useI18n();
+  if (waitingFor) {
+    const label = t(ANSWER_PRESENTATION[waitingFor].labelKey);
+    return <span className="inline-flex shrink-0 items-center text-[var(--status-warning-text)]" title={label} aria-label={label}>
+      <Icon name={ANSWER_PRESENTATION[waitingFor].icon} className="size-3.5" />
+    </span>;
+  }
   const state = activity ?? (unseenCount > 0 ? 'unread' : null) ?? (workBoardShowsCompletionMark(card) ? 'unread' : null);
   return state ? <SessionActivityIndicator state={state} tooltip /> : null;
 }
@@ -150,7 +169,7 @@ function WorkBoardQueueRowItem({ row, index, order, busy, disabled, onOpen, onMo
  * The Build queue lane. The running lease and builds started outside the queue
  * sit above the gap. Waiting items keep the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy, error, dragged, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy, error, dragged, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onNewBuild }: {
   rows: WorkBoardQueueRow[];
   active: { sessionId: string; needsReview?: boolean; startedAt: number } | undefined;
   activeTitle: string;
@@ -159,6 +178,7 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
   busy: boolean;
   error: string;
   dragged: string | null;
+  waitingForOf: (sessionId: string) => WorkBoardWaitingKind | undefined;
   onOpen: (sessionId: string) => void;
   onMove: (itemId: string, delta: number) => void;
   onTogglePause: (row: { itemId: string; sessionId: string; paused: boolean }) => void;
@@ -170,9 +190,10 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
   const { t } = useI18n();
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
     {error && <p role="alert" className="mb-2 px-1 text-xs text-[var(--status-error-text)]">{error}</p>}
-    {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} onOpen={() => onOpen(active.sessionId)} />}
+    {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} waitingFor={waitingForOf(active.sessionId)} onOpen={() => onOpen(active.sessionId)} />}
     {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title}
       needsReview={Boolean(entry.needsReview)} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced}
+      waitingFor={waitingForOf(entry.sessionId)}
       onOpen={() => onOpen(entry.sessionId)}
       resolve={entry.needsReview && entry.itemId ? { sessionId: entry.sessionId, itemId: entry.itemId } : undefined}
       busy={busy} onResolve={onResolveForced} />)}
@@ -208,12 +229,13 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
  * ambiguous: it may or may not have started, so it takes the error treatment and
  * carries its own recovery, rather than reading as a plain running build.
  */
-function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, forced = false, resolve, busy = false, onResolve, onOpen }: {
+function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, forced = false, waitingFor, resolve, busy = false, onResolve, onOpen }: {
   title: string;
   needsReview: boolean;
   checking?: boolean;
   unavailable?: boolean;
   forced?: boolean;
+  waitingFor?: WorkBoardWaitingKind;
   resolve?: { sessionId: string; itemId: string };
   busy?: boolean;
   onResolve?: (row: { itemId: string; sessionId: string }) => void;
@@ -232,24 +254,28 @@ function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailabl
       </div>
     </div>;
   }
+  // The user's own answer is what the build waits for: no moving band, no
+  // "Active" pill, and the ask named in place of "Building now". A review, a
+  // forced build and an unread status are their own states above it.
+  const waiting = !needsReview && !checking && !unavailable && !forced ? waitingFor : undefined;
   return <button type="button" onClick={onOpen}
     className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
       + (needsReview
         ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
-        : forced
+        : forced || waiting
           ? 'border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-warning)_18%,var(--surface-elevated))]'
           : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]')}
     aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })} title={title}>
-    {!needsReview && !checking && !forced && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
+    {!needsReview && !checking && !forced && !waiting && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
     <span className="relative flex min-w-0 items-center gap-2">
-      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : forced ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
-          <Icon name={needsReview ? 'alert' : forced ? 'rocket' : 'terminal-box'} className="size-3.5" />
+      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : forced || waiting ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
+          <Icon name={needsReview ? 'alert' : forced ? 'rocket' : waiting ? ANSWER_PRESENTATION[waiting].icon : 'terminal-box'} className="size-3.5" />
       </span>
       <span className="min-w-0 flex-1">
         <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
-        <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : forced ? 'workBoard.outsideQueue' : 'workBoard.buildingNow')}</span>
+        <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : waiting ? ANSWER_PRESENTATION[waiting].labelKey : forced ? 'workBoard.outsideQueue' : 'workBoard.buildingNow')}</span>
       </span>
-      {!needsReview && !checking && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (forced ? 'text-[var(--status-warning-text)]' : 'text-[var(--status-info)]')}>
+      {!needsReview && !checking && !waiting && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (forced ? 'text-[var(--status-warning-text)]' : 'text-[var(--status-info)]')}>
         <span className="size-1.5 rounded-full bg-[var(--status-success)] motion-safe:animate-pulse" />{t('workBoard.active')}
       </span>}
     </span>
@@ -287,10 +313,11 @@ function WorkBoardLaneColumn({ lane, droppable, count, children }: {
  * and reorders it inside one, and dropping another card on it is how a place in
  * the middle of a lane is named.
  */
-function WorkBoardCard({ card, lane, activity, checking, statusUnknown, needsReview, title, large, draggable, editing, text, setText, files, setFiles, busy, loading, error, editVersion, actions, onOpenCard, onStartEditing, onSaveEdits, onCancelEdits, onAddFiles, onAcknowledge }: {
+function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnknown, needsReview, title, large, draggable, editing, text, setText, files, setFiles, busy, loading, error, editVersion, actions, onOpenCard, onStartEditing, onSaveEdits, onCancelEdits, onAddFiles, onAcknowledge }: {
   card: WorkBoardCard;
   lane: WorkBoardLane;
   activity: WorkBoardActivity | undefined;
+  waitingFor: WorkBoardWaitingKind | undefined;
   checking: boolean;
   statusUnknown: boolean;
   needsReview: boolean;
@@ -319,8 +346,10 @@ function WorkBoardCard({ card, lane, activity, checking, statusUnknown, needsRev
   // treatment and the notice it belongs to can never disagree.
   const feedback = useWorkBoardCardFeedback(card, activity, statusUnknown, needsReview);
   // A plan turn running now: its card carries the band and the green treatment,
-  // and it is one of the two states that take the larger box.
-  const activePlan = lane === 'plan' && Boolean(activity?.busy);
+  // and it is one of the two states that take the larger box. A turn waiting for
+  // the user's answer is not running, however busy OpenCode reports it.
+  const activePlan = lane === 'plan' && Boolean(activity?.busy) && !waitingFor;
+  const waitingLabel = waitingFor ? t(ANSWER_PRESENTATION[waitingFor].labelKey) : '';
   // A card being edited has a textarea inside it: taking the drag here would
   // steal text selection, so the drag handle is off while the card is open.
   const sortable = useSortable({ id: card.id, disabled: !draggable || editing });
@@ -332,6 +361,7 @@ function WorkBoardCard({ card, lane, activity, checking, statusUnknown, needsRev
     style={{ transform: CSS.Translate.toString(sortable.transform), transition: sortable.transition }}
     data-work-board-feedback={feedback ?? undefined}
     data-work-board-working={activePlan ? '' : undefined}
+    data-work-board-waiting={waitingFor ?? undefined}
     data-work-board-dragging={dragging ? '' : undefined}
     className={'group relative overflow-hidden rounded-md border bg-surface-elevated '
       + (dragging ? 'opacity-60 ' : '')
@@ -354,7 +384,7 @@ function WorkBoardCard({ card, lane, activity, checking, statusUnknown, needsRev
           + (draggable ? 'cursor-grab hover:text-foreground active:cursor-grabbing' : 'opacity-30')}>
         <Icon name="drag-move-2" className="size-3.5" />
       </button>
-      <WorkBoardCardMark card={card} />
+      <WorkBoardCardMark card={card} waitingFor={waitingFor} />
       <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title} onClick={() => {
         onAcknowledge();
         if (card.sessionId) { onOpenCard(); return; }
@@ -364,7 +394,9 @@ function WorkBoardCard({ card, lane, activity, checking, statusUnknown, needsRev
       {actions}
     </div>}
     {checking ? <p className="min-h-[1lh] text-xs leading-5 text-muted-foreground">{t('common.loading')}</p>
-      : <WorkBoardSessionFeedback feedback={feedback} />}
+      : feedback ? <WorkBoardSessionFeedback feedback={feedback} />
+      : waitingFor ? <p className="min-h-[1lh] text-xs leading-5 text-[var(--status-warning-text)]">{waitingLabel}</p>
+      : null}
     </div>
   </article>;
 }
@@ -669,6 +701,12 @@ export function WorkBoardView() {
 
   const queueStateFor = (card: WorkBoardCard): WorkBoardQueueState | undefined => workBoardQueueFromSnapshot(snapshot, card);
   const laneFor = (card: WorkBoardCard): WorkBoardLane => workBoardCardLane(snapshot, card);
+  // The ask a queue row's session waits on. The queue column shows sessions the
+  // board has no card for, so its rows read the projection's own map.
+  const waitingForOf = React.useCallback(
+    (sessionId: string): WorkBoardWaitingKind | undefined => snapshot?.waitingFor[sessionId],
+    [snapshot],
+  );
 
   /**
    * Every lane's cards, in the order the board shows them. The server already
@@ -962,6 +1000,7 @@ export function WorkBoardView() {
             busy={queueBusy}
             error={queueActionError}
             dragged={drag?.type === 'queue' ? drag.id : null}
+            waitingForOf={waitingForOf}
             onOpen={sessionId => open(sessionId, directory)}
             onMove={moveQueued}
             onTogglePause={toggleQueuedPause}
@@ -979,6 +1018,7 @@ export function WorkBoardView() {
             }</p>}
             {inLane.map(card => {
               const activity = card.sessionId ? snapshot?.activities[card.sessionId] : undefined;
+              const waitingFor = card.sessionId ? snapshot?.waitingFor[card.sessionId] : undefined;
               const checking = Boolean(card.sessionId) && card.status === 'unknown';
               const statusUnknown = Boolean(card.sessionId) && card.status !== 'known';
               const hasRunningTurn = Boolean(activity?.busy);
@@ -999,6 +1039,7 @@ export function WorkBoardView() {
                 card={card}
                 lane={lane}
                 activity={activity}
+                waitingFor={waitingFor}
                 checking={checking}
                 statusUnknown={statusUnknown}
                 needsReview={Boolean(queueStateFor(card)?.needsReview)}

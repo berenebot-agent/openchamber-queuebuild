@@ -127,7 +127,7 @@ function availableActions(card, lane, status, busy, inheritedAvailable = true) {
   return actions;
 }
 
-export function createWorkBoardProjection({ store, activity, readQueueSnapshot, readQueueEnabled, listSessions = async () => [], now = Date.now }) {
+export function createWorkBoardProjection({ store, activity, readQueueSnapshot, readQueueEnabled, listSessions = async () => [], readPendingRequests = () => ({}), now = Date.now }) {
   /** Inherited cards of the last successful read, per directory: a failed read
    * must not look like "no sessions", so the prior list stands. */
   const inherited = new Map();
@@ -169,6 +169,23 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       ...(queueState?.forced ?? []).map(item => item.sessionId),
     ]);
 
+    // A session that waits for the user's answer stays `busy` in OpenCode's own
+    // status the whole time it waits, so the board would call it working. The
+    // ask is a separate fact that survives a failed history read, so it travels
+    // beside the activity rather than inside it. Only this board's own sessions
+    // are named: the request map is server-wide.
+    const pending = readPendingRequests() ?? {};
+    const waitingFor = {};
+    const noteWaiting = (sessionId) => {
+      if (!sessionId || waitingFor[sessionId] !== undefined) return;
+      const entry = pending[sessionId];
+      if (!entry) return;
+      if (entry.forms?.length) waitingFor[sessionId] = 'question';
+      else if (entry.permissions?.length) waitingFor[sessionId] = 'permission';
+    };
+    for (const card of cards) noteWaiting(card.sessionId);
+    for (const sessionId of queueSessionIds) noteWaiting(sessionId);
+
     const lanes = {};
     const order = Object.fromEntries(LANES.map(lane => [lane, []]));
     const placements = {};
@@ -206,6 +223,7 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       cards: decorated,
       placements,
       activities,
+      waitingFor,
       unavailable: [...unavailable],
       inheritedAvailable: sessions.available,
       queue: queueState
@@ -224,8 +242,10 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
 /**
  * The wiring boundary: `index.js` builds one and passes `projection` to
  * `registerWorkBoardRoutes`. `readPage` returns a v2 message page
- * (`{ data: SessionMessageInfo[] }`), `readSessions` v2 `SessionInfo[]`, and
- * `readActiveSessionIds` the `/api/session/active` map. A failed session list
+ * (`{ data: SessionMessageInfo[] }`), `readSessions` v2 `SessionInfo[]`,
+ * `readActiveSessionIds` the `/api/session/active` map, and
+ * `readPendingRequests` the permission asks and forms still waiting for an
+ * answer by session. A failed session list
  * throws so the projection keeps the previous inherited cards.
  *
  * `processPayload(payload, directoryHint)` is the event lifecycle: call it from
@@ -234,23 +254,30 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
  * changed, or null; broadcast `openchamber:work-board.updated` for it. `reset()`
  * drops all caches on a runtime switch.
  */
-export function createWorkBoardProjectionRuntime({ store, readPage, readSessions, readActiveSessionIds, readQueueSnapshot, readQueueEnabled, now = Date.now }) {
+export function createWorkBoardProjectionRuntime({ store, readPage, readSessions, readActiveSessionIds, readQueueSnapshot, readQueueEnabled, readPendingRequests, now = Date.now }) {
   const activity = createWorkBoardActivity({
     now,
     listActiveSessionIds: readActiveSessionIds,
     listMessages: readPage,
   });
   const listSessions = (directory, { includeOlder = false } = {}) => readSessions(directory, { includeOlder, recentWindowMs: RECENT_WINDOW_MS });
-  const projection = createWorkBoardProjection({ store, activity, listSessions, readQueueSnapshot, readQueueEnabled, now });
+  const projection = createWorkBoardProjection({ store, activity, listSessions, readQueueSnapshot, readQueueEnabled, readPendingRequests, now });
 
-  /** Session events that change a card's lane, activity or status. */
+  /** Session events that change a card's lane, activity, status or ask. */
   const sessionIdOf = (payload) => payload?.properties?.sessionID ?? payload?.properties?.info?.sessionID ?? null;
   const processPayload = (payload, directoryHint = '') => {
     const type = payload?.type;
     if (type !== 'session.status' && type !== 'session.idle' && type !== 'message.updated'
-      && type !== 'session.created' && type !== 'session.deleted' && type !== 'session.updated') return null;
+      && type !== 'session.created' && type !== 'session.deleted' && type !== 'session.updated'
+      // An ask appears and settles as its own events, and the board must follow.
+      && type !== 'permission.asked' && type !== 'permission.replied'
+      && type !== 'form.created' && type !== 'form.settled') return null;
     const sessionId = sessionIdOf(payload);
-    if (sessionId) activity.invalidate(sessionId);
+    // An ask and its answer leave the session's history and status alone, so
+    // those events only ask the board to re-read the ask.
+    const askOnly = type === 'permission.asked' || type === 'permission.replied'
+      || type === 'form.created' || type === 'form.settled';
+    if (sessionId && !askOnly) activity.invalidate(sessionId);
     // A session added or removed changes the inherited card set.
     if (type === 'session.created' || type === 'session.deleted') projection.invalidateInherited();
     return payload.properties?.directory ?? directoryHint ?? null;

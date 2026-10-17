@@ -74,6 +74,17 @@ not change a card's height. A card's amber notice treatment lives on the card
 itself (`data-work-board-feedback`), with a running plan card keeping its green
 treatment through `data-work-board-working`; both rules are in `index.css`.
 
+A session waiting for the user's answer is not working, however busy OpenCode
+reports its turn. `snapshot.waitingFor` names the ask per session, and the board
+drops the moving band, the **Active** pill and the green working treatment for
+it, tints the card through `data-work-board-waiting`, and names the ask — the
+sidebar's own "Pending question" or "Permission required" — in the card's status
+line and on the queue column's acting row. The mark before the title becomes the
+ask's own glyph, and it outranks the activity mark and the completion mark: it is
+the one of the three the user can act on. The turn keeps its real `busy` state,
+so the lane the server derived, the card's size and the queue's membership all
+stay as they were.
+
 The board has five columns: To-do, Plan, Build queue, Build complete, and Done.
 Build complete is where a settled Build turn lands: an idle Build session is
 finished history, and it stays there while the card's own work remains the last
@@ -96,7 +107,10 @@ arrow buttons make. The build queue column is the one place drag leaves alone.
 
 A build awaiting review has a red card. On the board's queue column a parked
 lease is the acting build and says so, with no moving band and no additional
-controls on the session card. Open session opens its chat. Continue queue opens a shared dialog showing the reported problem and
+controls on the session card. A lease whose session waits for the user's answer
+keeps its place as the acting build but carries the waiting treatment instead of
+the band, so a build that is really waiting on a reply never reads as running.
+Open session opens its chat. Continue queue opens a shared dialog showing the reported problem and
 explaining that acknowledgement releases the build without rerunning it or
 discarding its changes. A failed request leaves the dialog open with a visible
 error. Confirmation captures the directory and lease item ID; the server rejects
