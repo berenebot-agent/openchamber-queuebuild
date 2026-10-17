@@ -187,6 +187,13 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     setWorkspaceOpen(false);
   }, []);
 
+  // The board is one tap from the chat header and one from the sessions drawer
+  // footer, so both entry points share this path.
+  const openWorkBoard = React.useCallback(() => {
+    setSessionsSheetOpen(false);
+    openSurface('work-board');
+  }, [openSurface]);
+
   const openSettingsSurface = React.useCallback((stage: 'nav' | 'page-content') => {
     setSettingsInitialMobileStage(stage);
     openSurface('settings');
@@ -412,10 +419,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       onOpenScheduled: () => openSurface('scheduled'),
       onOpenArchive: () => openSurface('archive'),
       onOpenSourceBoard: () => openSurface('board'),
-      onOpenWorkBoard: () => { setSessionsSheetOpen(false); openSurface('work-board'); },
+      onOpenWorkBoard: openWorkBoard,
       onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
     }),
-    [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
+    [openSettingsSurface, openSurface, openWorkBoard, showCapacitorOnlyFeatures, showUpdateItem],
   );
 
   // A started run or a loop file to edit replaces the page: back to the chat,
@@ -554,6 +561,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         <div className="flex h-full min-w-0 flex-1 flex-col" data-page-scroll-lock="true">
           <MobileHeader
             onOpenSessions={() => (isTabletLayout ? toggleSidebar() : setSessionsSheetOpen(true))}
+            onOpenWorkBoard={openWorkBoard}
             onOpenWorkspace={() => setWorkspaceOpen(true)}
             compactTitle={isTabletLayout}
           />

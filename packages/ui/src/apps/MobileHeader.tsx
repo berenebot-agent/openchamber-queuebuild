@@ -17,12 +17,14 @@ import { MobileSessionSwitcher } from './MobileSessionSwitcher';
 
 export const MobileHeader: React.FC<{
   onOpenSessions: () => void;
+  /** Opens the Work Board surface; the chat hides the board it came from. */
+  onOpenWorkBoard: () => void;
   /** Opens the right workspace drawer (Changes / Files / Terminal / Notes / MCP). */
   onOpenWorkspace: () => void;
   /** Tablet: size the title trigger to its text instead of the free width, so
       a wide header doesn't turn the switcher into a full-width tap target. */
   compactTitle?: boolean;
-}> = ({ onOpenSessions, onOpenWorkspace, compactTitle = false }) => {
+}> = ({ onOpenSessions, onOpenWorkBoard, onOpenWorkspace, compactTitle = false }) => {
   const { t } = useI18n();
   const [metadataOpen, setMetadataOpen] = React.useState(false);
   const [switcherOpen, setSwitcherOpen] = React.useState(false);
@@ -99,6 +101,19 @@ export const MobileHeader: React.FC<{
             style={{ touchAction: 'manipulation' }}
           >
             <Icon name="list-unordered" className="size-5" />
+          </button>
+
+          {/* The board sits behind the chat, so the way back belongs here
+              rather than only in the sessions drawer footer. */}
+          <button
+            type="button"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t('workBoard.title')}
+            title={t('workBoard.title')}
+            onClick={onOpenWorkBoard}
+            style={{ touchAction: 'manipulation' }}
+          >
+            <Icon name="route" className="size-5" />
           </button>
 
           {/* Session title doubles as the recent-sessions switcher trigger. */}

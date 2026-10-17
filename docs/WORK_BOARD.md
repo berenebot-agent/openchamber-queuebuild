@@ -299,7 +299,9 @@ The board is available in web, Electron desktop chat, hosted mobile and the
 Capacitor Android/iOS shells. VS Code does not provide a board entry point and
 does not request board-backed session entries.
 
-The mobile shells open the same board from the sessions drawer. A phone or
+The mobile shells open the same board from the sessions drawer, and from the
+button next to the session list button in the chat header, so a session is one
+tap away from the board it came from. A phone or
 tablet shows one lane at a time behind a lane picker with a count per lane, a
 project selector in place of the tab strip, and the queue rows' actions in a
 touch-sized menu. Opening a session or starting a draft closes the board and
