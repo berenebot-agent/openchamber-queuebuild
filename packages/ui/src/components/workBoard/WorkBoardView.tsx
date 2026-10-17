@@ -790,7 +790,6 @@ export function WorkBoardView() {
       </label>
       <Button size="sm" variant="ghost" className="mb-2" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
     </header>
-    <p className="px-4 py-2 text-xs text-muted-foreground">{t('workBoard.newBrief')}</p>
     {(needsReview || queueIssue) && <section role="alert" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3 py-2">
       <Icon name="alert" className="size-4 shrink-0 text-status-warning" />
       <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{queueIssue || t('workBoard.needsReview')}</p>
