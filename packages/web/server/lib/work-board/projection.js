@@ -84,16 +84,19 @@ function queueForDirectory(queue, directory) {
     rows: queued.map((item, position) => ({
       itemId: item.id, sessionId: item.sessionId, directory: item.directory,
       content: item.content, paused: Boolean(item.paused), position,
+      model: item.model ?? null,
     })),
     order: queued.map(item => item.id),
     active: active ? {
       sessionId: active.sessionId, itemId: active.itemId, startedAt: active.startedAt,
       needsReview: Boolean(active.needsReview), retryAvailable: Boolean(active.retryAvailable),
+      content: active.content ?? null, model: active.model ?? null,
     } : null,
     forced: forced.map(item => ({
       sessionId: item.sessionId, startedAt: item.startedAt,
       itemId: item.itemId ?? null, needsReview: Boolean(item.needsReview),
       action: item.needsReview ? (item.action ?? 'resolve') : null,
+      content: item.content ?? null, model: item.model ?? null,
     })),
     issue: issue ?? null,
     preparation: (queue?.preparation ?? []).find(item => matches(item.directory)) ?? null,

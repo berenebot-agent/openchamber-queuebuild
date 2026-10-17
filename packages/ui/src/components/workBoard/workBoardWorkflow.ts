@@ -1,4 +1,4 @@
-import type { WorkBoardCard, WorkBoardAttachment, WorkBoardSnapshot, WorkBoardActivityMessage } from '@/lib/workBoardApi';
+import type { WorkBoardCard, WorkBoardAttachment, WorkBoardSnapshot, WorkBoardActivityMessage, WorkBoardQueuedModel } from '@/lib/workBoardApi';
 
 export type WorkBoardLane = 'todo' | 'plan' | 'queue' | 'build' | 'done';
 
@@ -112,6 +112,11 @@ export type WorkBoardQueueRow = {
   snippet: string;
   paused: boolean;
   position: number;
+  /** The build message the row's tooltip shows: the reason it is queued, plus
+   * any later Build prompts the server merged into the same item. */
+  content: string;
+  /** The model the build was submitted with, for the row's tooltip. */
+  model: WorkBoardQueuedModel | null;
 };
 
 /**
@@ -129,6 +134,9 @@ export type WorkBoardActiveEntry = {
   forced: boolean;
   needsReview?: boolean;
   itemId?: string | null;
+  /** What the build was submitted with; absent for a card-derived row. */
+  model?: WorkBoardQueuedModel | null;
+  content?: string | null;
 };
 
 /**
@@ -138,7 +146,7 @@ export type WorkBoardActiveEntry = {
  * row and carries the marker; the dedupe stops the same session showing twice.
  */
 export function workBoardActiveEntries(
-  forced: readonly { sessionId: string; title: string; needsReview?: boolean; itemId?: string | null }[],
+  forced: readonly { sessionId: string; title: string; needsReview?: boolean; itemId?: string | null; model?: WorkBoardQueuedModel | null; content?: string | null }[],
   live: readonly { sessionId: string; title: string; checking: boolean; unavailable: boolean }[],
 ): WorkBoardActiveEntry[] {
   const entries = new Map<string, WorkBoardActiveEntry>();
@@ -148,6 +156,8 @@ export function workBoardActiveEntries(
     };
     if (entry.needsReview) active.needsReview = true;
     if (entry.itemId) active.itemId = entry.itemId;
+    if (entry.model) active.model = entry.model;
+    if (entry.content) active.content = entry.content;
     entries.set(entry.sessionId, active);
   }
   for (const entry of live) if (!entries.has(entry.sessionId)) entries.set(entry.sessionId, { ...entry, forced: false });
@@ -155,7 +165,7 @@ export function workBoardActiveEntries(
 }
 
 function workBoardQueueRows(
-  queued: readonly { itemId: string; sessionId: string; content: string; paused: boolean; position: number }[],
+  queued: readonly { itemId: string; sessionId: string; content: string; paused: boolean; position: number; model: WorkBoardQueuedModel | null }[],
   titleFor: (sessionId: string) => string,
 ): WorkBoardQueueRow[] {
   return queued.map(item => ({
@@ -165,6 +175,8 @@ function workBoardQueueRows(
     snippet: item.content.trim().split('\n').find(line => line.trim())?.trim() || '',
     paused: item.paused,
     position: item.position,
+    content: item.content,
+    model: item.model,
   }));
 }
 

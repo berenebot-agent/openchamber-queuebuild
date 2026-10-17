@@ -110,6 +110,10 @@ const activityMessageSchema = z.object({
   outcome: z.string().optional(),
   agent: z.string().optional(),
 });
+/** The model a queued build was submitted with, as the queue captured it. */
+const queuedModelSchema = z.object({
+  providerID: z.string(), id: z.string(), variant: z.string().optional(),
+});
 const queueStateSchema = z.object({
   known: z.boolean(),
   // The project's queue enablement, independent of whether the queue could be
@@ -117,17 +121,20 @@ const queueStateSchema = z.object({
   enabled: z.boolean().nullable(),
   rows: z.array(z.object({
     itemId: z.string(), sessionId: z.string(), directory: z.string(), content: z.string(), paused: z.boolean(), position: z.number(),
+    model: queuedModelSchema.nullable(),
   })),
   order: z.array(z.string()),
   active: z.object({
     sessionId: z.string(), itemId: z.string(), startedAt: z.number(),
     needsReview: z.boolean(), retryAvailable: z.boolean(),
+    content: z.string().nullable(), model: queuedModelSchema.nullable(),
   }).nullable(),
   forced: z.array(z.object({
     sessionId: z.string(), startedAt: z.number(),
     // A forced build that may not have started carries its target item and the
     // recovery the runtime offers; a plain forced build carries nulls.
     itemId: z.string().nullable(), needsReview: z.boolean(), action: z.string().nullable(),
+    content: z.string().nullable(), model: queuedModelSchema.nullable(),
   })),
   issue: z.string().nullable(),
   preparation: z.object({ directory: z.string(), phase: z.string() }).nullable(),
@@ -157,6 +164,7 @@ const snapshotSchema = z.object({
 export type WorkBoardSnapshot = z.infer<typeof snapshotSchema>;
 export type WorkBoardSnapshotCard = z.infer<typeof snapshotCardSchema>;
 export type WorkBoardActivityMessage = z.infer<typeof activityMessageSchema>;
+export type WorkBoardQueuedModel = z.infer<typeof queuedModelSchema>;
 export type WorkBoardWaitingKind = WorkBoardSnapshot['waitingFor'][string];
 
 /**

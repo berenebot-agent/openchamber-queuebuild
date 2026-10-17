@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } f
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { workBoardCardTitle } from './workBoardCardTitle';
 import { Icon } from '@/components/icon/Icon';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SessionActivityIndicator } from '@/components/session/SessionActivityIndicator';
 import { useSessionTurnActivity } from '@/sync/global-session-status';
 import { useSessionUnseenCount } from '@/sync/notification-store';
@@ -20,10 +21,11 @@ import { createSession, setSessionWorkState } from '@/sync/session-actions';
 import { opencodeClient } from '@/lib/opencode/client';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isAutoModel } from '@/lib/routing/autoModel';
+import { getProviderModelDisplayName } from '@/lib/modelDisplay';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
-import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, WorkBoardRequestError, updateQueueSettings, type WorkBoardCard, type WorkBoardAttachment, type WorkBoardSnapshotCard, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
+import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, WorkBoardRequestError, updateQueueSettings, type WorkBoardCard, type WorkBoardAttachment, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
 import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, captureWorkBoardAttachments, workBoardBuildBadges, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -111,6 +113,36 @@ function WorkBoardSessionFeedback({ feedback }: { feedback: 'unknown' | 'blocked
 }
 
 /**
+ * Hover detail for a Build queue card: the model the build was submitted with,
+ * and the build message itself — the prompt that put the card in the queue, plus
+ * any later Build prompts the server merged into the same item. A card whose
+ * entry names neither renders on its own, without a tooltip.
+ */
+function WorkBoardQueueTooltip({ model, content, children }: {
+  model: WorkBoardQueuedModel | null | undefined;
+  content: string | null | undefined;
+  children: React.ReactElement;
+}) {
+  const { t } = useI18n();
+  const providers = useConfigStore(state => state.providers);
+  const modelName = React.useMemo(() => {
+    if (!model) return null;
+    const provider = providers.find(candidate => candidate.id === model.providerID);
+    return getProviderModelDisplayName(provider, model.id) || model.id;
+  }, [model, providers]);
+  if (!modelName && !content) return children;
+  return <Tooltip>
+    <TooltipTrigger asChild>{children}</TooltipTrigger>
+    <TooltipContent side="right" sideOffset={8} className="max-w-80 text-start">
+      <span className="block space-y-1.5">
+        {modelName && <span className="block font-medium">{t('workBoard.queuedModel', { model: modelName })}</span>}
+        {content && <span dir="auto" className="block whitespace-pre-wrap break-words">{content}</span>}
+      </span>
+    </TooltipContent>
+  </Tooltip>;
+}
+
+/**
  * One waiting queue row. It is sortable so the order the user drags it into is
  * the order the queue dispatches; the buttons stay as the keyboard path.
  */
@@ -132,18 +164,20 @@ function WorkBoardQueueRowItem({ row, index, order, busy, disabled, onOpen, onMo
     style={{ transform: CSS.Translate.toString(transform), transition }}
     className={'group relative flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-2.5 py-2 touch-none select-none '
       + (isDragging ? 'opacity-60' : '')}>
-    <button type="button" {...attributes} {...listeners} disabled={disabled}
-      className="flex min-w-0 flex-1 items-center gap-1.5 text-start"
-      aria-label={t('workBoard.openQueued', { title: row.title })} title={row.title}
-      onClick={() => onOpen(row.sessionId)}>
-      <span className="flex size-5 shrink-0 items-center justify-center rounded bg-[var(--interactive-selection)] text-[10px] font-semibold tabular-nums text-muted-foreground">{index + 1}</span>
-      <span className="min-w-0 flex-1">
-        <span dir="auto" className="block truncate text-xs font-medium leading-5 hover:underline">{row.title}</span>
-        {/* One line of subtitle space, reserved: a row keeps its height
-            whether it shows the prompt, "Paused", or a fallback session id. */}
-        <span dir="auto" className="block min-h-[1lh] truncate text-[11px] leading-5 text-muted-foreground">{row.paused ? t('workBoard.paused') : row.snippet || row.sessionId.slice(0, 9)}</span>
-      </span>
-    </button>
+    <WorkBoardQueueTooltip model={row.model} content={row.content}>
+      <button type="button" {...attributes} {...listeners} disabled={disabled}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-start"
+        aria-label={t('workBoard.openQueued', { title: row.title })}
+        onClick={() => onOpen(row.sessionId)}>
+        <span className="flex size-5 shrink-0 items-center justify-center rounded bg-[var(--interactive-selection)] text-[10px] font-semibold tabular-nums text-muted-foreground">{index + 1}</span>
+        <span className="min-w-0 flex-1">
+          <span dir="auto" className="block truncate text-xs font-medium leading-5 hover:underline">{row.title}</span>
+          {/* One line of subtitle space, reserved: a row keeps its height
+              whether it shows the prompt, "Paused", or a fallback session id. */}
+          <span dir="auto" className="block min-h-[1lh] truncate text-[11px] leading-5 text-muted-foreground">{row.paused ? t('workBoard.paused') : row.snippet || row.sessionId.slice(0, 9)}</span>
+        </span>
+      </button>
+    </WorkBoardQueueTooltip>
     <div className="flex shrink-0 items-center gap-0.5 opacity-40 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
       <Button size="icon" variant="ghost" className="size-6" disabled={busy || index === 0}
         aria-label={t('workBoard.moveUp', { title: row.title })} title={t('workBoard.moveUp', { title: row.title })}
@@ -171,7 +205,7 @@ function WorkBoardQueueRowItem({ row, index, order, busy, disabled, onOpen, onMo
  */
 function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy, error, dragged, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onNewBuild }: {
   rows: WorkBoardQueueRow[];
-  active: { sessionId: string; needsReview?: boolean; startedAt: number } | undefined;
+  active: { sessionId: string; needsReview?: boolean; startedAt: number; model?: WorkBoardQueuedModel | null; content?: string | null } | undefined;
   activeTitle: string;
   entries: WorkBoardActiveEntry[];
   order: string[];
@@ -190,10 +224,10 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
   const { t } = useI18n();
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
     {error && <p role="alert" className="mb-2 px-1 text-xs text-[var(--status-error-text)]">{error}</p>}
-    {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} waitingFor={waitingForOf(active.sessionId)} onOpen={() => onOpen(active.sessionId)} />}
+    {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} waitingFor={waitingForOf(active.sessionId)} model={active.model} content={active.content} onOpen={() => onOpen(active.sessionId)} />}
     {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title}
       needsReview={Boolean(entry.needsReview)} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced}
-      waitingFor={waitingForOf(entry.sessionId)}
+      waitingFor={waitingForOf(entry.sessionId)} model={entry.model} content={entry.content}
       onOpen={() => onOpen(entry.sessionId)}
       resolve={entry.needsReview && entry.itemId ? { sessionId: entry.sessionId, itemId: entry.itemId } : undefined}
       busy={busy} onResolve={onResolveForced} />)}
@@ -229,7 +263,7 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
  * ambiguous: it may or may not have started, so it takes the error treatment and
  * carries its own recovery, rather than reading as a plain running build.
  */
-function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, forced = false, waitingFor, resolve, busy = false, onResolve, onOpen }: {
+function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, forced = false, waitingFor, resolve, model, content, busy = false, onResolve, onOpen }: {
   title: string;
   needsReview: boolean;
   checking?: boolean;
@@ -237,35 +271,40 @@ function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailabl
   forced?: boolean;
   waitingFor?: WorkBoardWaitingKind;
   resolve?: { sessionId: string; itemId: string };
+  model?: WorkBoardQueuedModel | null;
+  content?: string | null;
   busy?: boolean;
   onResolve?: (row: { itemId: string; sessionId: string }) => void;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
   if (resolve) {
-    return <div className="mb-1 rounded-md border border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)] px-2.5 py-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[var(--status-error-background)] text-[var(--status-error-text)]"><Icon name="alert" className="size-3.5" /></span>
-        <span className="min-w-0 flex-1">
-          <button type="button" onClick={onOpen} dir="auto" className="block w-full truncate text-start text-xs font-semibold leading-5 hover:underline" title={title}>{title}</button>
-          <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t('workBoard.forcedUnconfirmed')}</span>
-        </span>
-        <Button size="xs" variant="outline" disabled={busy} onClick={() => onResolve?.({ sessionId: resolve.sessionId, itemId: resolve.itemId })}>{t('buildQueue.recovery.continue')}</Button>
+    return <WorkBoardQueueTooltip model={model} content={content}>
+      <div className="mb-1 rounded-md border border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)] px-2.5 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[var(--status-error-background)] text-[var(--status-error-text)]"><Icon name="alert" className="size-3.5" /></span>
+          <span className="min-w-0 flex-1">
+            <button type="button" onClick={onOpen} dir="auto" className="block w-full truncate text-start text-xs font-semibold leading-5 hover:underline" title={title}>{title}</button>
+            <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t('workBoard.forcedUnconfirmed')}</span>
+          </span>
+          <Button size="xs" variant="outline" disabled={busy} onClick={() => onResolve?.({ sessionId: resolve.sessionId, itemId: resolve.itemId })}>{t('buildQueue.recovery.continue')}</Button>
+        </div>
       </div>
-    </div>;
+    </WorkBoardQueueTooltip>;
   }
   // The user's own answer is what the build waits for: no moving band, no
   // "Active" pill, and the ask named in place of "Building now". A review, a
   // forced build and an unread status are their own states above it.
   const waiting = !needsReview && !checking && !unavailable && !forced ? waitingFor : undefined;
-  return <button type="button" onClick={onOpen}
+  return <WorkBoardQueueTooltip model={model} content={content}>
+    <button type="button" onClick={onOpen}
     className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
       + (needsReview
         ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
         : forced || waiting
           ? 'border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-warning)_18%,var(--surface-elevated))]'
           : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]')}
-    aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })} title={title}>
+    aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })}>
     {!needsReview && !checking && !forced && !waiting && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
     <span className="relative flex min-w-0 items-center gap-2">
       <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : forced || waiting ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
@@ -278,8 +317,9 @@ function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailabl
       {!needsReview && !checking && !waiting && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (forced ? 'text-[var(--status-warning-text)]' : 'text-[var(--status-info)]')}>
         <span className="size-1.5 rounded-full bg-[var(--status-success)] motion-safe:animate-pulse" />{t('workBoard.active')}
       </span>}
-    </span>
-  </button>;
+      </span>
+    </button>
+  </WorkBoardQueueTooltip>;
 }
 
 /**
@@ -679,7 +719,7 @@ export function WorkBoardView() {
   const forcedBuilds = React.useMemo(
     () => (queue?.forced ?? []).map(item => ({
       sessionId: item.sessionId, title: sessionTitleFor(item.sessionId),
-      needsReview: item.needsReview, itemId: item.itemId,
+      needsReview: item.needsReview, itemId: item.itemId, model: item.model, content: item.content,
     })),
     [queue, sessionTitleFor],
   );

@@ -315,7 +315,7 @@ test('an idle Build session is Build complete, and a build the queue holds for r
     });
     if (url.includes('/api/work-board/snapshot')) return Response.json(makeSnapshot({
       cards,
-      queue: { active: { sessionId: 'review', itemId: 'item1', startedAt: 1, needsReview: true, retryAvailable: false } },
+      queue: { active: { sessionId: 'review', itemId: 'item1', startedAt: 1, needsReview: true, retryAvailable: false, content: null, model: null } },
     }));
     if (url.includes('/api/work-board')) return Response.json({ cards });
     return Response.json({});
@@ -383,11 +383,11 @@ test('the build queue column runs one ordered list with its own row controls', a
   // has a board card, and all three must still appear.
   const snapshot = makeSnapshot({
     queue: {
-      active: { sessionId: 'running', itemId: 'active1', startedAt: 1, needsReview: false, retryAvailable: false },
+      active: { sessionId: 'running', itemId: 'active1', startedAt: 1, needsReview: false, retryAvailable: false, content: null, model: null },
       rows: [
-        { itemId: 'queued1', sessionId: 's1', directory: '/repo', content: 'First build', paused: false, position: 0 },
-        { itemId: 'queued2', sessionId: 's2', directory: '/repo', content: 'Second build', paused: true, position: 1 },
-        { itemId: 'queued3', sessionId: 's3', directory: '/repo', content: 'Third build', paused: false, position: 2 },
+        { itemId: 'queued1', sessionId: 's1', directory: '/repo', content: 'First build', paused: false, position: 0, model: { providerID: 'anthropic', id: 'claude' } },
+        { itemId: 'queued2', sessionId: 's2', directory: '/repo', content: 'Second build', paused: true, position: 1, model: null },
+        { itemId: 'queued3', sessionId: 's3', directory: '/repo', content: 'Third build', paused: false, position: 2, model: null },
       ],
       order: ['queued1', 'queued2', 'queued3'],
     },
@@ -426,6 +426,20 @@ test('the build queue column runs one ordered list with its own row controls', a
     expect(text).toContain('Paused');
     expect(text.indexOf('First build')).toBeLessThan(text.indexOf('Paused'));
     expect(lane().querySelector('.oc-build-stripes')).not.toBeNull();
+    // Hovering a card names the model it was submitted with and shows its build
+    // message.
+    const firstRow = lane().querySelector<HTMLElement>('[data-slot="tooltip-trigger"]')!;
+    await act(async () => {
+      firstRow.dispatchEvent(new window.PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
+      firstRow.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
+      firstRow.dispatchEvent(new window.MouseEvent('mouseenter', { bubbles: true }));
+      firstRow.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+      // The house tooltip opens after Base UI's default hover delay.
+      await new Promise(resolve => setTimeout(resolve, 700));
+    });
+    const cardTooltip = document.querySelector('[data-slot="tooltip-content"]');
+    expect(cardTooltip?.textContent).toContain('Model: Claude');
+    expect(cardTooltip?.textContent).toContain('First build');
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s1 up"]')?.disabled).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s3 down"]')?.disabled).toBe(true);
     // A move sends the project's whole order with just those two swapped, so

@@ -453,6 +453,13 @@ alone; a `retry` is not accepted for a force.
 together in `forced`, separate from the lease in `active`. A resolved force
 clears when the session's turn completes or the session is deleted.
 
+The build snapshot is also the board's display source for a queued or running
+build. Each `queued` row, and each `active` and `forced` entry, carries the
+`model` the prompt was submitted with (the `sendConfig` captured at admission);
+the lease and the forced entries also carry the build's own `content`, bounded
+to 300 characters, so a card still shows why it is running after its item has
+left the queue.
+
 **Not covered by admission.** Prompts the server itself sends straight to
 OpenCode — the session-goal continuation, and the control API's
 `POST /api/openchamber/sessions[/:id/send]` dispatch — do not pass through the

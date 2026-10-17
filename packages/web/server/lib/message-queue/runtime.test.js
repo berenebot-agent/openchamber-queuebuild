@@ -1118,6 +1118,25 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('names the submitted model and the build message on the queue card', async () => {
+    const { runtime } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 40 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({
+      content: 'first task\n\nsecond task', text: 'first task\n\nsecond task', buildQueue: true,
+      sendConfig: { providerID: 'anthropic', modelID: 'claude', agent: 'build' },
+    }));
+    // Waiting: the row carries the model it was submitted with.
+    expect(runtime.buildSnapshot().queued[0].model).toEqual({ providerID: 'anthropic', id: 'claude' });
+
+    await settle(60);
+    // Running: the lease keeps the message and the model after the item leaves.
+    const [lease] = runtime.buildSnapshot().active;
+    expect(lease.content).toBe('first task\n\nsecond task');
+    expect(lease.model).toEqual({ providerID: 'anthropic', id: 'claude' });
+    expect(runtime.buildSnapshot().queued).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('starts a forced build outside the lease and skips the serialized instruction', async () => {
     const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 40, buildRecheckMs: 20 });
     await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
@@ -1136,6 +1155,10 @@ describe('project-wide build queue', () => {
     expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
     expect(runtime.buildSnapshot().queued).toHaveLength(0);
     expect(runtime.buildSnapshot().forced.map(entry => entry.sessionId)).toEqual([SECOND]);
+    // The card still names the build's message and submitted model after the
+    // item leaves the queue.
+    expect(runtime.buildSnapshot().forced[0].content).toBe('second');
+    expect(runtime.buildSnapshot().forced[0].model).toEqual({ providerID: 'anthropic', id: 'claude' });
     // The forced prompt is outside the queue, so it carries no serialized-build
     // instruction; the leased build that does stays untouched.
     const forcedSynthetics = openCode.state.sent.filter(entry => entry.path.includes(SECOND) && entry.path.endsWith('/synthetic'));

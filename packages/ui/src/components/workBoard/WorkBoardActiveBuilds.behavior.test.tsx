@@ -110,8 +110,8 @@ test('live builds without queue entries remain visible and reconcile without dup
       cards: snapshot.cards,
       activities: snapshot.activities,
       queue: {
-        active: { sessionId: 'direct-a', itemId: 'active-a', startedAt: 1, needsReview: false, retryAvailable: false },
-        rows: [{ itemId: 'waiting-b', sessionId: 'direct-b', directory: '/repo', content: 'Queued build', paused: false, position: 0 }],
+        active: { sessionId: 'direct-a', itemId: 'active-a', startedAt: 1, needsReview: false, retryAvailable: false, content: null, model: null },
+        rows: [{ itemId: 'waiting-b', sessionId: 'direct-b', directory: '/repo', content: 'Queued build', paused: false, position: 0, model: null }],
         order: ['waiting-b'],
       },
     });
@@ -189,7 +189,7 @@ test('a session waiting for an answer stops reading as active and names the ask'
     time: { created: 1, updated: Date.now() },
   }));
   const card = snapshotCard({ id: 'session:planning', lane: 'plan', text: 'planning', sessionId: 'planning', stage: 'plan' });
-  const queue = { active: { sessionId: 'lease', itemId: 'lease', startedAt: 1, needsReview: false, retryAvailable: false } };
+  const queue = { active: { sessionId: 'lease', itemId: 'lease', startedAt: 1, needsReview: false, retryAvailable: false, content: null, model: null } };
   // Both wait on a question while OpenCode still reports their turns busy.
   let snapshot: WorkBoardSnapshot = makeSnapshot({
     cards: [card],
@@ -292,7 +292,7 @@ test('an unconfirmed forced build shows its recovery instead of reading as runni
   const requests: Array<{ url: string; method: string; body: unknown }> = [];
   const snapshot = makeSnapshot({
     queue: {
-      forced: [{ sessionId: 'forced-1', startedAt: 2, itemId: 'item-1', needsReview: true, action: 'resolve' }],
+      forced: [{ sessionId: 'forced-1', startedAt: 2, itemId: 'item-1', needsReview: true, action: 'resolve', content: null, model: null }],
     },
   });
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {

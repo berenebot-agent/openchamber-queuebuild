@@ -42,6 +42,9 @@ const defaultBuildQueueSettingsFile = path.join(
 const MAX_SESSIONS = 50;
 const MAX_ITEMS_PER_SESSION = 20;
 const CONTENT_CHAR_LIMIT = 200_000;
+// How much of a build's own prompt the queue snapshots carry. It is what the
+// board's tooltip shows as the reason a card is queued or running.
+const BUILD_SNAPSHOT_CHAR_LIMIT = 300;
 
 // Idle events arrive in bursts around a turn boundary; a short quiet window
 // coalesces them before the tick verifies idleness against OpenCode.
@@ -246,6 +249,19 @@ const toPublicItem = (item) => {
   if (item.buildQueue) publicItem.buildQueue = true;
   if (item.buildPaused) publicItem.buildPaused = true;
   return publicItem;
+};
+
+/**
+ * The model a build was queued with, as the build snapshot and the board read
+ * it: the selection admission captured on the item. `null` when the item names
+ * none (a scheduled job, or an item stored before that capture existed).
+ */
+const queuedModelOf = (item) => {
+  const { providerID, modelID, variant } = item.sendConfig;
+  if (!providerID || !modelID) return null;
+  const model = { providerID, id: modelID };
+  if (variant) model.variant = variant;
+  return model;
 };
 
 const extractSessionStatus = (payload) => {
@@ -540,7 +556,13 @@ export function createMessageQueueRuntime({
     commits: Array.from(buildCommits, ([directory, value]) => ({ directory, ...value })),
     active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease, retryAvailable: queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId) === true })),
     forced: [
-      ...Array.from(forcedBuilds, ([sessionId, value]) => ({ sessionId, directory: value.directory, startedAt: value.startedAt })),
+      ...Array.from(forcedBuilds, ([sessionId, value]) => ({
+        sessionId,
+        directory: value.directory,
+        startedAt: value.startedAt,
+        content: value.content ?? null,
+        model: value.model ?? null,
+      })),
       // An unresolved Force is not a running build: it carries the item it
       // targeted and the recovery the board offers for it.
       ...Array.from(forceReservations, ([sessionId, value]) => ({
@@ -550,9 +572,11 @@ export function createMessageQueueRuntime({
         itemId: value.itemId,
         needsReview: value.needsReview !== false,
         action: value.needsReview !== false ? 'resolve' : null,
+        content: value.content ?? null,
+        model: value.model ?? null,
       })),
     ],
-    queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, 300), createdAt: item.createdAt, order: index, paused: item.buildPaused === true })),
+    queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, BUILD_SNAPSHOT_CHAR_LIMIT), createdAt: item.createdAt, order: index, paused: item.buildPaused === true, model: queuedModelOf(item) })),
     issues: [
       ...Array.from(buildProblems.entries()).filter(([directory]) => pendingBuilds(directory).length > 0).map(([directory, issue]) => ({ directory, issue })),
       ...Array.from(activeBuilds.entries()).filter(([, lease]) => lease.needsReview)
@@ -1230,7 +1254,10 @@ export function createMessageQueueRuntime({
 
     // Reserve before the send, synchronously, so a second Force cannot pass its
     // own probe-to-reserve gap and dispatch the same item twice.
-    const reservation = { directory, itemId: item.id, startedAt: now(), needsReview: true, reviewReason: 'force-unconfirmed' };
+    const reservation = {
+      directory, itemId: item.id, startedAt: now(), needsReview: true, reviewReason: 'force-unconfirmed',
+      content: item.content.slice(0, BUILD_SNAPSHOT_CHAR_LIMIT), model: queuedModelOf(item),
+    };
     forceReservations.set(sessionId, reservation);
     sending.set(sessionId, item.id);
     broadcast(sessionId);
@@ -1263,7 +1290,10 @@ export function createMessageQueueRuntime({
     const after = queues.get(sessionId);
     if (after) setQueueItems(sessionId, after.directory, after.items.filter(entry => entry.id !== item.id), 'sent');
     forceReservations.delete(sessionId);
-    forcedBuilds.set(sessionId, { directory, startedAt: reservation.startedAt });
+    forcedBuilds.set(sessionId, {
+      directory, startedAt: reservation.startedAt,
+      content: current.content.slice(0, BUILD_SNAPSHOT_CHAR_LIMIT), model: queuedModelOf(current),
+    });
     commit(sessionId);
     wakeProject(directory);
     scheduleForcedMonitor(sessionId);
@@ -1547,7 +1577,12 @@ export function createMessageQueueRuntime({
       }
       if (parkingSessions.has(sessionId) || activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
       setBuildProblem(current.directory, null);
-      activeBuilds.set(current.directory, { sessionId, itemId: item.id, startedAt: now(), phase: 'dispatching' });
+      activeBuilds.set(current.directory, {
+        sessionId, itemId: item.id, startedAt: now(), phase: 'dispatching',
+        // What the running card says about itself after the item is gone: the
+        // prompt that started it and the model it runs on.
+        content: item.content.slice(0, BUILD_SNAPSHOT_CHAR_LIMIT), model: queuedModelOf(item),
+      });
       commit(sessionId);
       // The dispatch lease must be durable BEFORE the prompt can be accepted.
       // Otherwise a crash could replay a build without any record of it.

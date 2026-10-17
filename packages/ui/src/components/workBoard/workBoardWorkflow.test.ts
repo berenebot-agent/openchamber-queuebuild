@@ -17,15 +17,16 @@ const makeProjectionWithRows = (rows: WorkBoardSnapshot['queue']['rows']): WorkB
 describe('build queue column', () => {
   test('lists every queued build, including one the board has no card for', () => {
     const snapshot = makeProjectionWithRows([
-      { itemId: 'a', sessionId: 's1', directory: '/repo', content: '\n  Ship the queue column  \nmore detail', paused: false, position: 0 },
-      { itemId: 'b', sessionId: 's2', directory: '/repo', content: '', paused: true, position: 1 },
+      { itemId: 'a', sessionId: 's1', directory: '/repo', content: '\n  Ship the queue column  \nmore detail', paused: false, position: 0, model: { providerID: 'anthropic', id: 'claude' } },
+      { itemId: 'b', sessionId: 's2', directory: '/repo', content: '', paused: true, position: 1, model: null },
     ]);
     const rows = workBoardSnapshotRows(snapshot, sessionId => (sessionId === 's1' ? 'Named session' : 'Session s2'));
     expect(rows).toEqual([
       // Order is the queue's dispatch order, and the snippet is the first real
-      // line of the queued prompt. An empty prompt leaves the title alone.
-      { itemId: 'a', sessionId: 's1', title: 'Named session', snippet: 'Ship the queue column', paused: false, position: 0 },
-      { itemId: 'b', sessionId: 's2', title: 'Session s2', snippet: '', paused: true, position: 1 },
+      // line of the queued prompt. An empty prompt leaves the title alone. The
+      // row also carries the model and the full message for the card's tooltip.
+      { itemId: 'a', sessionId: 's1', title: 'Named session', snippet: 'Ship the queue column', paused: false, position: 0, content: '\n  Ship the queue column  \nmore detail', model: { providerID: 'anthropic', id: 'claude' } },
+      { itemId: 'b', sessionId: 's2', title: 'Session s2', snippet: '', paused: true, position: 1, content: '', model: null },
     ]);
   });
   test('a move sends the queue order with only the two neighbours swapped', () => {
@@ -39,7 +40,7 @@ describe('build queue column', () => {
   });
   test('forced builds and card-derived live builds merge into one row per session', () => {
     const entries = workBoardActiveEntries(
-      [{ sessionId: 's1', title: 'Forced build' }],
+      [{ sessionId: 's1', title: 'Forced build', model: { providerID: 'anthropic', id: 'claude' }, content: 'fix it' }],
       [
         { sessionId: 's1', title: 'Card title', checking: true, unavailable: false },
         { sessionId: 's2', title: 'Live build', checking: false, unavailable: true },
@@ -48,7 +49,7 @@ describe('build queue column', () => {
     // The server-named forced row wins over the same session's card row and
     // carries the marker; the plain live build keeps its own state.
     expect(entries).toEqual([
-      { sessionId: 's1', title: 'Forced build', checking: false, unavailable: false, forced: true },
+      { sessionId: 's1', title: 'Forced build', checking: false, unavailable: false, forced: true, model: { providerID: 'anthropic', id: 'claude' }, content: 'fix it' },
       { sessionId: 's2', title: 'Live build', checking: false, unavailable: true, forced: false },
     ]);
   });
@@ -74,9 +75,9 @@ describe('reading the server projection', () => {
     activities: {}, waitingFor: {}, unavailable: [], inheritedAvailable: true,
     queue: {
       known: true, enabled: true,
-      rows: [{ itemId: 'i1', sessionId: 'session1', directory: '/repo', content: 'wait', paused: false, position: 0 }],
+      rows: [{ itemId: 'i1', sessionId: 'session1', directory: '/repo', content: 'wait', paused: false, position: 0, model: null }],
       order: ['i1'],
-      active: { sessionId: 'session2', itemId: 'i2', startedAt: 1, needsReview: true, retryAvailable: false },
+      active: { sessionId: 'session2', itemId: 'i2', startedAt: 1, needsReview: true, retryAvailable: false, content: 'run', model: null },
       forced: [], issue: null, preparation: null, commit: null,
     },
   };

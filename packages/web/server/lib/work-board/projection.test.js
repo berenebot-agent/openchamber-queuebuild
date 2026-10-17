@@ -217,14 +217,26 @@ describe('work board projection', () => {
     const snapshot = await makeProjection({ queue: {
       active: [], queued: [], issues: [],
       forced: [
-        { sessionId: 's1', directory: '/repo', startedAt: 2, itemId: 'item1', needsReview: true, action: 'resolve' },
+        { sessionId: 's1', directory: '/repo', startedAt: 2, itemId: 'item1', needsReview: true, action: 'resolve', content: 'fix it', model: { providerID: 'anthropic', id: 'claude' } },
         { sessionId: 's2', directory: '/repo', startedAt: 3 },
       ],
     } }).snapshot('/repo');
     expect(snapshot.queue.forced).toEqual([
-      { sessionId: 's1', startedAt: 2, itemId: 'item1', needsReview: true, action: 'resolve' },
-      { sessionId: 's2', startedAt: 3, itemId: null, needsReview: false, action: null },
+      { sessionId: 's1', startedAt: 2, itemId: 'item1', needsReview: true, action: 'resolve', content: 'fix it', model: { providerID: 'anthropic', id: 'claude' } },
+      { sessionId: 's2', startedAt: 3, itemId: null, needsReview: false, action: null, content: null, model: null },
     ]);
+  });
+
+  it('carries the submitted model and the build message for queue cards', async () => {
+    const snapshot = await makeProjection({ queue: {
+      active: [{ directory: '/repo', sessionId: 's-run', itemId: 'i-run', startedAt: 5, content: 'running task', model: { providerID: 'anthropic', id: 'claude' } }],
+      queued: [{ id: 'i-wait', sessionId: 's-wait', directory: '/repo', content: 'waiting task', createdAt: 1, paused: false, model: { providerID: 'openai', id: 'gpt' } }],
+      issues: [],
+    } }).snapshot('/repo');
+    expect(snapshot.queue.rows).toEqual([
+      { itemId: 'i-wait', sessionId: 's-wait', directory: '/repo', content: 'waiting task', paused: false, position: 0, model: { providerID: 'openai', id: 'gpt' } },
+    ]);
+    expect(snapshot.queue.active).toMatchObject({ content: 'running task', model: { providerID: 'anthropic', id: 'claude' } });
   });
 });
 
