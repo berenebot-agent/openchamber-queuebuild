@@ -3,6 +3,8 @@ import { workBoardSessions } from './workBoardSessions';
 import { readWorkBoardMemory, rememberWorkBoard, type BoardSnapshot } from './workBoardMemory';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { useBuildQueuePreferences } from '@/stores/buildQueuePreferences';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { workBoardCardTitle } from './workBoardCardTitle';
@@ -307,6 +309,9 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     });
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
+  const queueEnabled = useBuildQueuePreferences(state => state.enabled[workBoardDirectoryKey(directory)] === true);
+  const setQueueEnabled = useBuildQueuePreferences(state => state.setEnabled);
+  const preferenceError = useBuildQueuePreferences(state => state.syncError);
   const includeOlder = useUIStore(state => state.workBoardOlderSessions[JSON.stringify([runtimeKey, directory])] ?? false);
   const activeSessionIds = useGlobalSessionStatusStore(state => state.activeSessionIds);
   const shellSessionIds = useBackgroundShellsStore(state => state.sessionIds);
@@ -834,6 +839,12 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
             {projects.map(project => <option key={project.id} value={project.id}>{project.label || project.path.split('/').at(-1) || project.path}</option>)}
           </select>
         </label>
+        <div className="flex min-h-11 items-center justify-between rounded-md border border-border bg-background px-3">
+          <span className="text-sm text-foreground">{t('settings.openchamber.buildQueue.enabled')}</span>
+          <Switch aria-label={t('settings.openchamber.buildQueue.enabled')}
+            disabled={!directory} checked={queueEnabled}
+            onCheckedChange={enabled => { void setQueueEnabled(directory, enabled).catch(() => undefined); }} />
+        </div>
         <div role="tablist" aria-label={t('workBoard.title')} className="grid grid-cols-4 gap-1">
           {lanes.map(lane => <button type="button" key={lane} role="tab" aria-selected={mobileLane === lane}
             onClick={() => setMobileLane(lane)}
@@ -875,7 +886,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
         {t('settings.openchamber.buildQueue.policy.retry')}
       </Button>}
     </section>}
-    {(actionError || error || queueError || sessionsError) && <div role="alert" className="px-4 py-2 text-sm text-[var(--status-error-text)]">{actionError || error || queueError || t('workBoard.unknown')}</div>}
+    {(actionError || error || queueError || sessionsError || (mobile && preferenceError)) && <div role="alert" className="px-4 py-2 text-sm text-[var(--status-error-text)]">{actionError || error || queueError || (mobile && preferenceError) || t('workBoard.unknown')}</div>}
     {!directory ? <p className="p-4">{t('workBoard.noProject')}</p> : <div className={mobile ? "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3" : "flex min-h-0 flex-1 gap-3 overflow-x-auto p-4"}>
       {visibleLanes.map(lane => {
         const inLane = visibleCards.filter(card => laneFor(card) === lane);
