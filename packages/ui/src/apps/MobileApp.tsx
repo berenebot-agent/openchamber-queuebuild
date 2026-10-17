@@ -74,6 +74,8 @@ import { MobileFullscreenSurface } from './MobileFullscreenSurface';
 import { UsageStatsView } from '@/components/views/usage/UsageStatsView';
 import { ArchiveSessionsView } from '@/components/views/ArchiveView';
 import { MobileSourceBoard } from '@/components/sourceBoard/SourceBoardView';
+// The board is opened on demand; the native chat boot should not load its history UI.
+const MobileWorkBoard = React.lazy(() => import('@/components/workBoard/WorkBoardView').then(m => ({ default: m.WorkBoardView })));
 import { ScheduledTasksView, type ScheduledTasksLeaveReason } from '@/components/session/ScheduledTasksDialog';
 import { MobileWorkspaceDrawer, type MobileWorkspaceTab } from './MobileWorkspaceDrawer';
 import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
@@ -129,7 +131,7 @@ const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
     footer. Exactly one can be open at a time — opening another replaces it,
     closing returns to the chat. The sessions drawer and the workspace drawer
     (Changes / Files / Terminal / Notes / MCP) are separate layers. */
-type MobileSurface = 'archive' | 'board' | 'instances' | 'scheduled' | 'settings' | 'update' | 'usage';
+type MobileSurface = 'archive' | 'board' | 'work-board' | 'instances' | 'scheduled' | 'settings' | 'update' | 'usage';
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   const { t, direction } = useI18n();
@@ -409,6 +411,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       onOpenScheduled: () => openSurface('scheduled'),
       onOpenArchive: () => openSurface('archive'),
       onOpenSourceBoard: () => openSurface('board'),
+      onOpenWorkBoard: () => openSurface('work-board'),
       onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
     }),
     [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
@@ -424,6 +427,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 
   // A session started from the board replaces the page: back to the chat.
   const leaveSourceBoard = React.useCallback(() => {
+    closeSurface();
+    setSessionsSheetOpen(false);
+  }, [closeSurface]);
+  const leaveWorkBoard = React.useCallback(() => {
     closeSurface();
     setSessionsSheetOpen(false);
   }, [closeSurface]);
@@ -727,6 +734,17 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           >
             <ErrorBoundary>
               <MobileSourceBoard onLeave={leaveSourceBoard} />
+            </ErrorBoundary>
+          </MobileFullscreenSurface>
+        ) : null}
+
+        {activeSurface === 'work-board' ? (
+          <MobileFullscreenSurface open variant={surfaceVariant} dialogAlign="app" onClose={closeSurface}
+            ariaLabel={t('workBoard.title')} title={t('workBoard.title')}>
+            <ErrorBoundary>
+              <React.Suspense fallback={<div role="status" className="p-4 text-sm text-muted-foreground">{t('common.loading')}</div>}>
+                <MobileWorkBoard mobile onLeave={leaveWorkBoard} />
+              </React.Suspense>
             </ErrorBoundary>
           </MobileFullscreenSurface>
         ) : null}
