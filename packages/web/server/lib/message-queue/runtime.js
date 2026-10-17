@@ -1518,10 +1518,14 @@ export function createMessageQueueRuntime({
     if (!directory) throw new TypeError('directory is required');
     const parsed = parseQueuedItemInput(itemInput);
     await load();
-    // A stale mobile/browser profile cannot opt out of a server-enabled queue
-    // when explicitly adding a Build-agent message to the shared inbox.
-    if (projectQueueEnabled.get(directory.replace(/\\/g, '/').replace(/\/+$/, '')) === true
-      && parsed.sendConfig?.agent?.toLowerCase() === 'build' && !parsed.scheduledTask) parsed.buildQueue = true;
+    // Once the project has an explicit server setting, it overrides stale
+    // client buildQueue flags in both directions. Projects with no migrated
+    // setting still accept legacy explicit buildQueue submissions.
+    const configured = projectQueueEnabled.get(directory.replace(/\\/g, '/').replace(/\/+$/, ''));
+    if (typeof configured === 'boolean' && parsed.sendConfig?.agent?.toLowerCase() === 'build' && !parsed.scheduledTask) {
+      if (configured) parsed.buildQueue = true;
+      else delete parsed.buildQueue;
+    }
     if (parkingSessions.has(sessionId)) throw httpError('Session is being parked to To-do', 409);
     const originalQueue = queues.get(sessionId);
     if (originalQueue && originalQueue.directory !== directory) throw httpError('session queue directory mismatch', 409);
