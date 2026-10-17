@@ -76,7 +76,7 @@ function WorkBoardSessionFeedback({ feedback }: { feedback: 'unknown' | 'blocked
  * The Build queue lane. The running lease and builds started outside the queue
  * sit above the gap. Waiting items keep the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy, error, onOpen, onMove, onTogglePause, onForce, onCancel, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy, error, onOpen, onMove, onTogglePause, onForce, onCancel, onNewBuild, mobile = false }: {
   rows: WorkBoardQueueRow[];
   active: { sessionId: string; needsReview?: boolean; startedAt: number } | undefined;
   activeTitle: string;
@@ -90,6 +90,7 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
   onForce: (row: { itemId: string; sessionId: string }) => void;
   onCancel: (row: { itemId: string; sessionId: string }) => void;
   onNewBuild: () => void;
+  mobile?: boolean;
 }) {
   const { t } = useI18n();
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
@@ -119,7 +120,17 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
               whether it shows the prompt, "Paused", or a fallback session id. */}
           <span dir="auto" className="block min-h-[1lh] truncate text-[11px] leading-5 text-muted-foreground">{row.paused ? t('workBoard.paused') : row.snippet || row.sessionId.slice(0, 9)}</span>
         </button>
-        <div className="flex shrink-0 items-center gap-0.5 opacity-40 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
+        {mobile ? <DropdownMenu>
+          <DropdownMenuTrigger asChild><Button type="button" size="icon" variant="ghost" className="size-10 shrink-0" disabled={busy}
+              aria-label={t('workBoard.laneActions')}><Icon name="more" className="size-5" /></Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem disabled={busy || index === 0} onClick={() => onMove(row.itemId, -1)}>{t('workBoard.moveUp', { title: row.title })}</DropdownMenuItem>
+            <DropdownMenuItem disabled={busy || index === order.length - 1} onClick={() => onMove(row.itemId, 1)}>{t('workBoard.moveDown', { title: row.title })}</DropdownMenuItem>
+            <DropdownMenuItem disabled={busy} onClick={() => onTogglePause(row)}>{t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}</DropdownMenuItem>
+            <DropdownMenuItem disabled={busy} onClick={() => onForce(row)}>{t('workBoard.force', { title: row.title })}</DropdownMenuItem>
+            <DropdownMenuItem disabled={busy} onClick={() => onCancel(row)}>{t('workBoard.cancelBuild', { title: row.title })}</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu> :         <div className="flex shrink-0 items-center gap-0.5 opacity-40 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
           <Button size="icon" variant="ghost" className="size-6" disabled={busy || index === 0}
             aria-label={t('workBoard.moveUp', { title: row.title })} title={t('workBoard.moveUp', { title: row.title })}
             onClick={() => onMove(row.itemId, -1)}><Icon name="arrow-up-s" className="size-3.5" /></Button>
@@ -136,7 +147,7 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
           <Button size="icon" variant="ghost" className="size-6 hover:text-[var(--status-error-text)]" disabled={busy}
             aria-label={t('workBoard.cancelBuild', { title: row.title })} title={t('workBoard.cancelBuild', { title: row.title })}
             onClick={() => onCancel(row)}><Icon name="close" className="size-3.5" /></Button>
-        </div>
+        </div>}
       </div>)}
     </div>
   </div>;
@@ -242,8 +253,9 @@ function WorkBoardCard({ card, lane, activity, checking, statusUnknown, needsRev
   </article>;
 }
 
-export function WorkBoardView() {
+export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; onLeave?: () => void } = {}) {
   const { t } = useI18n();
+  const [mobileLane, setMobileLane] = React.useState<WorkBoardLane>('queue');
   const projects = useProjectsStore(state => state.projects);
   const activeProjectId = useProjectsStore(state => state.activeProjectId);
   const hasServerSnapshot = useProjectsStore(state => state.hasServerSnapshot);
@@ -573,6 +585,7 @@ export function WorkBoardView() {
     const actualDirectory = sessions.find(session => session.id === sessionId)?.directory ?? fallbackDirectory;
     useSessionUIStore.getState().setCurrentSession(sessionId, actualDirectory);
     useUIStore.getState().closeMainSurfaces();
+    onLeave?.();
   };
   const promote = (card: WorkBoardCard) => void mutate(async () => {
     if (card.sessionId) { open(card.sessionId, card.directory); return; }
@@ -737,6 +750,7 @@ export function WorkBoardView() {
       origin: lane === 'todo' ? 'workBoard' : lane === 'plan' ? 'workBoardPlan' : 'workBoardBuild',
     });
     useUIStore.getState().closeMainSurfaces();
+    onLeave?.();
   };
 
   // Queue rows act on the queue itself. The board is a second surface on the
@@ -799,15 +813,36 @@ export function WorkBoardView() {
     void queueMutate('/api/build-queue/force', 'POST', body);
   };
 
-  return <div className="absolute inset-0 z-10 flex flex-col bg-background" aria-label={t('workBoard.title')}>
+  const visibleLanes = mobile ? lanes.filter(lane => lane === mobileLane) : lanes;
+  const mobileLaneCount = (lane: WorkBoardLane): number => lane === 'queue'
+    ? queueRows.length + (activeBuild ? 1 : 0) + workBoardActiveEntries(forcedBuilds, []).length
+    : visibleCards.filter(card => laneFor(card) === lane).length;
+  return <div className={mobile ? 'flex h-full min-h-0 flex-col bg-background' : 'absolute inset-0 z-10 flex flex-col bg-background'} aria-label={t('workBoard.title')}>
     {/* items-end + pt-3-only puts the project tabs on the header's lower edge, so
         a selected tab can flow into the board; the title and controls carry their
         own bottom padding and stay vertically centred. The header owns a surface
         because the selected tab is filled with the board's colour — against the
         bare board background the connection would read as an outline. */}
-    <header className="flex flex-wrap items-end gap-3 border-b border-border bg-surface-muted px-4 pt-3">
-      <h1 className="pb-3 text-lg font-semibold">{t('workBoard.title')}</h1>
-      <WorkBoardProjectTabs
+    <header className={mobile ? "flex shrink-0 flex-col gap-3 border-b border-border bg-surface-muted px-3 py-3" : "flex flex-wrap items-end gap-3 border-b border-border bg-surface-muted px-4 pt-3"}>
+      {!mobile && <h1 className="pb-3 text-lg font-semibold">{t('workBoard.title')}</h1>}
+      {mobile ? <>
+        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+          {t('workBoard.projectTabs')}
+          <select className="min-h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
+            value={projectId} onChange={event => addProjectTab(event.target.value)}
+            aria-label={t('workBoard.projectTabs')}>
+            {projects.map(project => <option key={project.id} value={project.id}>{project.name || project.path}</option>)}
+          </select>
+        </label>
+        <div role="tablist" aria-label={t('workBoard.title')} className="grid grid-cols-4 gap-1">
+          {lanes.map(lane => <button type="button" key={lane} role="tab" aria-selected={mobileLane === lane}
+            onClick={() => setMobileLane(lane)}
+            className={'flex min-h-12 flex-col items-center justify-center rounded-md border px-1 py-1 text-xs ' +
+              (mobileLane === lane ? 'border-[var(--interactive-selection)] bg-background font-semibold text-foreground' : 'border-transparent text-muted-foreground')}>
+            <span>{t(`workBoard.${lane}`)}</span><span className="tabular-nums">{mobileLaneCount(lane)}</span>
+          </button>)}
+        </div>
+      </> : <WorkBoardProjectTabs
         projects={projects}
         openProjectIds={visibleProjectTabs.map(project => project.id)}
         activeProjectId={projectId}
@@ -820,13 +855,13 @@ export function WorkBoardView() {
         onAdd={addProjectTab}
         onClose={closeProjectTab}
         onReorder={reorderProjectTab}
-      />
+      />}
       <label className="flex items-center gap-2 pb-3 text-xs text-muted-foreground">
         <input type="checkbox" checked={includeOlder} disabled={!directory || busy}
           onChange={event => useUIStore.getState().setWorkBoardOlderSessions(runtimeKey, directory, event.target.checked)} />
         {t('workBoard.includeOlderSessions')}
       </label>
-      <Button size="sm" variant="ghost" className="mb-2" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>
+      {!mobile && <Button size="sm" variant="ghost" className="mb-2" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')}><Icon name="close" className="size-4" /></Button>}
     </header>
     {(needsReview || queueIssue) && <section role="alert" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3 py-2">
       <Icon name="alert" className="size-4 shrink-0 text-status-warning" />
@@ -841,8 +876,8 @@ export function WorkBoardView() {
       </Button>}
     </section>}
     {(actionError || error || queueError || sessionsError) && <div role="alert" className="px-4 py-2 text-sm text-[var(--status-error-text)]">{actionError || error || queueError || t('workBoard.unknown')}</div>}
-    {!directory ? <p className="p-4">{t('workBoard.noProject')}</p> : <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
-      {lanes.map(lane => {
+    {!directory ? <p className="p-4">{t('workBoard.noProject')}</p> : <div className={mobile ? "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3" : "flex min-h-0 flex-1 gap-3 overflow-x-auto p-4"}>
+      {visibleLanes.map(lane => {
         const inLane = visibleCards.filter(card => laneFor(card) === lane);
         // The queue snapshot owns managed rows. Live builds without a queue
         // entry must also render, once per session, with no queue mutations.
@@ -857,7 +892,7 @@ export function WorkBoardView() {
         const activeEntries = lane === 'queue' ? workBoardActiveEntries(forcedBuilds, [...liveBuilds.values()]) : [];
         const count = lane === 'queue' ? queueRows.length + (activeBuild ? 1 : 0) + activeEntries.length : inLane.length;
         if (lane === 'done') inLane.sort((a, b) => completionTimeFor(b) - completionTimeFor(a) || a.id.localeCompare(b.id));
-        return <section key={lane} className="flex min-w-[240px] flex-1 flex-col rounded-lg bg-surface-muted" aria-label={t(`workBoard.${lane}`)}>
+        return <section key={lane} className={mobile ? "flex min-h-0 w-full flex-1 flex-col rounded-lg bg-surface-muted" : "flex min-w-[240px] flex-1 flex-col rounded-lg bg-surface-muted"} aria-label={t(`workBoard.${lane}`)}>
           <div className="flex items-center gap-2 px-3 py-3">
             <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{count}</span></h2>
             {(lane === 'todo' || lane === 'plan') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane === 'plan' && !agents.some(agent => agent.name === 'plan'))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')} title={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')}><Icon name="add" className="size-4" /></Button>}
@@ -883,6 +918,7 @@ export function WorkBoardView() {
             onForce={forceQueued}
             onCancel={cancelQueued}
             onNewBuild={() => newCard('queue')}
+            mobile={mobile}
           /> : <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">
             {!inLane.length && <p className="px-2 py-4 text-xs text-muted-foreground">{
               loading ? t('common.loading')
