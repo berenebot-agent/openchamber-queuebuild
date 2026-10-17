@@ -83,6 +83,56 @@ describe("input-store composer restore", () => {
   })
 })
 
+describe("input-store prompt adoptions", () => {
+  const session = { runtimeKey: "runtime", directory: "/repo", sessionId: "ses_build" }
+  const sessionKey = getChatDraftIdentityKey(session)
+
+  beforeEach(() => {
+    useInputStore.setState({
+      pendingPromptAdoptions: new Map(),
+      attachmentDraftKey: null,
+      attachmentDrafts: new Map(),
+      attachedFiles: [],
+    })
+  })
+
+  test("only the destination draft consumes an adoption, and only once", () => {
+    useInputStore.getState().adoptPrompt(session, { text: "planned task", files: [] })
+    for (const identity of [
+      null,
+      { ...session, sessionId: "other" },
+      { ...session, directory: "/elsewhere" },
+    ]) {
+      expect(useInputStore.getState().consumePromptAdoption(identity)).toBeNull()
+    }
+    expect(useInputStore.getState().consumePromptAdoption(session)).toEqual({ text: "planned task", files: [] })
+    expect(useInputStore.getState().consumePromptAdoption(session)).toBeNull()
+  })
+
+  test("a second cancel for the same session appends its text and files", () => {
+    const file = { url: "file:///repo/one.txt", mimeType: "text/plain", filename: "one.txt" }
+    useInputStore.getState().adoptPrompt(session, { text: "first", files: [file] })
+    useInputStore.getState().adoptPrompt(session, { text: "second", files: [] })
+
+    expect(useInputStore.getState().consumePromptAdoption(session)).toEqual({
+      text: "first\n\nsecond",
+      files: [file],
+    })
+  })
+
+  test("a named draft receives restored files without touching the selected composer", () => {
+    const selected = { runtimeKey: "runtime", directory: "/repo", sessionId: "ses_selected" }
+    useInputStore.getState().selectAttachmentDraft(selected)
+    useInputStore.getState().addRestoredAttachment(
+      { url: "file:///repo/kept.txt", mimeType: "text/plain", filename: "kept.txt" },
+      session,
+    )
+
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    expect(useInputStore.getState().attachmentDrafts.get(sessionKey)?.map((file) => file.filename)).toEqual(["kept.txt"])
+  })
+})
+
 describe("input-store attachments", () => {
   beforeEach(() => {
     pendingReaders.length = 0

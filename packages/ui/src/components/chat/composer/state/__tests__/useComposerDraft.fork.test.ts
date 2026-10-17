@@ -65,7 +65,7 @@ function renderComposer(persistEnabled: boolean) {
 
 beforeEach(() => {
     getDeferredSafeStorage().removeItem('openchamber.chatDrafts.v2');
-    useInputStore.setState({ pendingComposerRestore: null, attachmentDraftKey: null, attachmentDrafts: new Map() });
+    useInputStore.setState({ pendingComposerRestore: null, pendingPromptAdoptions: new Map(), attachmentDraftKey: null, attachmentDrafts: new Map() });
     useInputStore.getState().clearAttachedFiles();
 });
 
@@ -158,6 +158,41 @@ describe('fork composer restoration', () => {
             });
             expect(composer.result.text).toBe('');
             expect(useInputStore.getState().attachedFiles).toEqual([]);
+        } finally {
+            composer.teardown();
+        }
+    });
+});
+
+describe('cancelled build prompt adoption', () => {
+    test('appends the adopted prompt to the draft it belongs to, files included', () => {
+        const composer = renderComposer(true);
+        try {
+            act(() => {
+                useInputStore.getState().adoptPrompt(source, { text: 'planned task', files: [replayFile] });
+            });
+            expect(composer.result.text).toBe('source draft @source.ts\n\nplanned task');
+            expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(['replay.txt']);
+            expect(useInputStore.getState().pendingPromptAdoptions.size).toBe(0);
+            expect(readChatDraft(source).text).toBe('source draft @source.ts\n\nplanned task');
+        } finally {
+            composer.teardown();
+        }
+    });
+
+    test('holds an adoption for another session until that draft is rendered', () => {
+        const composer = renderComposer(false);
+        try {
+            act(() => {
+                useInputStore.getState().adoptPrompt(fork, { text: 'later session task', files: [] });
+            });
+            // The rendered draft is the source's; it neither takes nor drops it.
+            expect(composer.result.text).toBe('source draft @source.ts');
+            expect(useInputStore.getState().pendingPromptAdoptions.size).toBe(1);
+
+            composer.render(fork);
+            expect(composer.result.text).toBe('later session task');
+            expect(useInputStore.getState().pendingPromptAdoptions.size).toBe(0);
         } finally {
             composer.teardown();
         }

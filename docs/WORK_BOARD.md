@@ -31,7 +31,10 @@ reads apart from work that is merely waiting. A build the server has parked for
 review keeps its error treatment instead, because it is not running.
 Hovering a waiting row reaches the queue's own controls:
 move up, move down, pause or resume, and cancel. Each one writes to the queue and
-the column redraws from the refreshed snapshot.
+the column redraws from the refreshed snapshot. Cancel also hands the build's
+prompt back: its text and file references go into the draft of the session that
+held it, appended after whatever that draft already holds, and the board says so.
+Nothing the user typed is lost, even when that session is not the one on screen.
 The column lists every queued build for the project, including one the board has
 no card for, so it never shows a shorter queue than the project actually has.
 Rows act on the queue's own order, so a move keeps the builds the board cannot

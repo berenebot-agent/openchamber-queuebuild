@@ -11,6 +11,9 @@ import { useNotificationStore } from '@/sync/notification-store';
 import { applyGlobalSessionStatusSnapshot, useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { createChatDraftIdentity, getChatDraftIdentityKey } from '@/lib/chatDraftPersistence';
+import { useInputStore } from '@/sync/input-store';
+import { toast } from '@/components/ui';
 import type { WorkBoardSnapshot } from '@/lib/workBoardApi';
 import { completeTodoSave, useWorkBoardSavedTodo } from './workBoardSavedTodo';
 import { makeSnapshot, snapshotCard } from './workBoardSnapshot.fixture';
@@ -379,6 +382,8 @@ test('the build queue column runs one ordered list with its own row controls', a
   useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
   useSessionDisplayStore.setState({ animatedActivityIndicators: false });
   const requests: Array<{ url: string; method: string; body: unknown }> = [];
+  const infoSpy = spyOn(toast, 'info').mockImplementation(() => 'toast-id');
+  useInputStore.setState({ pendingPromptAdoptions: new Map() });
   // Three queued builds in dispatch order and one still running. None of them
   // has a board card, and all three must still appear.
   const snapshot = makeSnapshot({
@@ -397,6 +402,15 @@ test('the build queue column runs one ordered list with its own row controls', a
     if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
     if (url.includes('/api/build-queue')) {
       if (init?.method) requests.push({ url, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null });
+      // A cancelled build hands its prompt back so the board can put it in the
+      // session's draft.
+      if (init?.method === 'DELETE') {
+        return Response.json({
+          revision: 2,
+          session: { sessionId: 's3', directory: '/repo', items: [], sendingId: null },
+          item: { content: 'Third build', attachments: [] },
+        });
+      }
       return Response.json({ revision: 1, issues: [], active: [], queued: [] });
     }
     if (url.includes('/api/work-board/snapshot')) return Response.json(snapshot);
@@ -456,6 +470,12 @@ test('the build queue column runs one ordered list with its own row controls', a
     expect(requests.at(-1)?.method).toBe('DELETE');
     expect(requests.at(-1)?.url.endsWith('/api/build-queue/sessions/s3/items/queued3')).toBe(true);
     expect(requests.at(-1)?.body).toBeNull();
+    // The cancelled prompt is adopted into that session's draft, not discarded.
+    const cancelledIdentity = createChatDraftIdentity(getRuntimeKey(), '/repo', 's3');
+    expect(cancelledIdentity).not.toBeNull();
+    expect(useInputStore.getState().pendingPromptAdoptions.get(getChatDraftIdentityKey(cancelledIdentity!)))
+      .toEqual({ text: 'Third build', files: [] });
+    expect(infoSpy.mock.calls.length).toBe(1);
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore();

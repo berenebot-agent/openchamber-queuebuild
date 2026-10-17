@@ -108,6 +108,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         });
     }
     const pendingComposerRestore = useInputStore((state) => state.pendingComposerRestore);
+    const pendingPromptAdoptions = useInputStore((state) => state.pendingPromptAdoptions);
 
     // Follow the rendered composer, not the sidebar's deferred selection.
     // Layout timing prevents the incoming composer painting outgoing files.
@@ -230,6 +231,23 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             }
         });
     }, [clearPending, confirmedMentionsRef, identity, messageRef, pendingComposerRestore, persistEnabled, persistNow, setMessage]);
+
+    // A prompt another surface adopted into this draft (a cancelled build):
+    // appended after whatever the draft already holds, never replacing it.
+    React.useEffect(() => {
+        if (!identity) return;
+        const input = useInputStore.getState();
+        const adoption = input.consumePromptAdoption(identity);
+        if (!adoption) return;
+        const current = messageRef.current;
+        const text = adoption.text ? (current ? `${current}\n\n${adoption.text}` : adoption.text) : current;
+        if (adoption.text) {
+            messageRef.current = text;
+            setMessage(text);
+            if (persistEnabled) persistNow(identity, text);
+        }
+        for (const file of adoption.files) input.addRestoredAttachment(file, identity);
+    }, [identity, messageRef, pendingPromptAdoptions, persistEnabled, persistNow, setMessage]);
 
     // A draft deleted elsewhere (session deleted, drafts cleared) clears the
     // composer if it is the one on screen.

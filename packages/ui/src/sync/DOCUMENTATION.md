@@ -106,6 +106,8 @@ The composer compares normalized attachment MIME types with the selected model's
 
 Attachment drafts stay in memory for the page's lifetime, including composer remounts, independently of text persistence. `selectAttachmentDraft` saves the outgoing list and restores the rendered composer's runtime, directory, and session before paint. Switching cancels unfinished attachment reads. Send and queue recovery pass their captured draft identity so a late failure restores files to the source rather than the currently open session. Clearing or deleting a draft releases only its files. Opening a new-session draft leaves the outgoing session's files available for a return visit. With a chat pinned in the side panel two composers are on screen; each shows its own draft's files (`useDraftAttachedFiles`) and the selected slot follows the composer the user works in (composer documentation, *Pinned composer*).
 
+A surface that removes a queued prompt can hand it to the draft that owned it instead of discarding it. `adoptPrompt` holds the text and file references per draft identity until that draft's composer renders and `consumePromptAdoption` takes them once; the composer appends the text after what the draft already holds and adds the files, never replacing either. The Work board's cancel of a queued build is the caller, so the prompt survives on the session that queued it even when that session is not on screen. Only text and file references travel: a queued build captures no chips. Adoptions are in memory for the page's lifetime, like a fork replay, and a reload before the draft is opened drops them.
+
 ## Catalog changes apply live
 
 OpenCode v2 watches its own config files and rebuilds agents, commands, skills,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -16,13 +17,14 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { prepareLocalAttachments } from '@/sync/input-store';
+import { prepareLocalAttachments, useInputStore } from '@/sync/input-store';
 import { createSession, setSessionWorkState } from '@/sync/session-actions';
 import { opencodeClient } from '@/lib/opencode/client';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { getProviderModelDisplayName } from '@/lib/modelDisplay';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { createChatDraftIdentity } from '@/lib/chatDraftPersistence';
 import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, WorkBoardRequestError, updateQueueSettings, type WorkBoardCard, type WorkBoardAttachment, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
@@ -57,6 +59,23 @@ const collide: CollisionDetection = args => {
 };
 
 const queueErrorSchema = z.object({ error: z.string().optional(), warning: z.string().optional() });
+
+/**
+ * The cancel response: an error, or the removed item's payload so the prompt
+ * can be put back into its session's draft. Only the text and file references
+ * are restorable — a queued build captures no chips.
+ */
+const buildCancelResponseSchema = z.object({
+  error: z.string().optional(),
+  item: z.object({
+    content: z.string(),
+    attachments: z.array(z.object({
+      filename: z.string(),
+      mimeType: z.string(),
+      dataUrl: z.string().optional(),
+    })).optional(),
+  }).optional(),
+});
 
 /**
  * The mark and the words a waiting session shows, reusing the sidebar's own
@@ -857,9 +876,42 @@ export function WorkBoardView() {
   const toggleQueuedPause = (row: { itemId: string; sessionId: string; paused: boolean }) =>
     void queueMutate('/api/build-queue/sessions/' + encodeURIComponent(row.sessionId) +
       '/items/' + encodeURIComponent(row.itemId) + '/pause', 'PUT', { paused: !row.paused });
-  const cancelQueued = (row: { itemId: string; sessionId: string }) =>
-    void queueMutate('/api/build-queue/sessions/' + encodeURIComponent(row.sessionId) +
-      '/items/' + encodeURIComponent(row.itemId), 'DELETE');
+  const adoptCancelledBuild = (
+    sessionId: string,
+    item: { content: string; attachments?: Array<{ filename: string; mimeType: string; dataUrl?: string }> },
+  ) => {
+    // The session's own directory, not the board's: a worktree keeps its own
+    // queue and its own drafts.
+    const sessionDirectory = useSessionUIStore.getState().getDirectoryForSession(sessionId) ?? directory;
+    const target = sessionDirectory ? createChatDraftIdentity(getRuntimeKey(), sessionDirectory, sessionId) : null;
+    if (!target) return;
+    const files = (item.attachments ?? []).flatMap((attachment) => attachment.dataUrl
+      ? [{ url: attachment.dataUrl, mimeType: attachment.mimeType, filename: attachment.filename }]
+      : []);
+    useInputStore.getState().adoptPrompt(target, { text: item.content, files });
+    toast.info(t('workBoard.cancelBuildKeptDraft'));
+  };
+  // Cancelling a build hands its prompt back to the draft of the session that
+  // held it, so the text the user typed is never lost. It appends, after
+  // whatever that session's draft already holds.
+  const cancelBuild = async (row: { itemId: string; sessionId: string }) => {
+    setQueueBusy(true);
+    setQueueActionError('');
+    try {
+      const response = await runtimeFetch('/api/build-queue/sessions/' + encodeURIComponent(row.sessionId) +
+        '/items/' + encodeURIComponent(row.itemId), { method: 'DELETE' });
+      const payload = buildCancelResponseSchema.safeParse(await response.json().catch(() => null));
+      if (!response.ok) throw new Error((payload.success && payload.data.error) || `HTTP ${response.status}`);
+      const item = payload.success ? payload.data.item : undefined;
+      if (item) adoptCancelledBuild(row.sessionId, item);
+      await refresh();
+    } catch (cause) {
+      setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
+    } finally {
+      setQueueBusy(false);
+    }
+  };
+  const cancelQueued = (row: { itemId: string; sessionId: string }) => void cancelBuild(row);
   // Continue drops the frozen item and releases the lane, so it confirms first:
   // a mis-click on a header control must not silently discard queued work. The
   // itemId pins the confirmation to the lease the user was looking at.

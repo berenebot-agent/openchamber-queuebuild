@@ -47,6 +47,12 @@ and the queue's own routes. A drag writes the board and nothing else: it never
 starts a turn, and it can neither put a card into nor take one out of the build
 queue. The queue column's rows are the only queue-mutation surface.
 
+Cancelling a waiting build keeps its prompt. The cancel route answers with the
+removed item, and the board hands its text and file references to that session's
+draft through `input-store.adoptPrompt` (appended, never replacing the draft),
+then says so with an info toast. Only the text and files travel: a queued build
+captures no chips. A build whose session cannot be resolved still cancels.
+
 Placements are stamped by the server's clock, and each one carries the card
 version the client read, so a change made on another device between the read and
 the write is a 409 the board reports instead of an overwrite.

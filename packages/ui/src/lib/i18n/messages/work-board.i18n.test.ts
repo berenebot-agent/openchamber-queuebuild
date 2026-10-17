@@ -26,4 +26,11 @@ describe('work board translations', () => {
       }
     }
   });
+  test('translates the cancelled-build draft note in every supported locale', () => {
+    for (const locale of locales) {
+      const message = workBoardI18n[locale]['workBoard.cancelBuildKeptDraft'];
+      expect(message).toBeTruthy();
+      if (locale !== 'en') expect(message).not.toBe(workBoardI18n.en['workBoard.cancelBuildKeptDraft']);
+    }
+  });
 });

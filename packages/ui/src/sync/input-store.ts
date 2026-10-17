@@ -134,13 +134,30 @@ export type VSCodeActiveEditorFile = {
   selection: { startLine: number; endLine: number; text: string } | null
 }
 
+/** A file already on the server, put back on a composer as an attachment. */
+export type RestoredAttachmentInput = { url: string; mimeType: string; filename: string }
+
+/**
+ * A prompt another surface adopted into a draft: a cancelled build's text and
+ * files, waiting for the composer that owns the target identity to take them.
+ * Appended, never replacing what the draft already holds.
+ */
+export type PromptAdoption = {
+  text: string
+  files: RestoredAttachmentInput[]
+}
+
 export type InputState = {
   pendingComposerRestore: {
     target: ChatDraftIdentity
     text: string
-    files: Array<{ url: string; mimeType: string; filename: string }>
+    files: RestoredAttachmentInput[]
   } | null
   consumePendingComposerRestore: (target: ChatDraftIdentity | null) => InputState["pendingComposerRestore"]
+  /** Adoptions by draft identity key; cancelling several builds keeps every one. */
+  pendingPromptAdoptions: Map<string, PromptAdoption>
+  adoptPrompt: (target: ChatDraftIdentity, adoption: PromptAdoption) => void
+  consumePromptAdoption: (target: ChatDraftIdentity | null) => PromptAdoption | null
   pendingInputText: string | null
   pendingInputMode: "replace" | "append" | "append-inline"
   /**
@@ -199,7 +216,7 @@ export type InputState = {
   addVSCodeSelectionAttachment: (path: string, file: File) => Promise<void>
   setActiveEditorFile: (file: VSCodeActiveEditorFile | null) => void
   /** Add attachments restored from a reverted message (file already on server) */
-  addRestoredAttachment: (file: { url: string; mimeType: string; filename: string }) => void
+  addRestoredAttachment: (file: RestoredAttachmentInput, target?: ChatDraftIdentity | null) => void
 }
 
 export const useInputStore = create<InputState>()((set, get) => ({
@@ -209,6 +226,31 @@ export const useInputStore = create<InputState>()((set, get) => ({
     if (!pending || !target || getChatDraftIdentityKey(pending.target) !== getChatDraftIdentityKey(target)) return null
     set({ pendingComposerRestore: null })
     return pending
+  },
+  pendingPromptAdoptions: new Map(),
+  adoptPrompt: (target, adoption) => {
+    const key = getChatDraftIdentityKey(target)
+    const existing = get().pendingPromptAdoptions.get(key)
+    // Merge so two cancels for one session both survive until it is opened.
+    const merged: PromptAdoption = existing
+      ? {
+        text: existing.text && adoption.text ? `${existing.text}\n\n${adoption.text}` : (existing.text || adoption.text),
+        files: [...existing.files, ...adoption.files],
+      }
+      : adoption
+    const next = new Map(get().pendingPromptAdoptions)
+    next.set(key, merged)
+    set({ pendingPromptAdoptions: next })
+  },
+  consumePromptAdoption: (target) => {
+    if (!target) return null
+    const key = getChatDraftIdentityKey(target)
+    const adoption = get().pendingPromptAdoptions.get(key)
+    if (!adoption) return null
+    const next = new Map(get().pendingPromptAdoptions)
+    next.delete(key)
+    set({ pendingPromptAdoptions: next })
+    return adoption
   },
   pendingInputText: null,
   pendingInputMode: "replace",
@@ -422,7 +464,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
     set({ activeEditorFile: file })
   },
 
-  addRestoredAttachment: ({ url, mimeType, filename }) => {
+  addRestoredAttachment: ({ url, mimeType, filename }, target) => {
     const id = `restored-${Date.now()}-${Math.random().toString(36).slice(2)}`
     // Use "local" source so the file renders in AttachedFilesList.
     // Set serverPath to the URL so ImagePreview can use it as the img src
@@ -438,7 +480,13 @@ export const useInputStore = create<InputState>()((set, get) => ({
       source: "local",
       serverPath: url,
     }
-    set((s) => ({ attachedFiles: [...s.attachedFiles, attached] }))
+    // No target: the selected composer, as before. A named draft (a cancelled
+    // build's session, possibly not on screen) gets it appended in its own slot.
+    if (target === undefined) {
+      set((s) => ({ attachedFiles: [...s.attachedFiles, attached] }))
+      return
+    }
+    get().restoreAttachedFiles([attached], target)
   },
 }))
 
