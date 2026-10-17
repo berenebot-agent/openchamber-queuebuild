@@ -1986,4 +1986,49 @@ describe('project-wide build queue', () => {
     }
   });
 
+  it('persists project queue enablement and applies it to stale mobile inbox submissions', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null });
+    const { runtime, openCode } = first;
+    openCode.state.active[SESSION] = { type: 'running' };
+    try {
+      const enabled = await runtime.setProjectQueueEnabled(DIRECTORY, true);
+      expect(enabled.projectQueueEnabled[DIRECTORY]).toBe(true);
+      await runtime.enqueue(SESSION, DIRECTORY, item({
+        content: 'mobile build', text: 'mobile build', buildQueue: false,
+      }));
+      expect(runtime.buildSnapshot().queued.map(entry => entry.content)).toEqual(['mobile build']);
+      await runtime.flush();
+      const saved = JSON.parse(fs.readFileSync(path.join(first.dataDir, 'message-queue.json'), 'utf8'));
+      expect(saved.projectQueueEnabled[DIRECTORY]).toBe(true);
+      const second = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null });
+      await second.runtime.load();
+      expect(second.runtime.buildSnapshot().projectQueueEnabled[DIRECTORY]).toBe(true);
+      expect(second.runtime.buildSnapshot().queued).toHaveLength(1);
+      await second.runtime.setProjectQueueEnabled(DIRECTORY, false);
+      expect(second.runtime.buildSnapshot().projectQueueEnabled[DIRECTORY]).toBe(false);
+      second.runtime.stop();
+      await second.runtime.flush();
+    } finally {
+      runtime.stop();
+      await runtime.flush();
+    }
+  });
+
+  it('does not promote Plan-agent messages into the server-enabled Build queue', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    openCode.state.active[SESSION] = { type: 'running' };
+    try {
+      await runtime.setProjectQueueEnabled(DIRECTORY, true);
+      await runtime.enqueue(SESSION, DIRECTORY, item({
+        text: 'plan freely', content: 'plan freely', buildQueue: false,
+        sendConfig: { providerID: 'anthropic', modelID: 'claude', agent: 'plan' },
+      }));
+      expect(runtime.buildSnapshot().queued).toEqual([]);
+      expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(1);
+    } finally {
+      runtime.stop();
+      await runtime.flush();
+    }
+  });
+
 });
