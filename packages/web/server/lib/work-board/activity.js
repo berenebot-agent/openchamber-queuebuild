@@ -36,13 +36,16 @@ export function createWorkBoardActivity({ listMessages, listActiveSessionIds, no
 
   /**
    * Read live status once and reconcile every requested session against it.
-   * Returns `{ activity, unavailable }`; `unavailable` names sessions whose
-   * status or history could not be read this round.
+   * Returns `{ activity, unavailable, missing }`; `unavailable` names sessions
+   * whose status or history could not be read this round, and `missing` the
+   * subset OpenCode reported it does not have. A missing id stays unavailable
+   * too: a prune that fails must still read as an error, not as loading.
    */
   const read = async (requests) => {
     const result = new Map();
     const unavailable = new Set();
-    if (!requests.length) return { activity: result, unavailable };
+    const missing = new Set();
+    if (!requests.length) return { activity: result, unavailable, missing };
     // A failed status read is unknown, never idle: a busy session must not read
     // as settled. Every session this round is unavailable when status is null.
     const active = await listActiveSessionIds().catch(() => null);
@@ -63,13 +66,18 @@ export function createWorkBoardActivity({ listMessages, listActiveSessionIds, no
         entries.set(sessionId, { messages, updatedAt: updatedAt ?? now(), failed: false });
         result.set(sessionId, { busy, messages });
         if (active === null) unavailable.add(sessionId);
-      } catch {
+      } catch (error) {
         const cached = entries.get(sessionId);
         if (cached) entries.set(sessionId, { ...cached, failed: true });
         unavailable.add(sessionId);
+        // OpenCode throwing its session-not-found body is not a read that failed:
+        // the session is gone, and no later read can succeed. Same shape
+        // whichever call was the first to notice, and distinct from the client's
+        // own transport/status errors, which stay retryable.
+        if (error?._tag === 'SessionNotFoundError') missing.add(sessionId);
       }
     }));
-    return { activity: result, unavailable };
+    return { activity: result, unavailable, missing };
   };
 
   /** Drop one session's cached history so the next read re-fetches it. */

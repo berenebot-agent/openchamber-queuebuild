@@ -6,13 +6,13 @@ const baseCard = (over = {}) => ({
   createdAt: 1, updatedAt: 1, stage: 'todo', ...over,
 });
 
-const makeProjection = ({ cards = [], queue = null, sessions = [], listSessions, activity = new Map(), unavailable = [], enabled = true, pending = {} } = {}) => createWorkBoardProjection({
+const makeProjection = ({ cards = [], queue = null, sessions = [], listSessions, activity = new Map(), unavailable = [], missing = [], enabled = true, pending = {} } = {}) => createWorkBoardProjection({
   store: { list: async () => cards },
   listSessions: listSessions ?? (async () => sessions),
   readQueueSnapshot: () => queue,
   readQueueEnabled: async () => enabled,
   readPendingRequests: () => pending,
-  activity: { read: async requests => ({ activity, unavailable: new Set(unavailable), requests }) },
+  activity: { read: async requests => ({ activity, unavailable: new Set(unavailable), missing: new Set(missing), requests }) },
   now: () => 1000,
 });
 
@@ -103,6 +103,16 @@ describe('work board projection', () => {
     const cards = [baseCard({ id: 'linked', stage: 'plan', sessionId: 's1' })];
     const snapshot = await makeProjection({ cards, unavailable: ['s1'] }).snapshot('/repo');
     expect(snapshot.cards[0].status).toBe('unavailable');
+    expect(snapshot.cards[0].availableActions).not.toContain('complete');
+  });
+
+  it('carries the sessions OpenCode says it does not have into the snapshot, still unsettled', async () => {
+    const cards = [baseCard({ id: 'linked', stage: 'plan', sessionId: 's1' })];
+    const snapshot = await makeProjection({ cards, unavailable: ['s1'], missing: ['s1'] }).snapshot('/repo');
+    // The projection only reads: it names the missing session and leaves the
+    // prune to its caller.
+    expect(snapshot.missing).toEqual(['s1']);
+    expect(snapshot.unavailable).toEqual(['s1']);
     expect(snapshot.cards[0].availableActions).not.toContain('complete');
   });
 
@@ -204,7 +214,7 @@ describe('work board projection', () => {
       listSessions: async () => [],
       readQueueSnapshot,
       readQueueEnabled: async () => false,
-      activity: { read: async () => ({ activity: new Map(), unavailable: new Set() }) },
+      activity: { read: async () => ({ activity: new Map(), unavailable: new Set(), missing: new Set() }) },
       now: () => 1000,
     });
     const snapshot = await projection.snapshot('/repo');
@@ -254,11 +264,20 @@ describe('work board projection runtime', () => {
     { id: `user-${sessionId}`, type: 'user', text: 'go', time: { created } },
   ]);
 
-  const makeRuntime = ({ cards = [], sessions = [], active = {}, queue = null, pending = () => ({}), now = () => 1000 } = {}) => {
+  const makeRuntime = ({ cards = [], sessions = [], active = {}, queue = null, pending = () => ({}), now = () => 1000, readPage } = {}) => {
     const reads = [];
+    const prunes = [];
+    let live = cards;
     const runtime = createWorkBoardProjectionRuntime({
-      store: { list: async () => cards },
-      readPage: async (sessionId) => { reads.push(sessionId); return page(...buildTurn(sessionId, 2)); },
+      store: {
+        list: async () => live,
+        pruneMissing: async (directory, sessionIds) => {
+          prunes.push([directory, sessionIds]);
+          live = live.filter(card => !(card.sessionId && sessionIds.includes(card.sessionId)));
+          return sessionIds;
+        },
+      },
+      readPage: readPage ?? (async sessionId => { reads.push(sessionId); return page(...buildTurn(sessionId, 2)); }),
       readSessions: async directory => sessions.filter(entry => entry.location?.directory === directory),
       readActiveSessionIds: async () => active,
       readQueueSnapshot: () => queue,
@@ -266,7 +285,7 @@ describe('work board projection runtime', () => {
       readPendingRequests: pending,
       now,
     });
-    return { runtime, reads };
+    return { runtime, reads, prunes };
   };
 
   it('reads real v2 envelopes into lanes and hides an in-flight Build turn in the queue', async () => {
@@ -296,6 +315,41 @@ describe('work board projection runtime', () => {
     const snapshot = await runtime.projection.snapshot('/repo');
     expect(snapshot.cards[0].lane).toBe('build');
     expect(snapshot.cards[0].availableActions).toContain('complete');
+  });
+
+  it('prunes the card of a session OpenCode no longer has, and never returns it', async () => {
+    const cards = [{
+      id: 'gone', directory: '/repo', text: 'test', attachments: [],
+      createdAt: 1, updatedAt: 5, stage: 'plan', sessionId: 'ses_gone',
+    }];
+    const notFound = Object.assign(new Error('Session not found: ses_gone'), { _tag: 'SessionNotFoundError', name: 'SessionNotFoundError' });
+    const { runtime, prunes } = makeRuntime({ cards, readPage: async () => { throw notFound; } });
+    const snapshot = await runtime.projection.snapshot('/repo');
+    expect(prunes).toEqual([['/repo', ['ses_gone']]]);
+    // The card leaves every index with it, so the response is coherent.
+    expect(snapshot.cards).toEqual([]);
+    expect(snapshot.lanes).toEqual({});
+    expect(snapshot.placements).toEqual({});
+    expect(snapshot.order).toEqual({ todo: [], plan: [], queue: [], build: [], done: [] });
+    expect(snapshot.missing).toEqual(['ses_gone']);
+    // The prune is durable, so the next read has no card left to prune.
+    expect((await runtime.projection.snapshot('/repo')).cards).toEqual([]);
+    expect(prunes).toHaveLength(1);
+  });
+
+  it('keeps the card of a session whose read merely failed, reporting it unavailable', async () => {
+    const cards = [{
+      id: 'linked', directory: '/repo', text: 'go', attachments: [],
+      createdAt: 1, updatedAt: 5, stage: 'plan', sessionId: 'ses_1',
+    }];
+    const { runtime, prunes } = makeRuntime({ cards, readPage: async () => { throw new Error('OpenCode is offline'); } });
+    const snapshot = await runtime.projection.snapshot('/repo');
+    // A failed read is not a deleted session: the card stays and reads as the
+    // error it is.
+    expect(prunes).toEqual([]);
+    expect(snapshot.missing).toEqual([]);
+    expect(snapshot.cards).toHaveLength(1);
+    expect(snapshot.cards[0].status).toBe('unavailable');
   });
 
   it('adds real v2 sessions as inherited cards and drops their cache on reset', async () => {

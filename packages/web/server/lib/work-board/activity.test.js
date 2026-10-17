@@ -72,6 +72,27 @@ describe('work board activity', () => {
     expect(second.activity.get('s1').messages).toHaveLength(1);
   });
 
+  it('reports a session OpenCode no longer has as missing, and a failed read as only unavailable', async () => {
+    const notFound = Object.assign(new Error('Session not found: s1'), { _tag: 'SessionNotFoundError', name: 'SessionNotFoundError' });
+    const gone = createWorkBoardActivity({
+      listMessages: async () => { throw notFound; },
+      listActiveSessionIds: async () => ({}),
+      now: () => 100,
+    });
+    const read = await gone.read([{ sessionId: 's1', directory: '/repo', updatedAt: 2 }]);
+    // Gone is a subset of unreadable, so a prune that fails still shows an error.
+    expect(read.missing.has('s1')).toBe(true);
+    expect(read.unavailable.has('s1')).toBe(true);
+    const offline = createWorkBoardActivity({
+      listMessages: async () => { throw new Error('history offline'); },
+      listActiveSessionIds: async () => ({}),
+      now: () => 100,
+    });
+    const offlineRead = await offline.read([{ sessionId: 's1', directory: '/repo', updatedAt: 2 }]);
+    expect(offlineRead.unavailable.has('s1')).toBe(true);
+    expect(offlineRead.missing.size).toBe(0);
+  });
+
   it('treats a failed live-status read as unknown, never as idle', async () => {
     const activity = createWorkBoardActivity({
       listMessages: async () => page(assistant('a', 'build', 2)),

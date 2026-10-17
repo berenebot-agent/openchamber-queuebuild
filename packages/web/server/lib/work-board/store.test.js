@@ -97,6 +97,26 @@ describe('work board persistence', () => {
     } finally { await remove(dataDir); }
   });
 
+  it('prunes only the proven-gone sessions of the directory that proved them', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      const live = await store.parkSession({ ...input(), sessionId: 'session-live' });
+      await store.parkSession({ ...input(), sessionId: 'session-gone' });
+      const goneElsewhere = await store.parkSession({ ...input('/other'), sessionId: 'session-gone' });
+      const unlinked = await store.create({ ...input(), text: 'Still a brief' });
+      // An empty set is a no-op, not a wipe, and an id no card carries removes nothing.
+      expect(await store.pruneMissing('/project', [])).toEqual([]);
+      expect(await store.pruneMissing('/project', ['session-unheard-of'])).toEqual([]);
+      expect(await store.list()).toHaveLength(4);
+      expect(await store.pruneMissing('/project', ['session-gone'])).toEqual(['session-gone']);
+      // Only this directory's card with that session, and nothing unlinked: the
+      // live card, another directory's link, and a brief with no session stand.
+      expect(await createWorkBoardStore({ dataDir }).list()).toEqual([live, goneElsewhere, unlinked]);
+      // The prune is durable, so repeating it finds nothing left to remove.
+      expect(await store.pruneMissing('/project', ['session-gone'])).toEqual([]);
+    } finally { await remove(dataDir); }
+  });
+
   it('validates text and attachment data and retains a card on invalid updates', async () => {
     const { dataDir, store } = await setup();
     try {

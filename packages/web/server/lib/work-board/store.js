@@ -302,5 +302,20 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       await write(remaining);
       return true;
     }),
+    // A card whose session OpenCode no longer has can never settle again: the
+    // board prunes it instead of leaving a card nothing can move. Only ids the
+    // caller proved absent are accepted, and only that directory's own cards, so
+    // a failed read elsewhere can never delete a live card. Returns the session
+    // ids it pruned, which is how the caller drops their cards from its response.
+    pruneMissing: (directory, sessionIds) => serialized(async () => {
+      const gone = new Set(sessionIds);
+      if (!gone.size) return [];
+      const cards = await read();
+      const removed = cards.filter(card => card.directory === directory && card.sessionId && gone.has(card.sessionId));
+      if (!removed.length) return [];
+      const removedIds = new Set(removed.map(card => card.id));
+      await write(cards.filter(card => !removedIds.has(card.id)));
+      return removed.map(card => card.sessionId);
+    }),
   };
 }

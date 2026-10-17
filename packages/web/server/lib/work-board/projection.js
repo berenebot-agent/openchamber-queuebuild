@@ -155,7 +155,7 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
     const linked = new Set(stored.map(card => card.sessionId));
     const cards = [...stored, ...sessions.cards.filter(card => !linked.has(card.sessionId))];
     const requests = cards.filter(card => card.sessionId).map(card => ({ sessionId: card.sessionId, directory: card.directory, updatedAt: card.updatedAt }));
-    const { activity: live, unavailable } = await activity.read(requests).catch(() => ({ activity: new Map(), unavailable: new Set() }));
+    const { activity: live, unavailable, missing } = await activity.read(requests).catch(() => ({ activity: new Map(), unavailable: new Set(), missing: new Set() }));
     let queueSnapshot = null;
     try {
       queueSnapshot = await readQueueSnapshot();
@@ -228,6 +228,9 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       activities,
       waitingFor,
       unavailable: [...unavailable],
+      // Sessions OpenCode reported it does not have. The caller prunes their
+      // cards; the projection itself only reads.
+      missing: [...missing],
       inheritedAvailable: sessions.available,
       queue: queueState
         ? { ...queueState, enabled, known: true }
@@ -266,6 +269,31 @@ export function createWorkBoardProjectionRuntime({ store, readPage, readSessions
   const listSessions = (directory, { includeOlder = false } = {}) => readSessions(directory, { includeOlder, recentWindowMs: RECENT_WINDOW_MS });
   const projection = createWorkBoardProjection({ store, activity, listSessions, readQueueSnapshot, readQueueEnabled, readPendingRequests, now });
 
+  /**
+   * The projection, with the cards whose session OpenCode has proven deleted
+   * pruned in the same read. The projection only reads, so the prune is a store
+   * write owned here at the wiring boundary, and the response never carries a
+   * card the server just deleted. A failed prune leaves the cards in place and
+   * reported unavailable, and the next read tries again.
+   */
+  const snapshot = async (directory, options) => {
+    const result = await projection.snapshot(directory, options);
+    if (!result.missing.length) return result;
+    const removed = new Set(await store.pruneMissing(result.directory, result.missing).catch(() => []));
+    if (!removed.size) return result;
+    const cards = result.cards.filter(card => !(card.sessionId && removed.has(card.sessionId)));
+    const keep = new Set(cards.map(card => card.id));
+    // The pruned cards leave every index with them, so nothing downstream
+    // resolves an id this response no longer carries.
+    return {
+      ...result,
+      cards,
+      lanes: Object.fromEntries(Object.entries(result.lanes).filter(([id]) => keep.has(id))),
+      order: Object.fromEntries(Object.entries(result.order).map(([lane, ids]) => [lane, ids.filter(id => keep.has(id))])),
+      placements: Object.fromEntries(Object.entries(result.placements).filter(([id]) => keep.has(id))),
+    };
+  };
+
   /** Session events that change a card's lane, activity, status or ask. */
   const sessionIdOf = (payload) => payload?.properties?.sessionID ?? payload?.properties?.info?.sessionID ?? null;
   const processPayload = (payload, directoryHint = '') => {
@@ -286,5 +314,5 @@ export function createWorkBoardProjectionRuntime({ store, readPage, readSessions
     return payload.properties?.directory ?? directoryHint ?? null;
   };
 
-  return { projection, activity, processPayload, reset: () => activity.reset() };
+  return { projection: { ...projection, snapshot }, activity, processPayload, reset: () => activity.reset() };
 }

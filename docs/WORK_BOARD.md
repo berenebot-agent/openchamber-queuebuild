@@ -249,7 +249,9 @@ from the board or session list clears that notice and the unread icon. Another
 unread failed or stopped turn can show the notice again. Build-queue recovery
 warnings remain until resolved, even after opening the session.
 An unavailable status stays visible as an error and is never treated as proof
-of completion.
+of completion. A card whose session the server no longer has is the exception:
+OpenCode has deleted it, so no later read can succeed, and the card is removed
+from the board when the board next reads it rather than left unable to settle.
 Cards retain these notices below their titles, in the one line every card
 reserves for status. A card carrying a notice takes the larger card size and the
 amber treatment on the card itself, so it reads as a problem card rather than an
