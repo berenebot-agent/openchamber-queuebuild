@@ -176,6 +176,28 @@ describe('work board projection', () => {
     expect(snapshot.order.todo).toEqual(['first', 'second', 'last']);
   });
 
+  it('holds the Plan lane in session-start order when the session list churns', async () => {
+    // OpenCode serves the session list newest update first, so a streaming
+    // planning session leads it; the board must not carry that into the lane.
+    const older = { id: 'older', title: 'Older', time: { created: 100, updated: 500 } };
+    const newer = { id: 'newer', title: 'Newer', time: { created: 200, updated: 300 } };
+    let listed = [older, newer];
+    const projection = makeProjection({ listSessions: async () => listed });
+    expect((await projection.snapshot('/repo')).order.plan).toEqual(['session:newer', 'session:older']);
+    listed = [newer, older];
+    expect((await projection.snapshot('/repo')).order.plan).toEqual(['session:newer', 'session:older']);
+  });
+
+  it('still puts a dragged Plan card above the start order', async () => {
+    const cards = [baseCard({ id: 'pinned', stage: 'plan', sessionId: 'older', placementOrder: 0 })];
+    const sessions = [
+      { id: 'older', title: 'Older', time: { created: 100, updated: 500 } },
+      { id: 'newer', title: 'Newer', time: { created: 200, updated: 300 } },
+    ];
+    const snapshot = await makeProjection({ cards, sessions }).snapshot('/repo');
+    expect(snapshot.order.plan).toEqual(['pinned', 'session:newer']);
+  });
+
   it('derives inherited cards from sessions the board has no card for', async () => {
     const sessions = [
       { id: 'known', title: 'Already on the board', time: { created: 1, updated: 2 } },

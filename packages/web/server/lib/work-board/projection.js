@@ -268,6 +268,11 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
     const order = Object.fromEntries(LANES.map(lane => [lane, []]));
     const placements = {};
     const activities = {};
+    // When each card's session was started: the session itself where the list
+    // read covers it, else when the card was made. Only the Plan lane orders by
+    // it.
+    const sessionStartedAt = new Map(sessions.cards.map(card => [card.sessionId, card.createdAt]));
+    const startTimeOf = (card) => sessionStartedAt.get(card.sessionId) ?? card.createdAt;
     const decorated = cards.map(card => {
       const entry = card.sessionId ? live.get(card.sessionId) : undefined;
       const queueOwned = Boolean(card.sessionId) && queueSessionIds.has(card.sessionId);
@@ -284,13 +289,18 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
     });
 
     // Order within a lane: the stored placement order where the user set one,
-    // Done by newest completion first, and anything unarranged after it.
+    // Done by newest completion first, and anything unarranged after it. The
+    // Plan lane runs its sessions in parallel, so its unarranged cards hold the
+    // order the sessions were started in rather than jumping to the top as one
+    // streams: newest start first, like Done's newest completion.
     for (const lane of CARD_LANES) {
       const inLane = decorated.filter(card => lanes[card.id] === lane);
       if (lane === 'done') inLane.sort((a, b) => placements[b.id].completedAt - placements[a.id].completedAt || a.id.localeCompare(b.id));
       const arranged = inLane.filter(card => card.placementOrder !== undefined)
         .sort((a, b) => (a.placementOrder ?? 0) - (b.placementOrder ?? 0) || a.id.localeCompare(b.id));
-      order[lane] = [...arranged, ...inLane.filter(card => card.placementOrder === undefined)].map(card => card.id);
+      const unarranged = inLane.filter(card => card.placementOrder === undefined);
+      if (lane === 'plan') unarranged.sort((a, b) => startTimeOf(b) - startTimeOf(a));
+      order[lane] = [...arranged, ...unarranged].map(card => card.id);
     }
 
     return {
