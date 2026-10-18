@@ -25,7 +25,10 @@ queue and appear in the Build queue column.
 
 The Build queue column is the project's queue, not a copy of it. The build the
 project is running now sits at the top, under a gap, and the builds waiting sit
-below it in the order the queue will dispatch them. That running build is the
+below it in the order the queue will dispatch them. A build that leaves a
+background command running keeps the queue on its session after its turn ends,
+because OpenCode resumes that session when the command exits; the next queued
+build waits until then. That running build is the
 only card on the board that carries a moving diagonal band, so work in progress
 reads apart from work that is merely waiting. A build the server has parked for
 review keeps its error treatment instead, because it is not running.

@@ -266,6 +266,14 @@ dedupe window for a lost response, not durable state, and the window is bounded.
    links, including idle intermediate subagents; a deeper chain counts as
    unrelated, as in the UI. Unreadable lineage, cycles and the shared fetch
    deadline keep the queue held with the existing retry policy. It does not scan historical child pages.
+   A background shell job is the same kind of pause: the tool call settles at
+   once and the session resumes when the job exits. `fetchRunningShellSessionIds`
+   reads the directory-scoped `GET /api/shell` (which lists running jobs with
+   their `metadata.sessionID`), and a session with a running job of its own, or
+   a job in one of its descendants, is not free. An unreadable list is unknown
+   and holds. A session that is busy is rechecked after 5 s rather than waiting
+   for an idle event, because a session held only by a job has no turn of its
+   own to end.
  5. After the lane and persistence checks, activity and descendants are checked
     once more before the session model, agent or synthetic context is changed.
     If another turn started during preparation, the in-flight mark and build
@@ -335,8 +343,10 @@ project's queue was on, or by a path the queue does not cover — is detected an
 then holds the queued build, and the adopted lane releases itself when that turn
 ends. Detection reads `/api/session/active` for the running ids and the
 directory-scoped `GET /api/session` (the encoded `x-opencode-directory` header,
-as in the admission routes) for the agent and location; a session the user
-forced is excluded, because a Force exists to run beside the queue. A directory
+as in the admission routes) for the agent and location; a build session whose
+turn is over but whose background job still runs (`GET /api/shell`) is a live
+build too, because it resumes. A session the user forced is excluded, because a
+Force exists to run beside the queue. A directory
 whose list cannot be read is unknown, never "no live build", so dispatch waits
 and retries rather than guessing. An adopted lane is in-memory only — a restart
 re-detects the live build — and it never parks for review or reruns anything: it
@@ -400,7 +410,9 @@ Live leases that remain verifiably idle without completion evidence for 30 secon
 also enter manual review. Delayed startup can settle during this grace period.
 A busy session, active descendant, or failed activity/history read resets the
 idle grace period. Unknown status keeps the lease held; it never admits the next
-Build.
+Build. A running background shell job counts as busy: a build that started
+`./rebuild.sh` with `background: true` has finished its turn but OpenCode will
+resume it, so the lease is held until the job exits.
 The Git service's scope, ignore rules and failure contract are documented in
 `../git/DOCUMENTATION.md`, under "Automatic build preparation".
 

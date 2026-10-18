@@ -666,10 +666,18 @@ export function createMessageQueueRuntime({
   const activityProbe = createSessionActivityProbe({ buildOpenCodeUrl, getOpenCodeAuthHeaders, timeoutMs: FETCH_TIMEOUT_MS, fetchImpl });
 
   /** True while a subagent of the session runs; null when it could not be checked. */
-  const hasWorkingSubagents = async (sessionId) => {
+  const hasWorkingSubagents = async (sessionId, directory) => {
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     if (!statuses) return null;
-    return activityProbe.hasWorkingDescendants(sessionId, statuses);
+    const working = await activityProbe.hasWorkingDescendants(sessionId, statuses);
+    if (working !== false) return working;
+    // A child's background job resumes the child, which reruns the parent. It
+    // needs the same directory-scoped read as the session's own job, and the
+    // session's own job is not a child of itself.
+    if (!directory) return false;
+    const shells = await activityProbe.fetchRunningShellSessionIds(directory, { excludeSessionId: sessionId });
+    if (shells === null) return null;
+    return activityProbe.hasShellDescendants(sessionId, shells);
   };
 
   const isSessionIdle = async (sessionId, directory) => {
@@ -700,6 +708,11 @@ export function createMessageQueueRuntime({
       // created timestamp stays conservative and blocks, as before.)
       console.log(`[message-queue] ignoring pre-boot unfinished tail for ${sessionId}`);
     }
+    // A background shell job outlives the turn that started it and resumes the
+    // session when it exits, so the session is not free until the job ends.
+    const shells = await activityProbe.fetchRunningShellSessionIds(directory);
+    if (shells === null) return null;
+    if (shells.has(sessionId)) return false;
     return true;
   };
 
@@ -938,7 +951,12 @@ export function createMessageQueueRuntime({
     const statuses = asRecord(body && 'data' in body ? body.data : body);
     if (!statuses) return undefined;
     const activeIds = Object.keys(statuses).filter(sessionId => asRecord(statuses[sessionId]) && !forcedBuilds.has(sessionId));
-    if (activeIds.length === 0) return null;
+    // A session with no running turn but a live background job resumes when the
+    // job exits, so it still counts as a live build: the lane waits for it
+    // rather than starting a second build that would run beside it.
+    const shells = await activityProbe.fetchRunningShellSessionIds(directory);
+    if (shells === null) return undefined;
+    if (activeIds.length === 0 && shells.size === 0) return null;
     // v2 scopes the session list by header, not by query (see the admission
     // routes). A plain query would name OpenCode's own working directory.
     const listed = asList(asRecord(await openCodeFetch('/api/session', {
@@ -947,7 +965,7 @@ export function createMessageQueueRuntime({
     if (!listed) return undefined;
     const key = directoryKey(directory);
     const live = listed.map(asRecord).find(session => session && !session.parentID
-      && activeIds.includes(asNonEmptyString(session.id) ?? '')
+      && (activeIds.includes(asNonEmptyString(session.id) ?? '') || shells.has(asNonEmptyString(session.id) ?? ''))
       && directoryKey(asNonEmptyString(asRecord(session.location)?.directory) ?? '') === key
       && isBuildAgentName(asNonEmptyString(session.agent) ?? ''));
     return live ? asNonEmptyString(live.id) : null;
@@ -983,7 +1001,7 @@ export function createMessageQueueRuntime({
       if (now() - lease.startedAt < buildMonitorDelayMs) { scheduleBuildMonitor(directory); return; }
       const adoptedIdle = await isSessionIdle(lease.sessionId, directory);
       if (activeBuilds.get(directory) !== lease) return;
-      const adoptedChildren = adoptedIdle === true ? await hasWorkingSubagents(lease.sessionId) : null;
+      const adoptedChildren = adoptedIdle === true ? await hasWorkingSubagents(lease.sessionId, directory) : null;
       if (adoptedIdle !== true || adoptedChildren !== false) {
         delete lease.unconfirmedIdleAt;
         scheduleBuildMonitor(directory, buildRecheckMs);
@@ -1009,7 +1027,7 @@ export function createMessageQueueRuntime({
       const flaggedIdle = await isSessionIdle(lease.sessionId, directory);
       if (activeBuilds.get(directory) !== lease || !lease.needsReview) return;
       if (flaggedIdle !== true) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
-      const flaggedChildren = await hasWorkingSubagents(lease.sessionId);
+      const flaggedChildren = await hasWorkingSubagents(lease.sessionId, directory);
       if (activeBuilds.get(directory) !== lease || !lease.needsReview) return;
       if (flaggedChildren !== false) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
       const flaggedEvidence = await leaseTurnCompleted(lease, directory);
@@ -1028,7 +1046,7 @@ export function createMessageQueueRuntime({
     if (now() - lease.startedAt < buildMonitorDelayMs) { scheduleBuildMonitor(directory); return; }
     const idle = await isSessionIdle(lease.sessionId, directory);
     if (idle === false) lease.observedBusy = true;
-    const children = idle === true ? await hasWorkingSubagents(lease.sessionId) : null;
+    const children = idle === true ? await hasWorkingSubagents(lease.sessionId, directory) : null;
     // Seeing a busy -> idle transition is NOT proof that the Build turn
     // completed: it may have been interrupted, especially across a restart.
     // Require a completed assistant response from this lease's own turn.
@@ -1090,7 +1108,7 @@ export function createMessageQueueRuntime({
     if (stopped || !forced) return;
     if (now() - forced.startedAt < buildMonitorDelayMs) { scheduleForcedMonitor(sessionId); return; }
     const idle = await isSessionIdle(sessionId, forced.directory);
-    const children = idle === true ? await hasWorkingSubagents(sessionId) : null;
+    const children = idle === true ? await hasWorkingSubagents(sessionId, forced.directory) : null;
     if (idle !== true || children !== false) {
       delete forced.unconfirmedIdleAt;
       scheduleForcedMonitor(sessionId, buildRecheckMs);
@@ -1326,7 +1344,7 @@ export function createMessageQueueRuntime({
     const idle = await isSessionIdle(sessionId, directory);
     if (idle === null) throw httpError('The session status is unavailable; try again before forcing this build', 409);
     if (idle !== true) throw httpError('The session is busy; wait for its turn to finish before forcing this build', 409);
-    const subagents = await hasWorkingSubagents(sessionId);
+    const subagents = await hasWorkingSubagents(sessionId, directory);
     if (subagents === null) throw httpError('The session status is unavailable; try again before forcing this build', 409);
     if (subagents !== false) throw httpError('The session has running subagents; wait before forcing this build', 409);
     // Re-read after the probes: the queue may have changed while they ran, and
@@ -1574,14 +1592,20 @@ export function createMessageQueueRuntime({
       armDispatch(sessionId, retryDelayMs(1));
       return;
     }
-    // Busy: the next idle status event re-arms the loop.
-    if (!idle) return;
+    // Busy: the next idle status event re-arms the loop. A session held only
+    // by a background job has no turn of its own to end — the job's exit
+    // resumes it — so it can end without that event arriving; the recheck
+    // keeps delivery from waiting on an event that never comes.
+    if (!idle) {
+      armDispatch(sessionId, SUBAGENT_RECHECK_MS);
+      return;
+    }
 
     // A queued message waits for the whole turn. A parent idles while a
     // background subagent works and runs again when OpenCode hands the
     // result back, so the turn is only over once no subagent runs. That rerun
     // re-arms through its idle event; the recheck covers a missed one.
-    const subagentsWorking = await hasWorkingSubagents(sessionId);
+    const subagentsWorking = await hasWorkingSubagents(sessionId, queue.directory);
     if (subagentsWorking !== false) {
       armDispatch(sessionId, subagentsWorking === null ? retryDelayMs(1) : SUBAGENT_RECHECK_MS);
       return;
@@ -1611,7 +1635,7 @@ export function createMessageQueueRuntime({
         // the build may have finished while the list was being read.
         if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory)) return;
         if (liveSessionId) {
-          activeBuilds.set(current.directory, { sessionId: liveSessionId, startedAt: now(), phase: 'running', adopted: true });
+      activeBuilds.set(current.directory, { sessionId: liveSessionId, startedAt: now(), phase: 'running', adopted: true });
           commit(sessionId);
           scheduleBuildMonitor(current.directory);
           wakeProject(current.directory);
@@ -1657,7 +1681,7 @@ export function createMessageQueueRuntime({
           });
           if (result) buildCommits.set(current.directory, result);
           const stillIdle = await isSessionIdle(sessionId, current.directory);
-          const stillNoSubagents = stillIdle === true ? await hasWorkingSubagents(sessionId) : null;
+          const stillNoSubagents = stillIdle === true ? await hasWorkingSubagents(sessionId, current.directory) : null;
           if (stillIdle !== true || stillNoSubagents !== false) {
             armDispatch(sessionId, buildRecheckMs);
             return;
@@ -1710,7 +1734,7 @@ export function createMessageQueueRuntime({
     // flight or changing session state. OpenCode has no atomic send-if-idle
     // operation, so a direct send can still begin after this check.
     const finalIdle = await isSessionIdle(sessionId, current.directory);
-    const finalSubagents = finalIdle === true ? await hasWorkingSubagents(sessionId) : null;
+    const finalSubagents = finalIdle === true ? await hasWorkingSubagents(sessionId, current.directory) : null;
     const held = isHeld(sessionId);
     const latestQueue = queues.get(sessionId);
     const stillHead = latestQueue?.items[0]?.id === item.id;
@@ -2110,7 +2134,7 @@ export function createMessageQueueRuntime({
         throw httpError('Remove queued messages from the Build Queue before saving to To-Do', 409);
       }
       const idle = await isSessionIdle(sessionId, directory);
-      const subagents = idle === true ? await hasWorkingSubagents(sessionId) : null;
+      const subagents = idle === true ? await hasWorkingSubagents(sessionId, directory) : null;
       if (idle !== true || subagents !== false) throw httpError('Session is active or its idle status is unavailable', 409);
       // Dispatch is blocked by parkingSessions while this check and save run.
       if (queues.get(sessionId)?.items.length) throw httpError('Remove queued messages before saving to To-Do', 409);

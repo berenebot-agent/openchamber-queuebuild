@@ -7,6 +7,10 @@
  * idle is a pause, not the end of the turn: anything that treats idle as
  * "done" (goal audits, ready notifications) has to check the children too.
  *
+ * A background shell job outlives its turn the same way: the tool call settles
+ * at once and the session resumes when the job exits. A session with a running
+ * job is therefore not finished either, even with no child session running.
+ *
  * Every read answers `null` when OpenCode could not be asked: "could not look"
  * must never pass for "nothing is running".
  */
@@ -18,14 +22,20 @@ const CHILDREN_PAGE_SIZE = 50;
 const CHILDREN_MAX_PAGES = 8;
 const MAX_SUBAGENT_DEPTH = 8;
 const sessionLineageSchema = z.object({ id: z.string().min(1), parentID: z.string().min(1).nullish() });
+// `GET /api/shell` lists a record per job; only a running one whose metadata
+// names its session says anything about that session.
+const shellListSchema = z.array(z.looseObject({
+  status: z.string(),
+  metadata: z.object({ sessionID: z.string().min(1) }).nullish(),
+}));
 
 export const createSessionActivityProbe = ({ buildOpenCodeUrl, getOpenCodeAuthHeaders, timeoutMs = 10_000, fetchImpl = fetch }) => {
-  const openCodeGet = async (fetchPath, query, signal = AbortSignal.timeout(timeoutMs)) => {
+  const openCodeGet = async (fetchPath, query, signal = AbortSignal.timeout(timeoutMs), extraHeaders) => {
     const base = buildOpenCodeUrl(fetchPath, '');
     const search = new URLSearchParams(query || {}).toString();
     const response = await fetchImpl(search ? `${base}?${search}` : base, {
       method: 'GET',
-      headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders() },
+      headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders(), ...extraHeaders },
       signal,
     });
     if (!response.ok) {
@@ -70,7 +80,36 @@ export const createSessionActivityProbe = ({ buildOpenCodeUrl, getOpenCodeAuthHe
     return null;
   };
 
-  /** True when a subagent of the session is still running; null when unknown. */
+  /**
+   * The sessions running a background shell job in `directory` right now, from
+   * `GET /api/shell` (`{ location, data: [{ status, metadata: { sessionID } }] }`).
+   * The route is scoped by the encoded `x-opencode-directory` header, not a
+   * query. Null when OpenCode could not be asked.
+   *
+   * The shared unwrap hands over `data` itself, so a plain array is the list.
+   *
+   * `excludeSessionId` drops that session's own jobs: a session's own job is
+   * already reported by `isSessionIdle`, so a descendant walk must not read it
+   * back as a live child.
+   */
+  const fetchRunningShellSessionIds = async (directory, { excludeSessionId } = {}) => {
+    const body = await openCodeGet('/api/shell', undefined, undefined, {
+      'x-opencode-directory': encodeURIComponent(directory),
+      'x-opencode-directory-encoding': 'uri',
+    }).catch(() => null);
+    const parsed = shellListSchema.safeParse(body);
+    if (!parsed.success) return null;
+    const ids = new Set();
+    for (const shell of parsed.data) {
+      if (shell.status !== 'running') continue;
+      const sessionId = shell.metadata?.sessionID;
+      if (!sessionId || sessionId === excludeSessionId) continue;
+      ids.add(sessionId);
+    }
+    return ids;
+  };
+
+  /** True when a subagent of the session runs; null when unknown. */
   const hasWorkingChildren = async (sessionId, statuses) => {
     const children = await fetchChildSessionIds(sessionId);
     if (!children) return null;
@@ -81,12 +120,14 @@ export const createSessionActivityProbe = ({ buildOpenCodeUrl, getOpenCodeAuthHe
    * Queue delivery waits for running descendants, including nested subagents.
    * A chain deeper than `MAX_SUBAGENT_DEPTH` counts as unrelated, as in the
    * UI's ancestor walk, so a deep tree elsewhere cannot hold every queue.
+   * `isDescendantOf` is the same bounded walk over whatever ids a caller
+   * considers live.
    */
-  const hasWorkingDescendants = async (sessionId, statuses) => {
+  const isDescendantOf = async (sessionId, liveIds) => {
     const parents = new Map();
     const signal = AbortSignal.timeout(timeoutMs);
     let unknown = false;
-    for (const activeId of Object.keys(statuses)) {
+    for (const activeId of liveIds) {
       if (activeId === sessionId) continue;
       let current = activeId;
       const visited = new Set();
@@ -114,5 +155,21 @@ export const createSessionActivityProbe = ({ buildOpenCodeUrl, getOpenCodeAuthHe
     return unknown ? null : false;
   };
 
-  return { fetchActiveSessionStatuses, fetchChildSessionIds, hasWorkingChildren, hasWorkingDescendants };
+  const hasWorkingDescendants = (sessionId, statuses) => isDescendantOf(sessionId, Object.keys(statuses));
+
+  /**
+   * True when a session running a background job is a subagent of the given
+   * session: the child's job finishing resumes the child, which reruns the
+   * parent, so the parent's turn is not over either.
+   */
+  const hasShellDescendants = (sessionId, shellSessionIds) => isDescendantOf(sessionId, shellSessionIds);
+
+  return {
+    fetchActiveSessionStatuses,
+    fetchChildSessionIds,
+    fetchRunningShellSessionIds,
+    hasWorkingChildren,
+    hasWorkingDescendants,
+    hasShellDescendants,
+  };
 };

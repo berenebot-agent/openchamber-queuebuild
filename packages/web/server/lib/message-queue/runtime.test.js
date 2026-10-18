@@ -43,6 +43,9 @@ const createOpenCode = () => {
     sessions: [],
     tail: [],
     commands: [],
+    // Background shell jobs per directory, as `GET /api/shell` lists them.
+    shells: [],
+    failShells: false,
     sent: [],
     switched: [],
     selection: { agent: 'build', model: { providerID: 'anthropic', id: 'claude' } },
@@ -89,6 +92,13 @@ const createOpenCode = () => {
     if (pathname.endsWith('/message')) return state.failMessages
       ? new Response('unavailable', { status: 503 }) : Response.json({ data: state.tail, cursor: {} });
     if (pathname === '/api/command') return wrapped(state.commands);
+    if (pathname === '/api/shell') {
+      if (state.failShells) return new Response('unavailable', { status: 503 });
+      // Directory-scoped by the encoded header, like the real route.
+      const header = init.headers?.['x-opencode-directory'];
+      const directory = header ? decodeURIComponent(header) : DIRECTORY;
+      return wrapped(state.shells.filter(shell => shell.directory === directory));
+    }
     if (method === 'POST' && (pathname.endsWith('/model') || pathname.endsWith('/agent'))) {
       // Kept apart from `sent`: switching the session is not a message.
       state.switched.push({ path: pathname, body: JSON.parse(init.body) });
@@ -523,7 +533,11 @@ describe('message queue runtime', () => {
     // must not strand it).
     openCode.state.tail = [{ type: 'assistant', time: { created: 10_001, completed: 10_002 } }];
     emit({ type: 'message.updated', properties: { info: { role: 'assistant', sessionID: SESSION, time: { created: 10_001, completed: 10_002 } } } });
-    await settle();
+    // A session seen busy re-arms a recheck on the real clock before it
+    // delivers; the recheck is what keeps a job-held session from waiting on an
+    // event that never comes.
+    await new Promise(resolve => setTimeout(resolve, 5100));
+    await settle(50);
     expect(openCode.state.sent).toHaveLength(1);
   });
 
@@ -703,14 +717,19 @@ describe('message queue runtime', () => {
     const { runtime, openCode, emit } = createRuntime();
     runtime.start();
     let release;
-    // Initial and final activity probes, then session selection and the send.
-    openCode.fetchImpl.mockImplementationOnce(async () => Response.json({ location: {}, data: {} }))
-      .mockImplementationOnce(async () => Response.json({ data: [], cursor: {} }))
-      .mockImplementationOnce(async () => Response.json({ data: {} }))
-      .mockImplementationOnce(async () => Response.json({ location: {}, data: {} }))
-      .mockImplementationOnce(async () => Response.json({ data: [], cursor: {} }))
-      .mockImplementationOnce(async () => Response.json({ data: {} }))
-      .mockImplementationOnce(async () => new Response(null, { status: 204 }))
+    // Initial and final activity probes — the active map, the pre-boot message
+    // tail and the session's shell list each — then session selection and the
+    // send.
+    const idleProbe = () => [
+      async () => Response.json({ location: {}, data: {} }),
+      async () => Response.json({ data: [], cursor: {} }),
+      async () => Response.json({ location: { directory: DIRECTORY }, data: [] }),
+      async () => Response.json({ data: {} }),
+    ];
+    // Two activity probes, each followed by the descendant walk's own shell
+    // list read.
+    for (const probe of [...idleProbe(), idleProbe()[2], ...idleProbe(), idleProbe()[2]]) openCode.fetchImpl.mockImplementationOnce(probe);
+    openCode.fetchImpl.mockImplementationOnce(async () => new Response(null, { status: 204 }))
       .mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve(new Response(null, { status: 204 })); }));
     const { itemId } = await runtime.enqueue(SESSION, DIRECTORY, item());
     emit({ type: 'session.status', properties: { sessionID: SESSION, status: { type: 'idle' } } });
@@ -1097,6 +1116,139 @@ describe('project-wide build queue', () => {
   });
   const SECOND = 'ses_queue_test_2';
   const promptCalls = (openCode) => openCode.state.sent.filter(entry => entry.path.endsWith('/prompt'));
+  const runningShell = (sessionID, directory = DIRECTORY, startedAt = Date.now()) => ({
+    id: `sh_${sessionID}`, status: 'running', directory, metadata: { sessionID }, time: { started: startedAt },
+  });
+
+  it('releases a build whose turn finishes with no background job', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await settle(80);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+    delete openCode.state.active[SESSION];
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(200);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('holds a build whose own session still has a background job', async () => {
+    // A build that ran a helper with `background: true` has a finished turn and
+    // no subagent, but OpenCode resumes the session when the job exits. The
+    // dispatch lease must not be released, and the lane must not park either.
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(80);
+    openCode.state.shells = [runningShell(SESSION, DIRECTORY, Date.now() - 5000)];
+    delete openCode.state.active[SESSION];
+    openCode.state.tail = [{ type: 'assistant', time: { created: Date.now(), completed: Date.now() } }];
+    await settle(200);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+    expect(runtime.buildSnapshot().issues).toHaveLength(0);
+
+    // The job exits: the turn really is over and the lane lets go.
+    openCode.state.shells = [];
+    await new Promise(resolve => setTimeout(resolve, 5100));
+    await settle(100);
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('keeps the lane when the shell list cannot be read', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    // A second session already runs a Build turn in this project, and the list
+    // that would say whether it survives cannot be read: the lane must not be
+    // released onto that uncertainty, nor parked for review.
+    const live = 'ses_queue_test_live';
+    openCode.state.active[live] = { type: 'running' };
+    openCode.state.sessions = [{ id: live, agent: 'build', location: { directory: DIRECTORY } }];
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(80);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([live]);
+
+    openCode.state.failShells = true;
+    delete openCode.state.active[live];
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(100);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.buildSnapshot().active).toHaveLength(1);
+    expect(runtime.buildSnapshot().issues).toHaveLength(0);
+
+    openCode.state.failShells = false;
+    await settle(100);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does not deliver into a session that still has a background job', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    openCode.state.shells = [runningShell(SESSION, DIRECTORY, Date.now() - 5000)];
+
+    // A queued follow-up waits: OpenCode resumes the session when the job
+    // exits, so the message belongs after that resumed turn.
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'follow up', text: 'follow up' }));
+    await settle(150);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.sessionSnapshot(SESSION).items).toHaveLength(1);
+
+    // The session was seen busy, so the queue rechecks on the real clock before
+    // it delivers.
+    openCode.state.shells = [];
+    await new Promise(resolve => setTimeout(resolve, 5100));
+    await settle(50);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['follow up']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('adopts a build session that is idle but still running a background job', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 30, buildRecheckMs: 10, buildCompletionGraceMs: 60 });
+    const live = 'ses_queue_test_live';
+    openCode.state.sessions = [{ id: live, agent: 'build', location: { directory: DIRECTORY } }];
+    openCode.state.shells = [runningShell(live, DIRECTORY, Date.now() - 5000)];
+    openCode.state.tail = [{ type: 'assistant', time: { created: Date.now() - 6000, completed: Date.now() - 5000 } }];
+
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'queued', text: 'queued', buildQueue: true }));
+    await settle(80);
+    expect(promptCalls(openCode)).toHaveLength(0);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([live]);
+    expect(runtime.buildSnapshot().queued.map(entry => entry.sessionId)).toEqual([SESSION]);
+
+    // The job exits, the adopted lane lets go, and the queued build starts.
+    openCode.state.shells = [];
+    await settle(400);
+    expect(promptCalls(openCode).map(call => call.body.text)).toContain('queued');
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('waits for a background job in a subagent of the build', async () => {
+    // The child's job resumes the child, which reruns the parent: the lane must
+    // not let go while a descendant job runs, even with the parent idle.
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
+    const child = 'ses_queue_test_child';
+    openCode.state.children[SESSION] = [child];
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'held', text: 'held', buildQueue: true }));
+    await settle(80);
+    openCode.state.shells = [runningShell(child, DIRECTORY, Date.now() - 5000)];
+    delete openCode.state.active[SESSION];
+    openCode.state.tail = [{ type: 'assistant', time: { created: Date.now(), completed: Date.now() } }];
+    await settle(200);
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+    expect(runtime.buildSnapshot().issues).toHaveLength(0);
+
+    openCode.state.shells = [];
+    await new Promise(resolve => setTimeout(resolve, 5100));
+    await settle(100);
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
 
   it('enforces FIFO across sessions until the first Build turn finishes', async () => {
     const harness = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 150, buildRecheckMs: 30 });
