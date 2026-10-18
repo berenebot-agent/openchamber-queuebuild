@@ -40,7 +40,6 @@ export const dict = {
   'chat.buildQueue.needsReview': 'Build needs review',
   'chat.buildQueue.paused': 'Project build queue paused',
   'chat.buildQueue.running': 'Build running',
-  'chat.buildQueue.sessionCount': '{count} builds from this chat',
   'chat.buildQueue.cancel': 'Cancel',
   'chat.buildQueue.openBoard': 'View on Work Board',
   "opencodeCompatibility.bundled": "OpenCode is bundled with OpenChamber. Update OpenChamber to get OpenCode v2.",

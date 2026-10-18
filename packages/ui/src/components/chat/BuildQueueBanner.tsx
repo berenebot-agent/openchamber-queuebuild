@@ -39,9 +39,6 @@ export const BuildQueueBanner: React.FC<{
     : active?.needsReview ? t('chat.buildQueue.needsReview')
     : issue ? t('chat.buildQueue.paused')
     : t('chat.buildQueue.running');
-  const detail = queuedItem && sessionItems.length > 1
-    ? t('chat.buildQueue.sessionCount', { count: sessionItems.length })
-    : null;
 
   const openBoard = () => {
     rememberWorkBoardReturn();
@@ -61,17 +58,25 @@ export const BuildQueueBanner: React.FC<{
     }
   };
 
-  return <div role="status" className="flex items-center gap-2.5 border-b border-border/60 bg-[color-mix(in_srgb,var(--status-info)_4%,transparent)] px-3 py-2">
-    <Icon name={queuedItem ? 'time' : 'route'} className="size-4 shrink-0 text-muted-foreground" />
-    <div className="min-w-0 flex-1">
-      <div className="truncate text-xs font-semibold">{badge}</div>
-      {detail && <div className="truncate text-[11px] text-muted-foreground">{detail}</div>}
+  return <div role="status" className="border-b border-border/60 bg-[color-mix(in_srgb,var(--status-info)_4%,transparent)]">
+    <div className="flex items-center gap-2.5 px-3 py-2">
+      <Icon name={queuedItem ? 'time' : 'route'} className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1 truncate text-xs font-semibold">{badge}</div>
+      {queuedItem && <Button type="button" variant="ghost" size="xs" onClick={() => void cancel()}>
+        {t('chat.buildQueue.cancel')}
+      </Button>}
+      <Button type="button" variant="link" size="xs" onClick={openBoard}>
+        {t('chat.buildQueue.openBoard')}
+      </Button>
     </div>
-    {queuedItem && <Button type="button" variant="ghost" size="xs" onClick={() => void cancel()}>
-      {t('chat.buildQueue.cancel')}
-    </Button>}
-    <Button type="button" variant="link" size="xs" onClick={openBoard}>
-      {t('chat.buildQueue.openBoard')}
-    </Button>
+    {/* This chat's waiting prompts, in the order the project queue will
+        dispatch them. The header's position speaks for the project; the
+        numbers here are this session's own, which is all this row can show. */}
+    {sessionItems.length > 0 ? <ol className="flex flex-col gap-0.5 pb-2 pe-3 ps-[38px] text-xs text-muted-foreground">
+      {sessionItems.map((item, position) => <li key={item.id} className="flex min-w-0 gap-1.5">
+        <span className="shrink-0 tabular-nums">{position + 1}.</span>
+        <span className="min-w-0 truncate">{item.content}</span>
+      </li>)}
+    </ol> : null}
   </div>;
 };

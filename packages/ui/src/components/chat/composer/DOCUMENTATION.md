@@ -169,9 +169,12 @@ special-mode and steering decisions. VS Code-only delivery stays local.
 `BuildQueueBanner`, the compact indicator above the session queue, shows this
 session's queued build and can cancel it, handing its prompt back to the
 session's draft (appended, never replacing it), and otherwise opens the
-session's project on the Work Board. The rest of the queue is managed on the
-board; there is no RHS Build Queue pane. The unrelated per-session message queue
-keeps its own edit, send and removal controls.
+session's project on the Work Board. Under its header it lists this session's
+own waiting builds, one prompt per line in the order the project queue will
+dispatch them; the position in the header is the project's, the line numbers
+are the session's, and another session's prompts never appear. The rest of the
+queue is managed on the board; there is no RHS Build Queue pane. The unrelated
+per-session message queue keeps its own edit, send and removal controls.
 
 `BackgroundShellsStrip` lists the commands that went to the background (not the ones
 a turn is waiting for, see `background` in `sync/background-shells.ts`) of

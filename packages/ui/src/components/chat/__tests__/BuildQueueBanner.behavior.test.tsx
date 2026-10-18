@@ -71,12 +71,16 @@ const render = async (props: { sessionId?: string | null; directory?: string | n
   ));
 };
 
+/** Each waiting prompt line as its [number, text] parts. */
+const lines = (): string[][] =>
+  [...container.querySelectorAll('li')].map(line => [...line.querySelectorAll('span')].map(span => span.textContent ?? ''));
+
 test('no indicator while this project holds no build', async () => {
   await render();
   expect(container.textContent).toBe('');
 });
 
-test('shows the queued position and detail for this chat, with cancel and the board link', async () => {
+test('shows the queued position, this chat\'s waiting prompts, cancel and the board link', async () => {
   queue = {
     revision: 1,
     active: [],
@@ -89,11 +93,34 @@ test('shows the queued position and detail for this chat, with cancel and the bo
   };
   await render();
   expect(container.textContent).toContain('#1 of 2');
-  expect(container.textContent).toContain('2 builds from this chat');
+  // One line per waiting build of this chat, numbered in the order the queue
+  // will dispatch them.
+  expect(lines()).toEqual([['1.', 'x'], ['2.', 'y']]);
   // A queued build can be pulled back out of the queue from its own chat; the
   // board link stays for managing the rest of the project's queue.
   const buttons = [...container.querySelectorAll('button')];
   expect(buttons.map(button => button.textContent)).toEqual(['Cancel', 'View on Work Board']);
+});
+
+test('lists only this chat\'s waiting prompts, never another session\'s', async () => {
+  queue = {
+    revision: 1,
+    active: [],
+    queued: [
+      { id: 'o1', sessionId: 'other', directory: DIRECTORY, content: 'other brief one', createdAt: 1, order: 0, paused: false },
+      { id: 'm1', sessionId: SESSION, directory: DIRECTORY, content: 'mine first', createdAt: 2, order: 1, paused: false },
+      { id: 'o2', sessionId: 'other', directory: DIRECTORY, content: 'other brief two', createdAt: 3, order: 2, paused: false },
+      { id: 'm2', sessionId: SESSION, directory: DIRECTORY, content: 'mine second', createdAt: 4, order: 3, paused: false },
+    ],
+    issues: [],
+    forced: [],
+  };
+  await render();
+  // The position speaks for the whole project; the lines are this chat's own.
+  expect(container.textContent).toContain('#2 of 4');
+  expect(lines().map(line => line[1])).toEqual(['mine first', 'mine second']);
+  expect(container.textContent).not.toContain('other brief one');
+  expect(container.textContent).not.toContain('other brief two');
 });
 
 test('cancelling pulls the build out of the queue and restores the draft to the composer', async () => {
@@ -149,6 +176,8 @@ test('a queued entry that is the active lease reads as running, not a queue posi
   await render();
   expect(container.textContent).toContain('Build running');
   expect(container.textContent).not.toContain('#1 of 1');
+  // Nothing is waiting in this chat, so there is no prompt line to list.
+  expect(container.querySelector('ol')).toBe(null);
 });
 
 test('a waiting build counts only waiting entries, not the running lease', async () => {

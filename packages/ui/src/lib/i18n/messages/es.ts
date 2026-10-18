@@ -41,7 +41,6 @@ export const dict: Record<I18nKey, string> = {
   'chat.buildQueue.needsReview': 'La compilación necesita revisión',
   'chat.buildQueue.paused': 'Cola de compilación del proyecto en pausa',
   'chat.buildQueue.running': 'Compilación en curso',
-  'chat.buildQueue.sessionCount': '{count} compilaciones desde este chat',
   'chat.buildQueue.cancel': 'Cancelar',
   'chat.buildQueue.openBoard': 'Ver en el Work Board',
   "opencodeCompatibility.bundled": "OpenCode viene incluido en OpenChamber. Actualiza OpenChamber para obtener OpenCode v2.",

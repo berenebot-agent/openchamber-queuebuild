@@ -41,7 +41,6 @@ export const dict: Record<I18nKey, string> = {
   'chat.buildQueue.needsReview': 'Збірка потребує перевірки',
   'chat.buildQueue.paused': 'Чергу збірок проєкту призупинено',
   'chat.buildQueue.running': 'Збірка виконується',
-  'chat.buildQueue.sessionCount': '{count} збірок із цього чату',
   'chat.buildQueue.cancel': 'Скасувати',
   'chat.buildQueue.openBoard': 'Показати на Work Board',
   "opencodeCompatibility.bundled": "OpenCode входить до складу OpenChamber. Оновіть OpenChamber, щоб отримати OpenCode v2.",

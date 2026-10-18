@@ -40,7 +40,6 @@ export const dict = {
   'chat.buildQueue.needsReview': 'البناء بحاجة إلى مراجعة',
   'chat.buildQueue.paused': 'قائمة انتظار بناء المشروع متوقفة مؤقتًا',
   'chat.buildQueue.running': 'البناء قيد التشغيل',
-  'chat.buildQueue.sessionCount': '{count} عمليات بناء من هذه الدردشة',
   'chat.buildQueue.cancel': 'إلغاء',
   'chat.buildQueue.openBoard': 'عرض في Work Board',
   'opencodeCompatibility.bundled': 'يأتي OpenCode مضمّنًا مع OpenChamber. حدّث OpenChamber للحصول على OpenCode v2.',
