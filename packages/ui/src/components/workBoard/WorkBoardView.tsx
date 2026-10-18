@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui';
 import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -565,6 +566,11 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
   const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
   const [forceConfirm, setForceConfirm] = React.useState<{ itemId: string; sessionId: string; title: string } | null>(null);
   const [drag, setDrag] = React.useState<WorkBoardDrag | null>(null);
+  // Search hides cards, it never unsaves them: a card the query does not match
+  // keeps its lane, its order and its actions, and returns when the query is
+  // cleared. The query lives in this component only, so it is gone on reopen.
+  const [search, setSearch] = React.useState('');
+  const query = search.trim().toLowerCase();
   // The queue enablement toggle is optimistic: flipping it writes the setting and
   // shows the new state at once, and a failed write puts the old state back.
   const [queueEnabled, setQueueEnabled] = React.useState<boolean | null>(null);
@@ -711,6 +717,11 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
       || t('workBoard.sessionFallback', { id: sessionId.slice(0, 9) }),
     [sessions, snapshotTitles, t],
   );
+  // The title a card shows: its own brief, or the linked session's name once the
+  // brief was removed, which is what the card renders and what search matches.
+  const cardTitleFor = (card: WorkBoardSnapshotCard) => card.briefRemoved && card.sessionId
+    ? sessionTitleFor(card.sessionId)
+    : workBoardCardTitle(card.text, card.attachments);
   const queueRows = React.useMemo(() => workBoardSnapshotRows(snapshot, sessionTitleFor), [snapshot, sessionTitleFor]);
   const queueOrder = React.useMemo(() => queue?.order ?? [], [queue]);
   // Forced builds have no lease and no queue row; the server names them, and
@@ -768,6 +779,17 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     return ordered;
   }, [cards, snapshot]);
 
+  /**
+   * The lanes the search leaves on screen: every card lane keeps the cards whose
+   * title contains the query. The Build queue keeps its own rows: it shows what
+   * the project is building now, so hiding a running build or a waiting row the
+   * query does not name would misstate the queue.
+   */
+  const shownLanes = !query ? orderedLanes : new Map<WorkBoardLane, WorkBoardSnapshotCard[]>(
+    [...orderedLanes].map(([lane, inLane]) => [lane,
+      lane === 'queue' ? inLane : inLane.filter(card => cardTitleFor(card).toLowerCase().includes(query))]),
+  );
+
   // A lease awaiting review is unfinished work the server will not release on
   // its own; completing its card would hide that resolution. Manual Done stays
   // out of reach for it.
@@ -779,7 +801,8 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
   // Every lane's own card moves into Done together, from its own menu. Done has
   // no such action: its cards are already there.
   const completeAllIn = (lane: WorkBoardLane) => {
-    const inLane = orderedLanes.get(lane) ?? [];
+    // The cards the column shows, so a search narrows this action with it.
+    const inLane = shownLanes.get(lane) ?? [];
     const eligible = inLane.filter(canComplete);
     if (!eligible.length) return;
     place(eligible, 'done', null);
@@ -1043,7 +1066,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
   const laneCounts = new Map<WorkBoardLane, number>(lanes.map(lane => [lane,
     lane === 'queue'
       ? queueRows.length + (activeBuild ? 1 : 0) + queueActiveEntries.length
-      : (orderedLanes.get(lane) ?? []).length]));
+      : (shownLanes.get(lane) ?? []).length]));
   const visibleLanes = mobile ? lanes.filter(lane => lane === mobileLane) : lanes;
 
   return <div className={mobile ? 'flex h-full min-h-0 flex-col bg-background' : 'absolute inset-0 z-10 flex flex-col bg-background'} aria-label={t('workBoard.title')}>
@@ -1098,14 +1121,26 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
         onClose={closeProjectTab}
         onReorder={reorderProjectTab}
       />}
-      {/* The board's own controls sit in one right-aligned cluster: the project
-          queue's on/off switch, the way into its Settings page, and Close. The
-          header keeps items-end so a selected project tab still flows into the
-          board; the cluster centres its own children against that baseline.
-          Mobile drops the cluster. The fullscreen surface closes itself, the
-          queue switch sits in the picker above, and board Settings is reachable
-          from the mobile Settings list. */}
+      {/* The board's own controls sit in one right-aligned cluster: the search
+          field, the project queue's on/off switch, the way into its Settings
+          page, and Close. The header keeps items-end so a selected project tab
+          still flows into the board; the cluster centres its own children
+          against that baseline. Mobile drops the cluster. The fullscreen surface
+          closes itself, the queue switch sits in the picker above, board
+          Settings is reachable from the mobile Settings list, and the search
+          field goes with it: a phone shows one lane at a time. */}
       {!mobile && <div className="mb-2 ms-auto flex items-center gap-2">
+        <div role="search" className="relative">
+          <Icon name="search" className="pointer-events-none absolute inset-s-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input inputSize="compact" value={search} className="w-48 ps-7"
+            placeholder={t('workBoard.search')} aria-label={t('workBoard.search')}
+            onChange={event => setSearch(event.target.value)}
+            // Escape clears the query, so the board comes back without hunting
+            // for a clear control, and never leaves the field mid-composition.
+            onKeyDown={event => {
+              if (event.key === 'Escape' && !event.nativeEvent.isComposing) { event.preventDefault(); setSearch(''); }
+            }} />
+        </div>
         <div className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1">
           <span className="text-xs font-medium">{t(queueEnabled ? 'workBoard.queueOn' : 'workBoard.queueOff')}</span>
           <Switch aria-label={t('workBoard.queueEnabledLabel')} checked={queueEnabled === true}
@@ -1136,7 +1171,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     {!directory ? <p className="p-4">{t('workBoard.noProject')}</p> : <DndContext sensors={sensors} collisionDetection={collide} onDragStart={dragStart} onDragEnd={dragEnd} onDragCancel={() => setDrag(null)}>
     <div className={mobile ? 'flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3' : 'flex min-h-0 flex-1 gap-3 overflow-x-auto p-4'}>
       {visibleLanes.map(lane => {
-        const inLane = orderedLanes.get(lane) ?? [];
+        const inLane = shownLanes.get(lane) ?? [];
         const activeEntries = lane === 'queue' ? queueActiveEntries : [];
         const count = laneCounts.get(lane) ?? inLane.length;
         return <WorkBoardLaneColumn key={lane} lane={lane} droppable={lane !== 'queue'} count={count} mobile={mobile}>
@@ -1192,8 +1227,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
               const hasRunningTurn = Boolean(activity?.busy);
               const canReturnToTodo = canDo(card, 'returnToTodo');
               const canRemove = canDo(card, 'remove');
-              const title = card.briefRemoved && card.sessionId
-                ? sessionTitleFor(card.sessionId) : workBoardCardTitle(card.text, card.attachments);
+              const title = cardTitleFor(card);
               // A card is one of two sizes. Every card that can carry a status
               // line — a working plan, or any card linked to a session, which
               // can gain "Needs attention" or a loading line — takes the larger

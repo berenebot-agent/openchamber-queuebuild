@@ -110,6 +110,18 @@ page; the Projects page shows that same choice as Follow default / On / Off, so
 the two surfaces write one value. The Git policy selector is not here: it lives
 in Settings → Work board.
 
+## Search
+
+The header's search field narrows the card lanes to the cards whose title
+contains what was typed, live, as part of one board. It matches the title the
+card shows, so a brief-removed card is found by its session's name. The Build
+queue keeps its own rows: it shows what the project is building now, and hiding
+a running build or a waiting row the query does not name would misstate the
+queue. A hidden card is hidden, never removed: it keeps its lane, its order and
+its actions, the lane counts follow the query, and a lane's bulk completion
+moves only the cards that lane shows. Escape clears the query. The query is
+component state, so reopening the board starts with an empty field.
+
 ## Mobile presentation
 
 `WorkBoardView` takes a `mobile` prop for the hosted-mobile and Capacitor
@@ -120,7 +132,8 @@ counts match the lane it opens, replaces the tab strip with a project selector,
 moves the queue rows' actions into a touch-sized menu, and scrolls vertically.
 The lane picker remembers the last lane per client and connected server in
 `workBoardMobileLane.ts`, and opens on the queue lane when nothing is stored or
-storage is blocked.
+storage is blocked. The search field is not drawn on a phone: one lane at a
+time is already short enough to read.
 
 The `onLeave` prop dismisses the board. The mobile shells draw the board over
 the chat, so opening a session or starting a draft calls it; the desktop shells

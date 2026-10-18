@@ -714,6 +714,120 @@ test('the board header opens its own Settings page and closes the board', async 
   }
 });
 
+test('the board search narrows every card lane as it is typed and leaves the build queue alone', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = domGlobals(dom);
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projects = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  const cards: WorkBoardSnapshot['cards'] = [
+    snapshotCard({ id: 'notes', lane: 'todo', text: 'Draft the release notes\nWith the detail lines' }),
+    snapshotCard({ id: 'changelog', lane: 'todo', text: 'Update the changelog' }),
+    snapshotCard({ id: 'redirect', lane: 'plan', text: 'Fix the login redirect', sessionId: 'session1', stage: 'plan' }),
+    snapshotCard({ id: 'older', lane: 'done', text: 'Older completion', completedAt: 5 }),
+  ];
+  const snapshot = makeSnapshot({
+    cards,
+    sessionTitles: { 's-wait': 'Ship the queued build' },
+    queue: {
+      rows: [{ itemId: 'queued1', sessionId: 's-wait', directory: '/repo', content: 'Build it', paused: false, position: 0, model: null }],
+      order: ['queued1'],
+    },
+  });
+  const placements: string[][] = [];
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
+    if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
+    if (url.includes('/api/work-board/snapshot')) return Response.json(snapshot);
+    if (url.includes('/placement')) {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      placements.push(Array.isArray(body.targets)
+        ? body.targets.map((target: { id: string }) => target.id)
+        : [url.match(/work-board\/([^/]+)\/placement/)?.[1]]);
+      return Response.json({ placed: [], failed: [] });
+    }
+    if (url.includes('/api/work-board')) return Response.json({ cards });
+    return Response.json({});
+  });
+  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
+  useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const lane = (name: string) => container.querySelector(`section[aria-label="${name}"]`)!;
+  try {
+    await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
+    expect(lane('To-do').getAttribute('data-count')).toBe('2');
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search cards"]');
+    if (!search) throw new Error('Missing board search field');
+    // Typing filters every card lane as it goes: matching cards stay, the rest
+    // leave the column and its count. A test process that loaded react-dom
+    // without a DOM (a static import in this file) reports a field only on keyup
+    // against the focused field, while one that saw a DOM reports it on input,
+    // so the typing below covers both.
+    const setValue = Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, 'value')?.set;
+    await act(async () => {
+      search.dispatchEvent(new Event('focusin', { bubbles: true }));
+      setValue?.call(search, 'changelog');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      search.dispatchEvent(new Event('keyup', { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(lane('To-do').getAttribute('data-count')).toBe('1');
+    expect(lane('To-do').textContent).toContain('Update the changelog');
+    expect(lane('To-do').textContent).not.toContain('Draft the release notes');
+    expect(lane('Plan').getAttribute('data-count')).toBe('0');
+    expect(lane('Plan').textContent).not.toContain('Fix the login redirect');
+    expect(lane('Done').textContent).not.toContain('Older completion');
+    // The queue column keeps its own rows: they are what the project is
+    // building, not cards a query can hide.
+    expect(lane('Build queue').getAttribute('data-count')).toBe('1');
+    expect(lane('Build queue').textContent).toContain('Ship the queued build');
+    // The column's bulk action follows what the column shows, not what it hides.
+    await act(async () => {
+      lane('To-do').querySelector<HTMLButtonElement>('button[aria-label="Column actions"]')!
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    const bulk = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Move all cards to Done');
+    if (!bulk) throw new Error('Missing bulk completion action');
+    await act(async () => { bulk.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(placements.at(-1)).toEqual(['changelog']);
+    // Escape clears the query, so every card comes back where it was.
+    await act(async () => {
+      search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    expect(search.value).toBe('');
+    expect(lane('To-do').textContent).toContain('Draft the release notes');
+    expect(lane('Plan').textContent).toContain('Fix the login redirect');
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore();
+    useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
 test('a queue row is named from the snapshot when the device has not loaded the session list', async () => {
   const dom = new Window({ url: 'http://localhost' });
   const globals = domGlobals(dom);
