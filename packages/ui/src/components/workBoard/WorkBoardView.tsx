@@ -272,13 +272,17 @@ function WorkBoardQueueColumn({ rows, active, activeTitle, entries, order, busy,
   const { t } = useI18n();
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
     {error && <p role="alert" className="mb-2 px-1 text-xs text-[var(--status-error-text)]">{error}</p>}
-    {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} waitingFor={waitingForOf(active.sessionId)} model={active.model} content={active.content} onOpen={() => onOpen(active.sessionId)} />}
-    {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title}
-      needsReview={Boolean(entry.needsReview)} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced}
-      waitingFor={waitingForOf(entry.sessionId)} model={entry.model} content={entry.content}
-      onOpen={() => onOpen(entry.sessionId)}
-      resolve={entry.needsReview && entry.itemId ? { sessionId: entry.sessionId, itemId: entry.itemId } : undefined}
-      busy={busy} onResolve={onResolveForced} />)}
+    {/* The running build and the builds outside the queue are peers, so they
+        take the same 12px gap the waiting rows below use. */}
+    {(active || entries.length > 0) && <div className="space-y-3">
+      {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} waitingFor={waitingForOf(active.sessionId)} model={active.model} content={active.content} onOpen={() => onOpen(active.sessionId)} />}
+      {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title}
+        needsReview={Boolean(entry.needsReview)} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced}
+        waitingFor={waitingForOf(entry.sessionId)} model={entry.model} content={entry.content}
+        onOpen={() => onOpen(entry.sessionId)}
+        resolve={entry.needsReview && entry.itemId ? { sessionId: entry.sessionId, itemId: entry.itemId } : undefined}
+        busy={busy} onResolve={onResolveForced} />)}
+    </div>}
     {!active && !entries.length && <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
           className="mb-1 h-auto w-full flex-col items-start gap-1 rounded-md border border-dashed border-border px-2.5 py-3 text-xs font-normal text-muted-foreground"
           aria-label={t('workBoard.newBuild')}>
@@ -328,7 +332,7 @@ function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailabl
   const { t } = useI18n();
   if (resolve) {
     return <WorkBoardQueueTooltip model={model} content={content}>
-      <div className="mb-1 rounded-md border border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)] px-2.5 py-2">
+      <div className="rounded-md border border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)] px-2.5 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[var(--status-error-background)] text-[var(--status-error-text)]"><Icon name="alert" className="size-3.5" /></span>
           <span className="min-w-0 flex-1">
