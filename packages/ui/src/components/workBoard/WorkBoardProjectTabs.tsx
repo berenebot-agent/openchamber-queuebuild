@@ -110,7 +110,9 @@ function WorkBoardProjectTab({
       transform: DndCSS.Translate.toString(transform),
       transition,
     }}
-    className={cn('flex shrink-0 items-stretch', selected && 'z-10', isDragging && 'z-20 opacity-60')}
+    // The tab reads as draggable before it is dragged, and the grab cursor
+    // carries to the label and the close control inside it.
+    className={cn('flex shrink-0 cursor-grab items-stretch active:cursor-grabbing', selected && 'z-10', isDragging && 'z-20 opacity-60')}
     {...attributes}
     {...listeners}
   >
@@ -144,7 +146,7 @@ function WorkBoardProjectTab({
         onClick={() => onClose(project.id)}
         aria-label={t('workBoard.closeProjectTab', { project: label })}
         title={t('workBoard.closeProjectTab', { project: label })}
-        className="me-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+        className="me-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-surface-muted hover:text-foreground"
       >
         <Icon name="close" className="size-3" />
       </button>
@@ -181,7 +183,14 @@ export function WorkBoardProjectTabs({
   const { t, direction } = useI18n();
   const isRtl = direction === 'rtl';
   const openIds = new Set(openProjectIds);
-  const openProjects = projects.filter(project => openIds.has(project.id));
+  // The strip is drawn in the saved tab order, not the project list's, so a
+  // drag survives the render that follows it. An id naming no loaded project
+  // is skipped, so a stale tab cannot draw an empty one.
+  const projectsById = React.useMemo(() => new Map(projects.map(project => [project.id, project])), [projects]);
+  const openProjects = openProjectIds.flatMap(projectId => {
+    const project = projectsById.get(projectId);
+    return project ? [project] : [];
+  });
   const availableProjects = projects.filter(project => !openIds.has(project.id));
   const openProjectIdList = openProjects.map(project => project.id);
 

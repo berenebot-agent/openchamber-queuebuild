@@ -140,6 +140,18 @@ test('a reorder moves the tab and keeps the selected project on screen', async (
   await act(async () => root.unmount());
 });
 
+test('the strip draws the saved tab order rather than the project list order', async () => {
+  // The project list is alpha-first; the saved tabs say beta-first, which is
+  // what a drag leaves behind. Drawing the project list's order instead made
+  // every drop snap back.
+  const root = await renderTabs(<Harness initialProjectIds={['beta', 'alpha']} />);
+  const tabOrder = [...container.querySelectorAll('nav button[aria-current], nav button:not([aria-label])')]
+    .map(button => button.textContent?.trim())
+    .filter((label): label is string => Boolean(label) && label !== 'Add project tab');
+  expect(tabOrder).toEqual(['Beta', 'Alpha']);
+  await act(async () => root.unmount());
+});
+
 test('reordering keeps every tab and ignores ids that name no open tab', () => {
   expect(reorderWorkBoardProjectTabs(['a', 'b', 'c'], 'c', 'a')).toEqual(['c', 'a', 'b']);
   expect(reorderWorkBoardProjectTabs(['a', 'b', 'c'], 'a', 'c')).toEqual(['b', 'c', 'a']);
