@@ -17,6 +17,20 @@ describe('Toaster', () => {
     });
   };
 
+  // A fixed sleep races the machine: under a loaded parallel run Sonner's
+  // elevation effect had not run when the timer expired, so the assertion below
+  // read an empty priority. Poll for the pinned state instead; the assertions
+  // themselves are unchanged and still require 'important'.
+  const settleUntil = async (condition: () => boolean) => {
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      if (condition()) return;
+    }
+  };
+
   beforeEach(() => {
     windowInstance = new Window();
     Object.assign(globalThis, {
@@ -49,7 +63,10 @@ describe('Toaster', () => {
     await act(async () => {
       toast('Saved');
     });
-    await settle();
+    await settleUntil(() => {
+      const element = document.querySelector<HTMLElement>('[data-sonner-toast]');
+      return element !== null && element.style.getPropertyPriority('box-shadow') === 'important';
+    });
 
     const toastElement = document.querySelector<HTMLElement>('[data-sonner-toast]');
     expect(toastElement).not.toBeNull();

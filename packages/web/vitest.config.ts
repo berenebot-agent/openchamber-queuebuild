@@ -4,7 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const maxWorkers = Math.max(1, Math.min(4, availableParallelism() - 1));
+// Four workers is the working default, not a guess. The loopback integration
+// tests and the real Git subprocesses need event-loop and CPU capacity outside
+// Vitest's workers: measured, six workers on a six-core host surfaced a new
+// `network-operations` timeout that four workers never hit. Raise it only on a
+// host with real headroom, and with the deadline tests already de-flaked.
+const requestedWorkers = Number.parseInt(process.env.OPENCHAMBER_VITEST_WORKERS ?? '', 10);
+const maxWorkers = Number.isFinite(requestedWorkers) && requestedWorkers > 0
+  ? requestedWorkers
+  : Math.max(1, Math.min(4, availableParallelism() - 1));
 
 export default defineConfig({
   resolve: {

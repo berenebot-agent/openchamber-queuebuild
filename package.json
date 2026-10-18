@@ -43,7 +43,7 @@
     "lint:mobile": "bun run --cwd packages/mobile lint",
     "lint:anti-slop": "oxlint -c oxlint.anti-slop.config.ts",
     "check:changed": "node scripts/check-changed.mjs",
-    "test": "node scripts/run-isolated-tests.mjs scripts && bun run --cwd packages/sdk test && bun run --cwd packages/ui test && bun run --cwd packages/vscode test && bun run --cwd packages/electron test && bun run --cwd packages/web test",
+    "test": "node scripts/run-tests.mjs",
     "clean": "node scripts/clean.mjs",
     "changelog-card": "node scripts/changelog-card/generate.mjs",
     "changelog:build": "node scripts/changelog/build.mjs",

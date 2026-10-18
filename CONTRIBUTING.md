@@ -174,8 +174,11 @@ bun run build        # Must succeed
 
 `bun run test` runs every suite in the repository: shared UI, VS Code, Electron,
 web/server, and the root scripts. The UI, VS Code, and Electron suites keep
-module-level singletons, so `scripts/run-isolated-tests.mjs` gives each test file
-its own process instead of letting load order decide the result. Run a single
+module-level singletons, so `scripts/run-isolated-tests.mjs` runs them through
+`bun test --parallel`, whose `--isolate` gives each test file a fresh global
+object instead of letting load order decide the result. `scripts/run-tests.mjs`
+drives every tier, overlaps the CPU-bound ones with the web suite, and writes a
+timestamped log plus an append-only ledger under `test-results/`. Run a single
 file directly while iterating (`bun test <file>`).
 
 UI tests run on happy-dom, where DOMPurify stops visiting the siblings of a node
