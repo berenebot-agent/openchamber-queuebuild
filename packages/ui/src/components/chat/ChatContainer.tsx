@@ -6,8 +6,6 @@ import { keepCommandSubagentReports } from '@/lib/opencode/subagent-run';
 import { isOpencodeNotFound, opencodeClient } from '@/lib/opencode/client';
 
 import { ChatInput } from './ChatInput';
-import { SessionSavedTodos } from '@/components/workBoard/SessionSavedTodos';
-import { SavedTodoComposerContext, type SavedTodoComposerHandler } from '@/components/workBoard/useSavedTodoComposer';
 import { CHAT_INPUT_EDITOR_SELECTOR } from './composer/editor/dom';
 import {
     ChatColumnActionsContext,
@@ -390,7 +388,6 @@ const ChatViewport = React.memo(({
         <>
             {/* Permissions and forms dock above the composer (`PermissionDock`, `FormDock`). */}
             <SessionErrorNotice sessionId={currentSessionId} directory={directory} />
-            <SessionSavedTodos key={currentSessionId} sessionId={currentSessionId} />
 
             {/* Tail spacer. With a floating composer it reserves the band the
                 composer covers, plus any panel docked above it (queue, BTW),
@@ -803,7 +800,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     readOnly = false,
     pinnedSession,
 }) => {
-    const savedTodoComposer = React.useRef<SavedTodoComposerHandler | null>(null);
     const pinned = pinnedSession !== undefined;
     const autoOpenDraft = autoOpenDraftProp && !pinned;
     const { t } = useI18n();
@@ -1794,7 +1790,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 			className="flex h-full min-h-0 bg-background"
 		>
 		<ChatColumnSessionContext.Provider value={chatColumnSession}>
-		<SavedTodoComposerContext.Provider value={savedTodoComposer}>
 		<ChatColumnActionsContext.Provider value={columnActions}>
 		<ChatColumnExpandedInputContext.Provider value={pinnedExpandedInputValue}>
 		{/* One mobile comment controller per column: selections in this column
@@ -1976,7 +1971,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         </MobileCommentComposerContext.Provider>
         </ChatColumnExpandedInputContext.Provider>
 		</ChatColumnActionsContext.Provider>
-		</SavedTodoComposerContext.Provider>
 		</ChatColumnSessionContext.Provider>
         {/* Kept mounted while it could ever show, so it can fade out and back
             in; `visible` drives that, and `reserved` keeps its column in the

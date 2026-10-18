@@ -4,31 +4,27 @@ import { useI18n } from '@/lib/i18n';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { fetchSessionWorkBoardCards, updateWorkBoardCard, WorkBoardRequestError, type WorkBoardCard } from '@/lib/workBoardApi';
 import type { AttachedFile } from '@/stores/types/sessionTypes';
-import { completeTodoSave, useWorkBoardSavedTodo } from './workBoardSavedTodo';
+import { useSessionUIStore } from '@/sync/session-ui-store';
+import { clearTodoLoad, completeTodoSave, showWorkBoardForDirectory, useWorkBoardSavedTodo } from './workBoardSavedTodo';
 
-export type SavedTodoComposerHandler = (card: WorkBoardCard, mode: 'edit' | 'plan') => void;
-
-/** Each chat column registers its own composer, including pinned columns. */
-export const SavedTodoComposerContext = React.createContext<React.RefObject<SavedTodoComposerHandler | null> | null>(null);
+type SavedTodoComposerHandler = (card: WorkBoardCard) => void;
 
 type Operation = {
   card: WorkBoardCard;
-  mode: 'edit' | 'plan';
   runtimeKey: string;
   scope: string;
-  previous: { text: string; files: AttachedFile[]; todoMode: boolean; agent: string | undefined };
+  previous: { text: string; files: AttachedFile[]; todoMode: boolean };
   phase: 'draft' | 'saving' | 'sending' | 'sent';
 };
 
 type Options = {
   scope: string;
   sessionId: string | null;
+  /** The main chat column's composer; a pinned column never takes a board's card. */
+  isPrimary: boolean;
   available: boolean;
-  planAgent: string | undefined;
-  agent: string | undefined;
   todoMode: boolean;
   setTodoMode: (enabled: boolean) => void;
-  selectAgent: (agent: string) => void;
   readText: () => string;
   setText: (text: string) => void;
   files: AttachedFile[];
@@ -43,7 +39,6 @@ function attachSavedFile(file: WorkBoardCard['attachments'][number]): AttachedFi
 
 export function useSavedTodoComposer(options: Options) {
   const { t } = useI18n();
-  const registration = React.useContext(SavedTodoComposerContext);
   const mutation = useWorkBoardSavedTodo(state => state.latestSave);
   const [operation, setOperation] = React.useState<Operation | null>(null);
   const operationRef = React.useRef(operation);
@@ -53,13 +48,16 @@ export function useSavedTodoComposer(options: Options) {
   const owns = React.useCallback((op: Operation) => getRuntimeKey() === op.runtimeKey && latestOptions.current.scope === op.scope
     && operationRef.current?.previous === op.previous, []);
   const active = operation?.scope === options.scope && operation.runtimeKey === getRuntimeKey() ? operation : null;
+  // The loader a card the board opened is handed to, so the brief lands in this
+  // composer only once it is the one showing the card's session.
+  const loadRef = React.useRef<SavedTodoComposerHandler | null>(null);
 
   React.useLayoutEffect(() => {
-    if (!registration) return;
-    const load: SavedTodoComposerHandler = (card, mode) => {
+    const load: SavedTodoComposerHandler = (card) => {
       const current = latestOptions.current;
-      if (!current.available || card.sessionId !== current.sessionId || operationRef.current
-        || (mode === 'plan' && !current.planAgent)) {
+      // A card without a session parks into the open new-session draft, so both
+      // sides of the comparison are normalized to the composer's own null.
+      if (!current.available || (card.sessionId ?? null) !== (current.sessionId ?? null) || operationRef.current) {
         toast.error(t('workBoard.parkBlocked'));
         return;
       }
@@ -69,17 +67,35 @@ export function useSavedTodoComposer(options: Options) {
       for (const file of card.attachments) {
         if (!nextFiles.some(existing => existing.id === file.id)) nextFiles.push(attachSavedFile(file));
       }
-      change({ card, mode, scope: current.scope, runtimeKey: getRuntimeKey(), phase: 'draft',
-        previous: { text, files, todoMode: current.todoMode, agent: current.agent } });
+      change({ card, scope: current.scope, runtimeKey: getRuntimeKey(), phase: 'draft',
+        previous: { text, files, todoMode: current.todoMode } });
       current.setText([text, card.text].filter(value => value.length > 0).join('\n\n'));
       current.setFiles(nextFiles);
-      current.setTodoMode(mode === 'edit');
-      if (mode === 'plan' && current.planAgent) current.selectAgent(current.planAgent);
+      current.setTodoMode(true);
       current.focus();
     };
-    registration.current = load;
-    return () => { if (registration.current === load) registration.current = null; };
-  }, [registration, t, change]);
+    loadRef.current = load;
+    return () => { if (loadRef.current === load) loadRef.current = null; };
+  }, [t, change]);
+
+  // A card the user clicked opens as the composer's draft, not a transcript row.
+  // The card's session id picks the composer: null is the open new-session
+  // draft, the session's id is that session's main composer.
+  const pendingLoad = useWorkBoardSavedTodo(state => state.pendingLoad);
+  React.useEffect(() => {
+    if (!options.isPrimary || !pendingLoad) return;
+    if (pendingLoad.runtimeKey !== getRuntimeKey()) return;
+    const current = latestOptions.current;
+    if ((pendingLoad.card.sessionId ?? null) !== current.sessionId) return;
+    // A busy or queued session cannot park a brief, and a second card while one
+    // is being edited has nowhere to go: drop the request rather than toast.
+    if (!current.available || operationRef.current) {
+      clearTodoLoad(pendingLoad.card.id);
+      return;
+    }
+    clearTodoLoad(pendingLoad.card.id);
+    loadRef.current?.(pendingLoad.card);
+  }, [pendingLoad, options.isPrimary, options.sessionId, options.available]);
 
   React.useEffect(() => {
     const current = operationRef.current;
@@ -93,7 +109,6 @@ export function useSavedTodoComposer(options: Options) {
     current.setText(op.previous.text);
     current.setFiles(op.previous.files);
     current.setTodoMode(op.previous.todoMode);
-    if (op.previous.agent) current.selectAgent(op.previous.agent);
     change(null);
     current.focus();
   }, [change, owns]);
@@ -117,6 +132,7 @@ export function useSavedTodoComposer(options: Options) {
       });
       if (!owns(op)) return;
       completeTodoSave(card);
+      showWorkBoardForDirectory(card.directory);
       // Edits made during the request remain as the next ordinary draft.
       if (latestOptions.current.readText() === text) latestOptions.current.setText('');
       if (latestOptions.current.files === files) latestOptions.current.setFiles([]);
@@ -133,7 +149,14 @@ export function useSavedTodoComposer(options: Options) {
     if (getRuntimeKey() !== op.runtimeKey) return;
     if (owns(op)) change({ ...op, phase: 'sent' });
     try {
-      const card = await updateWorkBoardCard(op.card.id, { stage: 'plan', expectedUpdatedAt: op.card.updatedAt });
+      // A card without a session is a draft the send just made real: linking
+      // the session the send created is what lets the card follow its lane.
+      const linkSessionId = op.card.sessionId ? null : useSessionUIStore.getState().currentSessionId;
+      const card = await updateWorkBoardCard(op.card.id, {
+        stage: 'plan',
+        sessionId: linkSessionId ?? undefined,
+        expectedUpdatedAt: op.card.updatedAt,
+      });
       if (getRuntimeKey() !== op.runtimeKey) return;
       completeTodoSave(card);
       if (owns(op)) change(null);

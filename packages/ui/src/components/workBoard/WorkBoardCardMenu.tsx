@@ -45,6 +45,8 @@ type WorkBoardCardMenuProps = {
   onStartPlan: (() => void) | null;
   onReturnToTodo: (() => void) | null;
   onRemove: (() => void) | null;
+  /** Delete only the saved brief, keeping the session and the card. */
+  onRemoveTodo: (() => void) | null;
 };
 
 /**
@@ -53,7 +55,7 @@ type WorkBoardCardMenuProps = {
  * place on the board, so pinning it again says nothing. Each item's hint stays
  * in the sidebar: that copy names the sidebar, the tabs and In work.
  */
-export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onStartPlan, onReturnToTodo, onRemove }: WorkBoardCardMenuProps) {
+export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo }: WorkBoardCardMenuProps) {
   const { t } = useI18n();
   const [open, setOpen] = React.useState(false);
   const [renaming, setRenaming] = React.useState(false);
@@ -107,6 +109,7 @@ export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onSta
       <DropdownMenuContent align="end">
         {onStartPlan ? <DropdownMenuItem onClick={onStartPlan}>{t('workBoard.startPlan')}</DropdownMenuItem> : null}
         {onReturnToTodo ? <DropdownMenuItem onClick={onReturnToTodo}>{t('workBoard.backTodo')}</DropdownMenuItem> : null}
+        {onRemoveTodo ? <DropdownMenuItem onClick={onRemoveTodo}>{t('workBoard.removeTodo')}</DropdownMenuItem> : null}
         {onRemove ? <DropdownMenuItem onClick={onRemove}>{t('workBoard.remove')}</DropdownMenuItem> : null}
         {session ? <>
           <DropdownMenuSeparator />

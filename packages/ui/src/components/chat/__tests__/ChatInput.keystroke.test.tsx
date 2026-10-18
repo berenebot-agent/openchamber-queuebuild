@@ -7,9 +7,7 @@ import { Window } from 'happy-dom';
 import { z } from 'zod';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import type { EditorView as ComposerEditorView } from '@codemirror/view';
-import type { SavedTodoComposerHandler } from '@/components/workBoard/useSavedTodoComposer';
 import type { WorkBoardCard } from '@/lib/workBoardApi';
-import type { RefObject } from 'react';
 
 /**
  * Counts which components render per keystroke without instrumenting them.
@@ -190,8 +188,6 @@ const { I18nProvider } = await import('@/lib/i18n');
 const { ThemeSystemProvider } = await import('@/contexts/ThemeSystemContext');
 const { RuntimeAPIContext } = await import('@/contexts/runtimeAPIContext');
 const { ChatInput } = await import('../ChatInput');
-const { SavedTodoComposerContext } = await import('@/components/workBoard/useSavedTodoComposer');
-const { SessionSavedTodos } = await import('@/components/workBoard/SessionSavedTodos');
 const { SyncProvider } = await import('@/sync/sync-context');
 const { useDirectoryStore } = await import('@/stores/useDirectoryStore');
 const { OpenCode } = await import('@opencode/client');
@@ -230,7 +226,7 @@ type TypingCost = {
 };
 
 /** Mounts a fresh composer, types KEYSTROKES characters, and reports the per-keystroke cost. */
-const measureTyping = async (scenario: 'session' | 'draft', exercise?: (container: HTMLElement, view: ComposerEditorView, todoComposer: RefObject<SavedTodoComposerHandler | null>) => Promise<void>): Promise<TypingCost> => {
+const measureTyping = async (scenario: 'session' | 'draft', exercise?: (container: HTMLElement, view: ComposerEditorView) => Promise<void>): Promise<TypingCost> => {
   useDirectoryStore.setState({ currentDirectory: '/workspace' });
   useSessionUIStore.setState(scenario === 'session'
     ? { currentSessionId: 'ses_typing', currentSessionDirectory: '/workspace', newSessionDraft: { ...useSessionUIStore.getState().newSessionDraft, open: false } }
@@ -242,7 +238,6 @@ const measureTyping = async (scenario: 'session' | 'draft', exercise?: (containe
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  const todoComposer: RefObject<SavedTodoComposerHandler | null> = { current: null };
   let commits = 0;
   let renderMs = 0;
   try {
@@ -252,12 +247,9 @@ const measureTyping = async (scenario: 'session' | 'draft', exercise?: (containe
           <ThemeSystemProvider>
             <I18nProvider>
               <SyncProvider sdk={sdk} directory="/workspace">
-                <SavedTodoComposerContext.Provider value={todoComposer}>
-                  {scenario === 'session' && <SessionSavedTodos sessionId="ses_typing" />}
                   <Profiler id="composer" onRender={(_id, _phase, actual) => { commits += 1; renderMs += actual; }}>
                   <ChatInput />
                   </Profiler>
-                </SavedTodoComposerContext.Provider>
               </SyncProvider>
             </I18nProvider>
           </ThemeSystemProvider>
@@ -270,7 +262,7 @@ const measureTyping = async (scenario: 'session' | 'draft', exercise?: (containe
     const view = content ? EditorView.findFromDOM(content) : null;
     if (!view) throw new Error('The composer editor did not mount');
     if (exercise) {
-      await exercise(container, view, todoComposer);
+      await exercise(container, view);
       await act(async () => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } }); });
     }
 
@@ -416,9 +408,9 @@ for (const scenario of ['session', 'draft'] as const) {
         await act(async () => { save!.click(); });
         expect(writes).toEqual([scenario === 'draft' ? '/api/work-board' : '/api/work-board/sessions/ses_typing/todo']);
         expect(useWorkBoardSavedTodo.getState().latestSave?.card.text).toBe('Full saved brief\nFollow-up details');
-        // Only a new-session draft returns to the board; the save is announced
-        // by a toast on both paths.
-        expect(useUIStore.getState().isWorkBoardOpen).toBe(scenario === 'draft');
+        // A save always returns to the project's board; it is announced by a
+        // toast on both paths.
+        expect(useUIStore.getState().isWorkBoardOpen).toBe(true);
         expect(view.state.doc.toString()).toBe('');
       });
     } finally {
@@ -448,13 +440,30 @@ const prepareSavedTodo = async () => {
   useSelectionStore.getState().saveSessionAgentSelection('ses_typing', 'review');
 };
 
-test('Edit appends to the real composer and updates the same to-do with its attachments', async () => {
+// The board opens a To-do card by handing its brief to the composer, which is
+// how these tests reach the saved-to-do flow now that the transcript carries no
+// entry for it.
+const loadSavedTodo = async (card?: WorkBoardCard) => {
+  const { requestTodoLoad } = await import('@/components/workBoard/workBoardSavedTodo');
+  await act(async () => { requestTodoLoad(card ?? savedCards[0]!); await new Promise(resolve => setTimeout(resolve, 10)); });
+};
+
+// Leaving To-do mode is the user's own move: pick a real agent, which is what
+// turns the composer back to Send.
+const pickAgent = async (container: HTMLElement, name: string) => {
+  const trigger = [...container.querySelectorAll<HTMLElement>('.model-controls__agent-label')].find(node => node.textContent?.trim() === 'To-do');
+  if (!trigger) throw new Error('Missing agent picker');
+  await act(async () => { trigger.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.textContent?.trim() === name);
+  if (!item) throw new Error(`Missing agent ${name}`);
+  await act(async () => { item.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+};
+
+test('a card opens its brief into the real composer and updates the same to-do with its attachments', async () => {
   await prepareSavedTodo();
   await measureTyping('session', async (container, view) => {
     await act(async () => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'Existing draft' } }); });
-    const edit = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Edit brief');
-    if (!edit) throw new Error('Missing Edit action');
-    await act(async () => edit.click());
+    await loadSavedTodo();
     expect(view.state.doc.toString()).toBe('Existing draft\n\nSaved brief\nDetails');
     expect(container.querySelector('[aria-label="Update to-do"]')).not.toBeNull();
     expect(writes).toEqual([]);
@@ -470,24 +479,22 @@ test('Edit appends to the real composer and updates the same to-do with its atta
   });
 });
 
-test('Plan prepares the existing draft without sending and Cancel restores text, files and agent', async () => {
+test('a card opens the brief after the draft, and Cancel restores text, files and agent', async () => {
   await prepareSavedTodo();
   const { useInputStore } = await import('@/sync/input-store');
   await measureTyping('session', async (container, view) => {
     await act(async () => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'Keep this draft' } }); });
     const previousFiles = [...useInputStore.getState().attachedFiles];
-    const plan = [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Plan');
-    if (!plan) throw new Error('Missing Plan action');
-    await act(async () => plan.click());
+    const previousAgent = useConfigStore.getState().currentAgentName;
+    await loadSavedTodo();
     expect(view.state.doc.toString()).toBe('Keep this draft\n\nSaved brief\nDetails');
-    expect(useConfigStore.getState().currentAgentName).toBe('plan');
-    expect(container.textContent).toContain('Preparing saved to-do for chat');
+    expect(container.textContent).toContain('Editing saved to-do');
     expect(writes).toEqual([]);
     const cancel = [...container.querySelectorAll<HTMLButtonElement>('[role="status"] button')].find(button => button.textContent === 'Cancel');
     if (!cancel) throw new Error('Missing conversion Cancel');
     await act(async () => cancel.click());
     expect(view.state.doc.toString()).toBe('Keep this draft');
-    expect(useConfigStore.getState().currentAgentName).toBe('review');
+    expect(useConfigStore.getState().currentAgentName).toBe(previousAgent);
     expect(useInputStore.getState().attachedFiles).toEqual(previousFiles);
     expect(savedCards[0]?.stage).toBe('todo');
     savedCards = [];
@@ -505,7 +512,7 @@ test('editing merges existing files without duplicating a saved attachment and r
         { id: 'draft-file', filename: 'draft.txt', mimeType: 'text/plain', size: 2, dataUrl: 'data:text/plain;base64,aGk=', file: new File(['hi'], 'draft.txt'), source: 'local' },
       ]);
     });
-    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Edit brief')!.click());
+    await act(async () => { await loadSavedTodo(); });
     expect(useInputStore.getState().attachedFiles.map(file => file.id)).toEqual(['saved-file', 'draft-file']);
     failBoardWrite = true;
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Update to-do"]')!.click());
@@ -520,36 +527,14 @@ test('editing merges existing files without duplicating a saved attachment and r
   });
 });
 
-test('X confirms removal, preserves a failed removal, and clears only the saved brief on success', async () => {
-  await prepareSavedTodo();
-  await measureTyping('session', async (container) => {
-    const remove = () => container.querySelector<HTMLButtonElement>('button[aria-label="Remove to-do"]')!;
-    const confirm = () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(button => button.textContent === 'Remove to-do')!;
-    await act(async () => remove().click());
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Are you sure you want to delete this to-do?');
-    expect(writes).toEqual([]);
-    failBoardWrite = true;
-    await act(async () => confirm().click());
-    expect(container.textContent).toContain('Saved brief');
-    expect(savedCards[0]?.text).toBe('Saved brief\nDetails');
-    failBoardWrite = false;
-    await act(async () => confirm().click());
-    expect(container.textContent).not.toContain('Saved brief');
-    expect(savedCards[0]).toMatchObject({ id: 'brief1', sessionId: 'ses_typing', stage: 'todo', updatedAt: 1, briefRemoved: true, text: '', attachments: [] });
-    expect(useSessionUIStore.getState().currentSessionId).toBe('ses_typing');
-    expect(writes.every(path => path === '/api/work-board/brief1')).toBe(true);
-    savedCards = [];
-  });
-});
-
 test('a failed Plan send keeps the to-do and restores the draft; success promotes only after acceptance', async () => {
   await prepareSavedTodo();
   const send = spyOn(useSessionUIStore.getState(), 'sendMessage').mockRejectedValueOnce(new Error('Rejected by server'));
   let accept = () => {};
   try {
     await measureTyping('session', async (container, view) => {
-      const plan = [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Plan')!;
-      await act(async () => plan.click());
+      await loadSavedTodo();
+      await pickAgent(container, 'plan');
       await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click());
       expect(send.mock.calls).toHaveLength(1);
       expect(patches).toEqual([]);
@@ -575,7 +560,8 @@ test('a board update failure after sending offers a board-only retry without res
   const send = spyOn(useSessionUIStore.getState(), 'sendMessage').mockResolvedValue(undefined);
   try {
     await measureTyping('session', async (container, view) => {
-      await act(async () => [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Plan')!.click());
+      await loadSavedTodo();
+      await pickAgent(container, 'plan');
       failBoardWrite = true;
       await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click());
       expect(send.mock.calls).toHaveLength(1);
@@ -599,7 +585,8 @@ test('switching a Plan conversion to Build retains it through failed admission a
   const send = spyOn(useSessionUIStore.getState(), 'sendMessage').mockRejectedValueOnce(new Error('Queue unavailable'));
   try {
     await measureTyping('session', async (container, view) => {
-      await act(async () => [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Plan')!.click());
+      await loadSavedTodo();
+      await pickAgent(container, 'plan');
       await act(async () => {
         useConfigStore.getState().setAgent('build');
         useSelectionStore.getState().saveSessionAgentSelection('ses_typing', 'build');
@@ -625,7 +612,8 @@ test('an accepted conversion still updates its original card after switching ses
   const send = spyOn(useSessionUIStore.getState(), 'sendMessage').mockImplementation(() => new Promise<void>(resolve => { accept = resolve; }));
   try {
     await measureTyping('session', async (container) => {
-      await act(async () => [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Plan')!.click());
+      await loadSavedTodo();
+      await pickAgent(container, 'plan');
       await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click());
       await act(async () => useSessionUIStore.setState({ currentSessionId: 'other-session' }));
       await act(async () => accept());
@@ -643,7 +631,8 @@ test('a lost promotion response reconciles on retry without sending another mess
   const send = spyOn(useSessionUIStore.getState(), 'sendMessage').mockResolvedValue(undefined);
   try {
     await measureTyping('session', async (container) => {
-      await act(async () => [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Plan')!.click());
+      await loadSavedTodo();
+      await pickAgent(container, 'plan');
       loseNextBoardResponse = true;
       await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click());
       expect(savedCards[0]?.stage).toBe('plan');
@@ -665,7 +654,8 @@ test('switching runtimes during a send never promotes a card on the new server',
   const send = spyOn(useSessionUIStore.getState(), 'sendMessage').mockImplementation(() => new Promise<void>(resolve => { accept = resolve; }));
   try {
     await measureTyping('session', async (container) => {
-      await act(async () => [...container.querySelectorAll<HTMLButtonElement>('section button')].find(button => button.textContent === 'Plan')!.click());
+      await loadSavedTodo();
+      await pickAgent(container, 'plan');
       await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')!.click());
       await act(async () => switchRuntimeEndpoint({ runtimeKey: 'other-todo-runtime', apiBaseUrl: 'https://other-todo.test' }));
       await act(async () => accept());

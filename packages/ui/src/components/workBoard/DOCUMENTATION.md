@@ -6,13 +6,14 @@ not classify sessions itself.
 
 ## Ownership
 
-- `WorkBoardView.tsx` — the view: tabs, lanes, drag-and-drop, card editing,
-  queue rows, the project queue toggle, and the recovery dialogs. Its `mobile`
-  prop renders the same board as a one-lane phone view for the mobile shells.
+- `WorkBoardView.tsx` — the view: tabs, lanes, drag-and-drop, opening a card into
+  its session, queue rows, the project queue toggle, and the recovery dialogs.
+  Its `mobile` prop renders the same board as a one-lane phone view for the
+  mobile shells.
 - `WorkBoardCardMenu.tsx` — a card's own three-dot menu: the board's entries
-  (start Plan, back to To-do, remove) and, for a card linked to a session, the
-  session actions a sidebar row offers. Pin is not among them: a card already
-  carries its own place on the board.
+  (start Plan, back to To-do, remove the saved to-do, remove the card) and, for a
+  card linked to a session, the session actions a sidebar row offers. Pin is not
+  among them: a card already carries its own place on the board.
 - `workBoardMobileLane.ts` — the last lane the phone showed, remembered per
   client and connected server.
 - `workBoardWorkflow.ts` — pure helpers: lane ordering within a drop, feedback
@@ -22,9 +23,9 @@ not classify sessions itself.
   the server projection does.
 - `WorkBoardProjectTabs.tsx`, `workBoardProjectState.ts` — project tab strip and
   the project's display name.
-- `SavedTodoBrief.tsx`, `SessionSavedTodos.tsx`, `useSavedTodoComposer.ts`,
-  `workBoardSavedTodo.ts` — the saved-brief surfaces shared with the chat
-  composer and the session transcript.
+- `useSavedTodoComposer.ts`, `workBoardSavedTodo.ts` — the saved-brief surfaces
+  shared with the chat composer: the card the board opened is handed to its
+  composer as the draft, and the save returns the user to the board.
 - `lib/workBoardApi.ts` — the HTTP contract: stored cards, placements, viewed
   acknowledgement, the projection snapshot, and the project queue settings.
 

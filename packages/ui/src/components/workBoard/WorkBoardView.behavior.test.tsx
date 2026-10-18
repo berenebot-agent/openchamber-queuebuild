@@ -15,7 +15,7 @@ import { createChatDraftIdentity, getChatDraftIdentityKey } from '@/lib/chatDraf
 import { useInputStore } from '@/sync/input-store';
 import { toast } from '@/components/ui';
 import type { WorkBoardSnapshot } from '@/lib/workBoardApi';
-import { completeTodoSave, useWorkBoardSavedTodo } from './workBoardSavedTodo';
+import { completeTodoSave, showWorkBoardForDirectory, useWorkBoardSavedTodo } from './workBoardSavedTodo';
 import { makeSnapshot, snapshotCard } from './workBoardSnapshot.fixture';
 
 // The board is a server-owned projection now, so these tests drive it the way
@@ -57,8 +57,6 @@ test('board actions, live activity and viewed turn attention use shared session 
   ];
   let placementRequests = 0;
   let serverCards = cards;
-  let editPatchCount = 0;
-  const editPatchBodies: Array<{ text: string; expectedUpdatedAt: number }> = [];
   const activity: WorkBoardSnapshot['activities'] = {
     session1: { busy: false, messages: [
       { id: 'failed', sessionID: 'session1', role: 'idle', outcome: 'interrupted', time: { created: 5 } },
@@ -85,12 +83,6 @@ test('board actions, live activity and viewed turn attention use shared session 
     }
     if (url.endsWith('/api/work-board/todo') && method === 'PATCH') {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
-      editPatchBodies.push(body);
-      editPatchCount += 1;
-      if (editPatchCount === 1) {
-        serverCards = serverCards.map(card => card.id === 'todo' ? { ...card, text: 'Saved in another window', updatedAt: 2 } : card);
-        return Response.json({ error: 'Card changed. Choose which version to keep.' }, { status: 409 });
-      }
       const updated = { ...serverCards.find(card => card.id === 'todo')!, text: body.text, updatedAt: 3 };
       serverCards = serverCards.map(card => card.id === 'todo' ? updated : card);
       return Response.json({ card: updated });
@@ -117,31 +109,15 @@ test('board actions, live activity and viewed turn attention use shared session 
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 30)); });
     expect(container.querySelector('header button[aria-label="New to-do"]')).toBeNull();
+    // A card opens into its session, never into a form on the board: a To-do
+    // brief is asked for as the composer's draft and written back to its card.
     const briefTitle = container.querySelector<HTMLButtonElement>('button[title="Saved brief"]');
     if (!briefTitle) throw new Error('Missing saved brief card');
     await act(async () => briefTitle.click());
-    const editArea = container.querySelector<HTMLTextAreaElement>('textarea');
-    if (!editArea) throw new Error('Missing brief editor');
-    const setEditArea = Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype, 'value')?.set;
-    await act(async () => {
-      setEditArea?.call(editArea, 'My version');
-      editArea.dispatchEvent(new Event('input', { bubbles: true }));
-      editArea.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    const saveEdit = () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === 'Save brief')!;
-    await act(async () => { saveEdit().click(); await new Promise(resolve => setTimeout(resolve, 30)); });
-    const conflictDialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(conflictDialog()?.textContent).toContain('Someone else changed this card while you were editing.');
-    expect(conflictDialog()?.textContent).toContain('Saved in another window');
-    const overwrite = [...conflictDialog()!.querySelectorAll<HTMLButtonElement>('button')]
-      .find(item => item.textContent === 'Overwrite with my edits');
-    if (!overwrite) throw new Error('Missing overwrite choice');
-    await act(async () => { overwrite.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
-    expect(editPatchBodies.map(body => body.expectedUpdatedAt)).toEqual([1, 2]);
-    expect(editPatchBodies).toHaveLength(2);
-    expect(new Set(editPatchBodies.map(body => body.text)).size).toBe(1);
-    expect(serverCards.find(card => card.id === 'todo')?.text).toBe(editPatchBodies[0].text);
-    expect(conflictDialog()).toBeNull();
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(draftSpy.mock.calls.at(-1)).toEqual([{ selectedProjectId: 'project', target: 'project', directoryOverride: '/repo', origin: 'workBoard' }]);
+    expect(useWorkBoardSavedTodo.getState().pendingLoad?.card.id).toBe('todo');
+    useWorkBoardSavedTodo.setState({ pendingLoad: null });
     // Creating a new build now happens from the queue column's empty active
     // slot, beside the two lanes that still open a composer directly.
     for (const [label, lane, origin] of [['New to-do', 'To-do', 'workBoard'], ['New Plan session', 'Plan', 'workBoardPlan']]) {
@@ -178,20 +154,13 @@ test('board actions, live activity and viewed turn attention use shared session 
     const saved = { ...cards[0], text: 'Saved first line\nThe full saved dialogue', attachments: [
       { id: 'file1', filename: 'brief.txt', mimeType: 'text/plain', size: 2, dataUrl: 'data:text/plain;base64,aGk=' },
     ] };
-    await act(async () => completeTodoSave(saved, 'project'));
+    // A save returns to the board on the project that owns the card, and the
+    // board itself never opens a dialog over the card it just wrote.
+    await act(async () => { completeTodoSave(saved); showWorkBoardForDirectory(saved.directory); });
     expect(useUIStore.getState().isWorkBoardOpen).toBe(true);
     expect(useUIStore.getState().workBoardProjectTabsByRuntime[getRuntimeKey()]?.activeProjectId).toBe('project');
-    // The save is announced by the composer's toast; the board itself carries
-    // the card and shows no dialog over it.
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(useWorkBoardSavedTodo.getState().latestSave?.card.id).toBe(saved.id);
-    // An existing-session save stays in its session and never opens the board.
-    await act(async () => {
-      useUIStore.getState().setWorkBoardOpen(false);
-      completeTodoSave({ ...saved, sessionId: 'session1' });
-    });
-    expect(useUIStore.getState().isWorkBoardOpen).toBe(false);
-    expect(useSessionUIStore.getState().currentSessionId).toBe('session1');
     // The move to Done stamps a fresh completion, so the card carries the
     // session list's unread mark until that completion is acknowledged.
     expect(linkedCard().querySelector('[data-session-activity-indicator="unread"]')).not.toBeNull();
@@ -199,9 +168,9 @@ test('board actions, live activity and viewed turn attention use shared session 
     expect(linkedCard().textContent).toContain('Needs attention');
     expect(linkedCard().getAttribute('data-work-board-feedback')).toBe('blocked');
     // A card with nothing to report carries no marker.
-    const editedCard = [...container.querySelectorAll<HTMLButtonElement>('article button[title]')]
-      .find(button => button.title === editPatchBodies[0].text)?.closest('article');
-    expect(editedCard?.getAttribute('data-work-board-feedback') ?? null).toBeNull();
+    const quietCard = [...container.querySelectorAll<HTMLButtonElement>('article button[title]')]
+      .find(button => button.title === 'Saved brief')?.closest('article');
+    expect(quietCard?.getAttribute('data-work-board-feedback') ?? null).toBeNull();
     await act(async () => useSessionUIStore.getState().setCurrentSession('session1', '/repo'));
     expect(linkedCard().textContent).not.toContain('Needs attention');
     expect(linkedCard().getAttribute('data-work-board-feedback')).toBeNull();
@@ -620,6 +589,7 @@ test('cards drag from the whole card, the check moves one to Done, and queue row
   const sessionUI = useSessionUIStore.getState();
   const sessionStatus = useGlobalSessionStatusStore.getState();
   const sessionDisplay = useSessionDisplayStore.getState();
+  const draftSpy = spyOn(useSessionUIStore.getState(), 'openNewSessionDraft').mockImplementation(() => {});
   let serverCards: WorkBoardSnapshot['cards'] = [snapshotCard({ id: 'todo', lane: 'todo', text: 'Draft the release notes' })];
   const placementBodies: Array<{ url: string; lane: string; before?: string | null }> = [];
   useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
@@ -659,12 +629,13 @@ test('cards drag from the whole card, the check moves one to Done, and queue row
     const card = container.querySelector<HTMLElement>('article[aria-label="Drag Draft the release notes"]');
     expect(card).not.toBeNull();
     expect(card!.getAttribute('role')).toBe('button');
-    // A press and release on the card body opens it for editing.
+    // A press and release on the card body opens it into its session, never a
+    // form on the board: the brief is asked for as the composer's draft.
     await act(async () => { card!.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
-    expect(container.querySelector('textarea')).not.toBeNull();
-    const cancelEdit = [...container.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === 'Cancel');
-    if (!cancelEdit) throw new Error('Missing cancel');
-    await act(async () => { cancelEdit.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(draftSpy.mock.calls.at(-1)).toEqual([{ selectedProjectId: 'project', target: 'project', directoryOverride: '/repo', origin: 'workBoard' }]);
+    expect(useWorkBoardSavedTodo.getState().pendingLoad?.card.id).toBe('todo');
+    useWorkBoardSavedTodo.setState({ pendingLoad: null });
     const check = container.querySelector<HTMLButtonElement>('button[aria-label="Move Draft the release notes to Done"]');
     if (!check) throw new Error('Missing completion check');
     await act(async () => { check.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
@@ -673,7 +644,7 @@ test('cards drag from the whole card, the check moves one to Done, and queue row
     expect(container.querySelector('section[aria-label="Done"]')!.textContent).toContain('Draft the release notes');
   } finally {
     await act(async () => root.unmount());
-    fetchSpy.mockRestore();
+    fetchSpy.mockRestore(); draftSpy.mockRestore();
     useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);

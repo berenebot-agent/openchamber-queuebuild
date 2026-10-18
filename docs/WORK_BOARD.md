@@ -14,7 +14,9 @@ directory. Worktree directories retain their own Build queues.
 
 Choose **+** in the To-do column header to start a card. It opens a composer already set to
 **To-do**, so the brief saves instead of running a model, and the To-do chip is
-highlighted while that mode is active. A board the user has opened keeps a
+highlighted while that mode is active. Clicking an existing To-do card opens it
+in a composer with its brief as the draft (see *Edit a to-do*). A board the user
+has opened keeps a
 **Work Board** button beside the chat in every session, which returns to the
 board's last project.
 The **+** button in Plan opens a fresh composer for the board's project with the
@@ -110,55 +112,41 @@ to finish before parking an existing session. The composer clears only after
 the server confirms the save. If the session becomes busy while To-do is
 selected, its notes stay in the composer and cannot be queued for execution.
 
-Saving a new-session draft returns to that project's board, where the card is
-now in the To-do lane, and confirms with a **Saved to To-do** toast. The board
-itself opens no dialog over the card.
-Saving in an existing session keeps that session open. Its saved brief appears
-at the end of the transcript in a **Saved to To-do** entry, including after
-reopening the session or refreshing the page. Existing linked cards also appear
-there, but only while they are still To-do. The entry is a pending message: once
-a card is promoted, its text is a real user turn in the transcript, so the footer
-stops echoing it to avoid showing it twice. Returning a card to To-do brings the
-entry back. The entry reads the server card, so edits and removal of that card
-also change what is shown in the session. It is not an OpenCode user turn and
-does not send context or start a model.
+A save returns to that project's board, where the card is now in the To-do lane,
+and confirms with a **Saved to To-do** toast. The board itself opens no dialog
+over the card.
 
-Session entries are scoped by session ID, including when the session lives in a
-worktree and its card belongs to the root project's board. A failed read keeps
-the last loaded text visible and offers **Try again**. Session and runtime
-changes discard reads that finish for the previous session or server.
+## Edit a to-do
 
-### Edit, plan or remove a saved brief in the session
+A To-do card is edited in a composer, never on the board. Clicking the card
+opens its session — or, for a card that has none, an unsaved draft rooted in the
+board's project — with the saved text and files in the composer as the draft and
+**To-do** selected. They are appended after whatever the composer already held,
+so nothing the user typed is lost. The composer shows an **Editing saved to-do**
+row with **Cancel**, which restores the draft, its files and the earlier mode.
 
-Web and Electron desktop, including a chat pinned in the side panel, show three
-actions on that **Saved to To-do** entry. The dedicated mobile and VS Code
-composers keep the read-only entry.
+Submit with **Update to-do** to save the combined text and files back onto the
+same card; the save returns to the board, and the brief is the draft again the
+next time the card is opened. A stale save is refused with a message: reload the
+board or session and try again. There is no conflict dialog and no transcript
+entry — the brief lives only in the composer and on the card.
 
-**Edit brief** loads the saved text and files into the composer with the existing
-draft and attachments already there, and selects **To-do**. Submit with
-**Update to-do** to save the combined text and files back onto the same card. No
-message is sent and no second card is created. **Cancel** restores the draft,
-attachments and agent you had before, and leaves the card unchanged. A stale
-save is refused: reload the board or session and try again.
+**Remove to-do** in the card's actions menu deletes only the saved brief. The
+session, its chat history and its board lane are untouched, and its card stays
+as a session card. The text cannot be restored; saving a new to-do from that
+session creates a fresh brief.
 
-**Plan** loads the same combined draft and selects the Plan agent. Your existing
-draft stays in front of the saved text, and Cancel restores everything as it
-was. Nothing is sent until you submit. Once the message is accepted the card
-moves to Plan and its session entry here disappears. If you switch to another
-agent before submitting, the to-do still travels with that message: the card
-follows the agent you chose, so a Build submit through the project build queue
-moves the card to Build queue once the queue accepts it. If the send fails, the
-card stays to-do and your draft comes back. If the message was accepted but the
-board write failed, the entry says so and offers **Try again**, which updates the
-board without sending anything again. Cancelling a queued build does not bring
-the to-do back.
+Pick the Plan or Build agent in the composer and send to promote the card
+instead. The draft and the brief travel with that message, and the card moves to
+the lane that agent implies only after the send is accepted; a card that had no
+session is linked to the session the send creates. If the send fails, the card
+stays to-do and the draft comes back. If the message was accepted but the board
+write failed, the composer's status row says so and offers **Try again**, which
+updates the board without sending anything again. Cancelling a queued build does
+not bring the to-do back.
 
-**Remove to-do** asks for confirmation, then deletes the saved brief everywhere.
-The session, its chat history and its board lane are untouched, and its board
-card stays as a session card. The text cannot be restored; saving a new to-do
-from that session creates a fresh brief.
-
-To-do cards live on the board. They do not add empty sessions to the sidebar.
+To-do cards live on the board. They do not add empty sessions to the sidebar
+until a real prompt is sent from one.
 
 ## Start planning
 
@@ -172,7 +160,8 @@ chat, resolved through the usual defaults. The board has no model picker; to run
 a particular model, open the card's session and change it in the chat composer.
 Auto routing is unavailable for promotion because it may select a different
 agent.
-Edit an unstarted card on the board to change its text, add files, or remove files.
+Opening a card loads its brief into the chat composer as the draft (see *Edit a
+to-do*); to promote it, pick the Plan or Build agent there and send.
 
 If session creation or submission fails, the saved brief remains available.
 A card that already links to a session must be inspected before attempting

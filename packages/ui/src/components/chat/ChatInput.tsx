@@ -14,7 +14,7 @@ import { prepareUserMessageResume } from '@/sync/user-message-resume';
 import { prepareLocalAttachments, useDraftAttachedFiles, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { createWorkBoardCard, saveSessionToTodo } from '@/lib/workBoardApi';
-import { completeTodoSave } from '@/components/workBoard/workBoardSavedTodo';
+import { completeTodoSave, showWorkBoardForDirectory } from '@/components/workBoard/workBoardSavedTodo';
 import { useSavedTodoComposer } from '@/components/workBoard/useSavedTodoComposer';
 import { Button } from '@/components/ui/button';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
@@ -1368,15 +1368,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const savedTodo = useSavedTodoComposer({
         scope: chatDraftIdentity ? getChatDraftIdentityKey(chatDraftIdentity) : '',
         sessionId: currentSessionId,
-        available: todoAvailable && !newSessionDraftOpen,
-        planAgent: agents.find(agent => agent.name.toLowerCase() === 'plan')?.name,
-        agent: currentAgentName,
+        isPrimary: !columnPinned,
+        available: todoAvailable,
         todoMode,
         setTodoMode,
-        selectAgent: (agent) => {
-            if (!columnPinned) setAgent(agent);
-            if (currentSessionId) saveSessionAgentSelection(currentSessionId, agent);
-        },
         readText: () => getCurrentInputSnapshot().message,
         setText: setMessage,
         files: attachedFiles,
@@ -1417,7 +1412,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 clearAttachedFiles(chatDraftIdentity);
             }
             toast.success(t('workBoard.saved'));
-            completeTodoSave(card, newSessionDraftOpen ? project.id : undefined);
+            completeTodoSave(card);
+            showWorkBoardForDirectory(card.directory);
         } catch (cause) {
             toast.error(cause instanceof Error ? cause.message : t('workBoard.failed'));
         } finally { setSavingTodo(false); }
@@ -4077,7 +4073,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // Null exactly when the suggestion row alone would have been: the mobile
     // pill picks its shape from whether a top row exists.
     const todoRow = savedTodo.active ? <div className="flex flex-wrap items-center gap-2 text-sm" role="status">
-        <span>{t(savedTodo.active.phase === 'sent' ? 'workBoard.promotionFailed' : savedTodo.active.mode === 'edit' ? 'workBoard.editingTodo' : 'workBoard.planningTodo')}</span>
+        <span>{t(savedTodo.active.phase === 'sent' ? 'workBoard.promotionFailed' : 'workBoard.editingTodo')}</span>
         {savedTodo.active.phase === 'sent'
             ? <Button size="sm" variant="outline" onClick={savedTodo.retry}>{t('workBoard.retry')}</Button>
             : <Button size="sm" variant="ghost" disabled={savedTodo.active.phase !== 'draft'} onClick={savedTodo.cancel}>{t('workBoard.cancel')}</Button>}

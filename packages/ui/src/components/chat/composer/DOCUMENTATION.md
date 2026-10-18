@@ -29,16 +29,17 @@ and new-session drafts also skip this parking-status poll. Queue snapshot
 requests reject stale responses after disable, unmount, or runtime change.
 See `docs/WORK_BOARD.md` and `components/workBoard` for promotion and recovery.
 
-The same mode also carries an edit and a Plan conversion started from the
-session's **Saved to To-do** entry (`useSavedTodoComposer.ts`). Both append the
-saved text and files to whatever the composer holds, and Cancel restores the
-draft, attachments and agent captured when the entry was clicked. Edit saves
-back onto the same card, so the composer's submit reads **Update to-do**; Plan
-selects the Plan agent and promotes the card only after the send is accepted.
-The composer renders one status row for the active conversion, and the queued
-Build path consumes it when the queue accepts the message. `ChatContainer`
-publishes one registration per column, so a brief in the timeline reaches the
-composer beside it, pinned column included.
+The same mode also carries the edit a To-do card opens (`useSavedTodoComposer.ts`).
+Opening a card asks the composer for its session — or the open new-session draft
+for a card without one — to take the saved text and files. They are appended to
+whatever the composer holds, and To-do is selected, so the submit reads **Update
+to-do** and saving writes back onto the same card and returns to the board.
+Cancel restores the draft, attachments and To-do state captured when the card
+was opened. Sending with a real agent instead promotes the card: a card with no
+session is linked to the session the send creates, and the card moves to the
+lane the agent implies only after the send is accepted. The composer renders one
+status row for the active conversion, and the queued Build path consumes it when
+the queue accepts the message.
 
 `ChatContainer.tsx` keeps one `ChatInput` mounted while a new-session draft
 becomes its first session. Draft-only UI first fades for 120ms while the editor
@@ -1024,16 +1025,14 @@ quoted code or message stays verbatim.
 ## Testing
 
 To-do submission uses the server-owned work board instead of the OpenCode send
-path. After confirmation, `completeTodoSave` publishes the accepted card for the
-session's saved-brief entry. New drafts return to their project's board and show
-the saved text in a dialog; existing sessions stay selected. The composer only
-clears unchanged text and attachments after the save succeeds. The transcript's
-`SessionSavedTodos` entry reloads linked cards from the server on session entry
-and focus, preserving loaded text on read failure. It shows only cards still in
-To-do, so a promoted brief is not echoed beside its own user turn; returning a
-card to To-do restores the entry. It never invokes a model or
-adds synthetic context. See `docs/WORK_BOARD.md` for ownership and supported
-interfaces.
+path. After confirmation, `completeTodoSave` publishes the accepted card and
+`showWorkBoardForDirectory` returns to that card's project board, whichever kind
+of composer saved. The composer only clears unchanged text and attachments after
+the save succeeds. A card the user opens loads its brief into the composer as
+the draft (`useWorkBoardSavedTodo`'s pending load, taken by the main composer for
+the card's session); the brief is never rendered as a transcript entry. It never
+invokes a model or adds synthetic context. See `docs/WORK_BOARD.md` for ownership
+and supported interfaces.
 
 Tests cover the language, submit assembly, path and drop handling, text splicing,
 large-paste detection, paste-offer invalidation, input-history traversal, the

@@ -94,17 +94,22 @@ test('a card linked to a session carries the session menu, and rename writes the
           onStartPlan={null}
           onReturnToTodo={() => boardCalls.push('back')}
           onRemove={() => boardCalls.push('remove')}
+          onRemoveTodo={() => boardCalls.push('removeTodo')}
         />
       </SyncProvider></I18nProvider>);
       await new Promise(resolve => setTimeout(resolve, 30));
     });
     await openMenu();
-    // The board's own entries, then the session's, in one menu.
+    // The board's own entries, then the session's, in one menu. Removing the
+    // saved brief is its own entry: the card and its session stay.
     expect(items().filter(Boolean)).toEqual([
-      'Back to To-do', 'Remove card', 'Rename', 'Rename with AI', 'Copy session ID', 'Export Markdown', 'Track as in work', 'Archive', 'Delete',
+      'Back to To-do', 'Remove to-do', 'Remove card', 'Rename', 'Rename with AI', 'Copy session ID', 'Export Markdown', 'Track as in work', 'Archive', 'Delete',
     ]);
+    await clickItem('Remove to-do');
+    expect(boardCalls).toEqual(['removeTodo']);
+    await openMenu();
     await clickItem('Remove card');
-    expect(boardCalls).toEqual(['remove']);
+    expect(boardCalls).toEqual(['removeTodo', 'remove']);
     // Renaming to what it already says is a close, not a write.
     await openMenu();
     await clickItem('Rename');
