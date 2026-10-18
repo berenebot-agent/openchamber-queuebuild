@@ -176,6 +176,42 @@ describe('work board projection', () => {
     expect(snapshot.order.todo).toEqual(['first', 'second', 'last']);
   });
 
+  it('orders Build complete newest finish first, under a dragged arrangement', async () => {
+    const cards = [
+      baseCard({ id: 'slow', stage: 'plan', sessionId: 's-slow' }),
+      baseCard({ id: 'quick', stage: 'plan', sessionId: 's-quick' }),
+      baseCard({ id: 'pinned', stage: 'plan', sessionId: 's-pinned', placementOrder: 0 }),
+    ];
+    const settledTurn = (created) => [
+      { role: 'user', time: { created } },
+      { role: 'assistant', agent: 'build', time: { created: created + 1 } },
+      { role: 'idle', outcome: 'succeeded', time: { created: created + 2 } },
+    ];
+    const activity = new Map([
+      ['s-slow', { busy: false, messages: settledTurn(4) }],
+      ['s-quick', { busy: false, messages: settledTurn(20) }],
+      ['s-pinned', { busy: false, messages: settledTurn(1) }],
+    ]);
+    const snapshot = await makeProjection({ cards, activity }).snapshot('/repo');
+    // The newest settled turn leads; the dragged card stays above the sort.
+    expect(snapshot.order.build).toEqual(['pinned', 'quick', 'slow']);
+  });
+
+  it('orders a Build complete card with no readable activity by its last change', async () => {
+    const cards = [
+      // A parked completion with no live session: history cannot say when it
+      // finished, so its own last change is the newest thing the board knows.
+      baseCard({ id: 'offline', stage: 'done', sessionId: 's-offline', updatedAt: 50 }),
+      baseCard({ id: 'known', stage: 'plan', sessionId: 's-known' }),
+    ];
+    const activity = new Map([['s-known', { busy: false, messages: [
+      { role: 'assistant', agent: 'build', time: { created: 10 } },
+      { role: 'idle', outcome: 'succeeded', time: { created: 11 } },
+    ] }]]);
+    const snapshot = await makeProjection({ cards, activity }).snapshot('/repo');
+    expect(snapshot.order.build).toEqual(['offline', 'known']);
+  });
+
   it('holds the Plan lane in session-start order when the session list churns', async () => {
     // OpenCode serves the session list newest update first, so a streaming
     // planning session leads it; the board must not carry that into the lane.

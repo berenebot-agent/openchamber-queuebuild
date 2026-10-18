@@ -79,6 +79,19 @@ function completionTime(card, activity, lane) {
   return [...(activity?.messages ?? [])].reverse().find(message => message.role === 'idle')?.time.created ?? 0;
 }
 
+/**
+ * When a Build complete card's turn settled, for the lane's newest-first order.
+ * An idle Build session is finished history, so its finish is the last turn
+ * record. A card whose activity could not be read has no turn to read and falls
+ * back to its own last change, so an offline session still orders by what the
+ * board knows rather than jumping to the top.
+ */
+function buildFinishedAt(card, activity) {
+  const lastTurn = [...(activity?.messages ?? [])].reverse()
+    .find(message => message.role === 'idle' || message.role === 'assistant');
+  return lastTurn?.time.created ?? card.updatedAt;
+}
+
 /** The queue's own view of one directory; a forced build with an unconfirmed
  * prompt carries its target item and recovery instead of reading as running. */
 function queueForDirectory(queue, directory) {
@@ -292,7 +305,8 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
     // Done by newest completion first, and anything unarranged after it. The
     // Plan lane runs its sessions in parallel, so its unarranged cards hold the
     // order the sessions were started in rather than jumping to the top as one
-    // streams: newest start first, like Done's newest completion.
+    // streams: newest start first, like Done's newest completion. Build complete
+    // orders its unarranged cards by newest finish first, the same way.
     for (const lane of CARD_LANES) {
       const inLane = decorated.filter(card => lanes[card.id] === lane);
       if (lane === 'done') inLane.sort((a, b) => placements[b.id].completedAt - placements[a.id].completedAt || a.id.localeCompare(b.id));
@@ -300,6 +314,7 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
         .sort((a, b) => (a.placementOrder ?? 0) - (b.placementOrder ?? 0) || a.id.localeCompare(b.id));
       const unarranged = inLane.filter(card => card.placementOrder === undefined);
       if (lane === 'plan') unarranged.sort((a, b) => startTimeOf(b) - startTimeOf(a));
+      if (lane === 'build') unarranged.sort((a, b) => buildFinishedAt(b, live.get(b.sessionId)) - buildFinishedAt(a, live.get(a.sessionId)) || a.id.localeCompare(b.id));
       order[lane] = [...arranged, ...unarranged].map(card => card.id);
     }
 
