@@ -29,8 +29,9 @@ import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-sw
 import { createChatDraftIdentity } from '@/lib/chatDraftPersistence';
 import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
+import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
 import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, updateQueueSettings, type WorkBoardCard, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
-import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
+import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardTabAsks, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -709,6 +710,19 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     () => workBoardBuildBadges(visibleProjectTabs, globalQueue, Boolean(globalQueueError)),
     [visibleProjectTabs, globalQueue, globalQueueError],
   );
+  // The cross-directory index is the one place a session's pending asks are
+  // known for a project this board never opened; the board's own snapshot only
+  // covers the active project. A form or a page waiting for its answer is a
+  // question, and a permission is its own ask, so the two travel separately.
+  const blockingBySession = useGlobalBlockingRequestsStore(state => state.bySession);
+  const tabAsks = React.useMemo(
+    () => workBoardTabAsks(visibleProjectTabs, [...blockingBySession.values()].map(pending => ({
+      directory: pending.directory,
+      question: pending.forms.length > 0 || pending.pages.length > 0,
+      permission: pending.permissions.length > 0,
+    }))),
+    [visibleProjectTabs, blockingBySession],
+  );
   const activeBuild = queue?.active ?? undefined;
   const snapshotTitles = snapshot?.sessionTitles;
   const sessionTitleFor = React.useCallback(
@@ -1080,7 +1094,11 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
         surface already carries the board's title and its close. */}
     <header className={mobile
       ? 'flex shrink-0 flex-col gap-3 border-b border-border bg-surface-muted px-3 py-3'
-      : 'flex flex-wrap items-end gap-3 border-b border-border bg-surface-muted px-4 pt-3'}>
+      : 'relative flex flex-wrap items-end gap-3 bg-surface-muted px-4 pt-3'}>
+      {/* The strip's separator is drawn behind the tabs rather than as the
+          header's own border, so a selected tab's fill paints over it and the
+          line breaks under that tab alone. The strip is lifted above it. */}
+      {!mobile && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border" />}
       {!mobile && <h1 className="pb-3 text-lg font-semibold">{t('workBoard.title')}</h1>}
       {mobile ? <>
         <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
@@ -1113,6 +1131,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
         activeProjectId={projectId}
         disabled={busy}
         badges={buildBadges}
+        asks={tabAsks}
         onSelect={nextProjectId => setWorkBoardProjectTabs(runtimeKey, {
           projectIds: visibleProjectTabs.map(project => project.id),
           activeProjectId: nextProjectId,

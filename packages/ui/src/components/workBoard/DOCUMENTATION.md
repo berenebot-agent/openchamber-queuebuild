@@ -22,7 +22,10 @@ not classify sessions itself.
 - `workBoardSnapshot.fixture.ts` — a test fixture that builds a snapshot the way
   the server projection does.
 - `WorkBoardProjectTabs.tsx`, `workBoardProjectState.ts` — project tab strip and
-  the project's display name.
+  the project's display name. Each tab carries its project's build load and,
+  beside it, the asks waiting for the user (a question, a permission); the strip
+  draws the header's separator behind itself so the selected tab's fill breaks
+  the line and its base flares into the board.
 - `useSavedTodoComposer.ts`, `workBoardSavedTodo.ts` — the saved-brief surfaces
   shared with the chat composer: the card the board opened is handed to its
   composer as the draft, and the save returns the user to the board.

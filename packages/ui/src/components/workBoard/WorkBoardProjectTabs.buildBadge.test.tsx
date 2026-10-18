@@ -43,6 +43,7 @@ test('a project tab carries its own build count, or an error mark, and nothing w
       activeProjectId="alpha"
       disabled
       badges={badges}
+      asks={new Map()}
       onSelect={() => {}}
       onAdd={() => {}}
       onClose={() => {}}
@@ -102,6 +103,7 @@ test('a paused project reads differently from a queue that could not be read', a
         ['alpha', { count: 1, error: false, paused: 'review' }],
         ['beta', { count: 2, error: false, paused: 'git' }],
       ])}
+      asks={new Map()}
       onSelect={() => {}}
       onAdd={() => {}}
       onClose={() => {}}
@@ -155,6 +157,7 @@ test('the spinner steps only when the appearance setting asks for animation', as
     activeProjectId="alpha"
     disabled={false}
     badges={new Map([['alpha', { count: 1, error: false }]])}
+    asks={new Map()}
     onSelect={() => {}}
     onAdd={() => {}}
     onClose={() => {}}
@@ -204,6 +207,7 @@ test('the accessible label names the project and its count', async () => {
       activeProjectId="alpha"
       disabled={false}
       badges={new Map([['alpha', { count: 1, error: false }], ['beta', { count: 0, error: true }]])}
+      asks={new Map()}
       onSelect={() => {}}
       onAdd={() => {}}
       onClose={() => {}}

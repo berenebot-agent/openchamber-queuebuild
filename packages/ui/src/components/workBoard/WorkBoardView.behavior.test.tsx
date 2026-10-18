@@ -9,6 +9,7 @@ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useNotificationStore } from '@/sync/notification-store';
 import { applyGlobalSessionStatusSnapshot, useGlobalSessionStatusStore } from '@/sync/global-session-status';
+import { applyGlobalBlockingRequestEvents, resetGlobalBlockingRequests } from '@/sync/global-blocking-requests';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createChatDraftIdentity, getChatDraftIdentityKey } from '@/lib/chatDraftPersistence';
@@ -559,12 +560,26 @@ test('returning from a chat opens the board on that session\'s project', async (
     expect(container.querySelector('button[title="repo-todo brief"]')).toBeNull();
     const tabs = container.querySelector('nav[aria-label="Work board projects"]');
     expect([...tabs!.querySelectorAll('button')].map(tab => tab.textContent).filter(text => text)).toEqual(['Repository', 'Other']);
+    // A pending ask on a project the board is not showing still reaches its tab:
+    // the cross-directory index is the only place that knows it.
+    const tabFor = (label: string) => [...tabs!.querySelectorAll('button')]
+      .find(button => button.textContent?.includes(label))?.parentElement;
+    expect(tabFor('Other')!.querySelector('[data-work-board-ask]')).toBeNull();
+    await act(async () => {
+      applyGlobalBlockingRequestEvents('/other', [{
+        type: 'form.created',
+        properties: { form: { id: 'q1', sessionID: 'other-session', title: 'Pick one', fields: [{ key: 'answer', type: 'boolean' }] } },
+      }]);
+    });
+    expect(tabFor('Other')!.querySelector('[data-work-board-ask="question"]')).not.toBeNull();
+    expect(tabFor('Repository')!.querySelector('[data-work-board-ask]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore();
     useProjectsStore.setState(projectState); useUIStore.setState(ui); useConfigStore.setState(config);
     useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
     useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    resetGlobalBlockingRequests();
     await dom.happyDOM.close();
     for (const [name, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);

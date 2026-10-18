@@ -47,6 +47,7 @@ function Harness({ initialProjectIds = ['alpha'] }: { initialProjectIds?: string
     activeProjectId={activeProjectId}
     disabled={false}
     badges={new Map()}
+    asks={new Map()}
     onSelect={setActiveProjectId}
     onAdd={projectId => {
       setOpenProjectIds(current => [...current, projectId]);
@@ -153,13 +154,46 @@ test('the selected tab is connected to the board rather than drawn as a chip', a
   if (!selected) throw new Error('Missing selected tab');
   const tab = selected.parentElement;
   if (!tab) throw new Error('Missing selected tab container');
-  // Filled with the board's surface and overhanging the header border, so the
-  // line breaks under it and the tab reads as continuous with the board.
+  // Filled with the board's surface, so the header's separator line breaks under
+  // it, and its own full-strength label; the negative margin that used to fake
+  // the break shifted the whole tab down a pixel and is gone.
   expect(tab.className).toContain('bg-background');
-  expect(tab.className).toContain('-mb-px');
+  expect(tab.className).toContain('text-foreground');
   expect(tab.className).toContain('rounded-ts-md');
+  expect(tab.className).not.toContain('-mb-px');
+  // Two flares, one per base corner, curving the surface into the board.
+  expect(tab.querySelectorAll('[data-work-board-fillet]')).toHaveLength(2);
 
   const inactive = [...container.querySelectorAll('nav button:not([aria-current]):not([aria-label])')][0]?.parentElement;
   expect(inactive?.className).not.toContain('bg-background');
+  // An unselected label recedes to the muted tone, which is what sets the
+  // chosen tab apart.
+  expect(inactive?.className).toContain('text-muted-foreground');
+  await act(async () => root.unmount());
+});
+
+test('a tab carries a question, a permission and its build load together', async () => {
+  const root = await renderTabs(<I18nProvider><WorkBoardProjectTabs
+    projects={projects}
+    openProjectIds={['alpha', 'beta']}
+    activeProjectId="alpha"
+    disabled={false}
+    badges={new Map([['alpha', { count: 2, error: false }]])}
+    asks={new Map([['alpha', { question: true, permission: true }]])}
+    onSelect={() => {}}
+    onAdd={() => {}}
+    onClose={() => {}}
+    onReorder={() => {}}
+  /></I18nProvider>);
+  const tabFor = (label: string) => [...container.querySelectorAll('nav button[aria-current], nav button:not([aria-label])')]
+    .find(button => button.textContent?.includes(label))?.parentElement;
+  const marks = tabFor('Alpha')!.querySelectorAll('[data-work-board-ask]');
+  expect([...marks].map(mark => mark.getAttribute('data-work-board-ask'))).toEqual(['question', 'permission']);
+  expect(marks[0]?.getAttribute('aria-label')).toBe('Pending question');
+  expect(marks[1]?.getAttribute('aria-label')).toBe('Permission required');
+  // The build badge stays, so all three read at once.
+  expect(tabFor('Alpha')!.querySelector('[data-work-board-build="running"]')?.textContent).toBe('2');
+  // A project with nothing waiting carries neither ask mark.
+  expect(tabFor('Beta')!.querySelector('[data-work-board-ask]')).toBeNull();
   await act(async () => root.unmount());
 });

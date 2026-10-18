@@ -306,6 +306,45 @@ export function workBoardBuildBadges(
   return badges;
 }
 
+/**
+ * What a project tab says about sessions waiting for the user's answer: a
+ * question (a pending form, or a page waiting for its answer) or a permission.
+ * The two are independent — a project can wait on both, on one, or neither — so
+ * a tab carries whichever apply and nothing when none do.
+ */
+export type WorkBoardTabAsks = {
+  question: boolean;
+  permission: boolean;
+};
+
+/**
+ * One entry per project with a session waiting on an answer, keyed by project
+ * id. A session counts toward the project whose directory it matches, the same
+ * rule the build badge uses, so a worktree's ask does not inflate its root
+ * project's tab. A project with nothing waiting has no entry at all: the badge
+ * is the presence of an ask, so its absence is meaningful and must not be
+ * filled with a false.
+ */
+export function workBoardTabAsks(
+  projects: readonly { id: string; path: string }[],
+  sessions: Iterable<{ directory: string; question: boolean; permission: boolean }>,
+): Map<string, WorkBoardTabAsks> {
+  const asks = new Map<string, WorkBoardTabAsks>();
+  if (!projects.length) return asks;
+  const projectByDirectory = new Map(projects.map(project => [workBoardDirectoryKey(project.path), project.id]));
+  for (const session of sessions) {
+    if (!session.question && !session.permission) continue;
+    const projectId = projectByDirectory.get(workBoardDirectoryKey(session.directory));
+    if (!projectId) continue;
+    const current = asks.get(projectId) ?? { question: false, permission: false };
+    asks.set(projectId, {
+      question: current.question || session.question,
+      permission: current.permission || session.permission,
+    });
+  }
+  return asks;
+}
+
 type Selection = { providerID: string; modelID: string; variant?: string };
 type PromotionDependencies = {
   create: (directory: string, title: string, selection: Selection) => Promise<{ id: string }>;

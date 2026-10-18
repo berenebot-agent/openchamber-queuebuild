@@ -6,8 +6,8 @@ Open it from the **Work board** button in the session sidebar header. Project
 tabs across the board header switch between project boards. Choose **+** beside
 the tabs to add another project tab, or close a tab to hide it from the board.
 Tabs drag into a new order, and the selected one is drawn as a rounded rectangle
-joined to the board below it. Closing a tab does not remove its project or
-cards. The open tabs, their order, and the selected project are
+whose base curves out into the board below it. Closing a tab does not remove its
+project or cards. The open tabs, their order, and the selected project are
 saved per runtime and restored when the app restarts. The board includes saved
 To-do cards and the selected project's top-level sessions in its root
 directory. Worktree directories retain their own Build queues.
@@ -100,6 +100,12 @@ appearance setting for animated activity indicators, like the marks in the
 session list. When the queue state cannot be read, that project's tab shows an
 amber exclamation instead, so an unreachable queue is never mistaken for an
 idle project.
+
+A tab also carries what needs the user's answer in that project, even while it
+is not the open one: a question mark when a session waits on a question, and a
+shield when one waits on a permission. The marks are independent, so a tab can
+show a question, a permission and its build load at once, and a project with
+nothing waiting shows none. Both reuse the session list's own wording.
 
 ## Save a to-do
 

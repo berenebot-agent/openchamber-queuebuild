@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardMoved, workBoardOrderNeighbour, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording, workBoardCardLane, workBoardSnapshotOrder, workBoardSnapshotRows, workBoardQueueFromSnapshot } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardMoved, workBoardOrderNeighbour, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardTabAsks, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording, workBoardCardLane, workBoardSnapshotOrder, workBoardSnapshotRows, workBoardQueueFromSnapshot } from './workBoardWorkflow';
 import type { WorkBoardCard, WorkBoardSnapshot, WorkBoardActivityMessage } from '@/lib/workBoardApi';
 
 const card: WorkBoardCard = { id: 'card1', directory: '/repo', text: 'Build a board', attachments: [], createdAt: 1, updatedAt: 1, stage: 'todo' };
@@ -154,6 +154,34 @@ describe('project build badges', () => {
     }, false);
     // Only the user can clear a review, so it is the state worth naming.
     expect(badges.get('a')?.paused).toBe('review');
+  });
+});
+
+describe('project tab asks', () => {
+  const projects = [{ id: 'a', path: '/repo' }, { id: 'b', path: '/other' }];
+  test('counts a question and a permission against the project directory', () => {
+    const asks = workBoardTabAsks(projects, [
+      { directory: '/repo', question: true, permission: false },
+      { directory: '/other', question: false, permission: true },
+    ]);
+    expect(asks.get('a')).toEqual({ question: true, permission: false });
+    expect(asks.get('b')).toEqual({ question: false, permission: true });
+  });
+  test('merges several sessions on one project, and drops a project with nothing waiting', () => {
+    const asks = workBoardTabAsks(projects, [
+      { directory: '/repo/', question: true, permission: false },
+      { directory: '/repo', question: false, permission: true },
+      { directory: '/elsewhere', question: true, permission: true },
+    ]);
+    // A question on one session and a permission on another are both kept.
+    expect(asks.get('a')).toEqual({ question: true, permission: true });
+    // Nothing waiting leaves no entry, so the tab carries no mark.
+    expect(asks.has('b')).toBe(false);
+  });
+  test('an ask outside every open project is not counted', () => {
+    // A worktree or a project without a tab does not inflate another's tab.
+    expect(workBoardTabAsks(projects, [{ directory: '/repo/worktree', question: true, permission: false }]).size).toBe(0);
+    expect(workBoardTabAsks([], [{ directory: '/repo', question: true, permission: false }]).size).toBe(0);
   });
 });
 

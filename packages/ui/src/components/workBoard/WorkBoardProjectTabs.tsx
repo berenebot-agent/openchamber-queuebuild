@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import type { ProjectEntry } from '@/lib/api/types';
 import { projectLabel } from './workBoardProjectState';
-import type { WorkBoardBuildBadge } from './workBoardWorkflow';
+import type { WorkBoardBuildBadge, WorkBoardTabAsks } from './workBoardWorkflow';
 
 type WorkBoardProjectTabsProps = {
   projects: ProjectEntry[];
@@ -39,6 +39,11 @@ type WorkBoardProjectTabsProps = {
    * absence is meaningful and must not be filled with a zero.
    */
   badges: Map<string, WorkBoardBuildBadge>;
+  /**
+   * Each open project's pending asks, keyed by project id, on the same terms:
+   * a tab with no entry has nothing waiting for the user.
+   */
+  asks: Map<string, WorkBoardTabAsks>;
   onSelect: (projectId: string) => void;
   onAdd: (projectId: string) => void;
   onClose: (projectId: string) => void;
@@ -96,36 +101,69 @@ function WorkBoardTabBuildBadge({ badge, label }: { badge: WorkBoardBuildBadge; 
   </span>;
 }
 
+/**
+ * A project's own ask at a glance: a question or a permission waiting for the
+ * user. The mark and the label are the sidebar's, so the board and the session
+ * list name the same ask the same way. Both are the user's to answer, so both
+ * take the same warning treatment the board's cards use.
+ */
+function WorkBoardTabAskBadge({ kind }: { kind: 'question' | 'permission' }) {
+  const { t } = useI18n();
+  const title = t(kind === 'question'
+    ? 'sessions.sidebar.session.status.questionPending'
+    : 'sessions.sidebar.session.status.permissionRequired');
+  return <span
+    className="me-1 inline-flex shrink-0 items-center justify-center text-[var(--status-warning-text)]"
+    aria-label={title} title={title} data-work-board-ask={kind}
+  >
+    <Icon name={kind === 'question' ? 'question' : 'shield'} className="size-3.5" />
+  </span>;
+}
+
 type WorkBoardProjectTabProps = {
   project: ProjectEntry;
   selected: boolean;
   disabled: boolean;
   badge: WorkBoardBuildBadge | undefined;
+  asks: WorkBoardTabAsks | undefined;
   onSelect: (projectId: string) => void;
   onClose: (projectId: string) => void;
 };
 
+// How far the selected tab's base flares out into the header. Kept just wider
+// than the strip's own gap, so a flare reaches the neighbouring tab's edge
+// rather than a clear space beside it.
+const FILLET_PX = 5;
+
 /**
  * One connected project tab: a rounded rectangle whose top corners curve away
  * from the board header and whose base reaches the header's lower edge. The
- * selected tab is filled with the board's own surface and overhangs the header's
- * bottom border by a pixel, so the line breaks under it and the tab reads as
- * continuous with the board below rather than as a separate chip.
+ * selected tab is filled with the board's own surface, so the line drawn behind
+ * the strip breaks under it and the tab reads as continuous with the board
+ * below rather than as a separate chip. Its base flares outward through two
+ * concave fillets, so the surface curves into the board on either side instead
+ * of meeting the line at a right angle.
  */
 function WorkBoardProjectTab({
   project,
   selected,
   disabled,
   badge,
+  asks,
   onSelect,
   onClose,
 }: WorkBoardProjectTabProps) {
-  const { t } = useI18n();
+  const { t, direction } = useI18n();
+  const isRtl = direction === 'rtl';
   const label = projectLabel(project);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: project.id,
     disabled,
   });
+  // The fillet's transparent quarter must face away from the tab, so it curves
+  // out; that outer corner swaps sides with the writing direction.
+  const fillet = (outerCorner: 'left' | 'right') =>
+    `radial-gradient(circle at top ${outerCorner}, transparent ${FILLET_PX}px, var(--background) ${FILLET_PX}px)`;
 
   return <div
     ref={setNodeRef}
@@ -135,7 +173,7 @@ function WorkBoardProjectTab({
       transform: DndCSS.Translate.toString(transform),
       transition,
     }}
-    className={cn('flex shrink-0 items-stretch', isDragging && 'z-20 opacity-60')}
+    className={cn('flex shrink-0 items-stretch', selected && 'z-10', isDragging && 'z-20 opacity-60')}
     {...attributes}
     {...listeners}
   >
@@ -143,14 +181,13 @@ function WorkBoardProjectTab({
       className={cn(
         // touch-none keeps the browser from scrolling the strip instead of
         // dragging; select-none stops the drag from selecting the label.
-        // pb-px gives the tab a pixel of its own fill below the 1px border, so
-        // selected and unselected tabs sit at the same height.
-        'flex items-center border-x border-t border-transparent pb-px touch-none select-none',
+        'relative flex items-center border-x border-t border-transparent pb-px touch-none select-none',
         'rounded-ts-md rounded-te-md',
         selected
-          // -mb-px overhangs the header's border-b so the line does not run
-          // beneath the selected tab.
-          ? 'border-border bg-background -mb-px'
+          // The label carries the tab's colour: full strength when selected, the
+          // header's muted tone when not, which is what sets the chosen tab apart
+          // from its neighbours.
+          ? 'border-border bg-background text-foreground'
           : 'text-muted-foreground hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-foreground',
       )}
     >
@@ -159,10 +196,12 @@ function WorkBoardProjectTab({
         aria-current={selected ? 'page' : undefined}
         disabled={disabled}
         onClick={() => onSelect(project.id)}
-        className="max-w-48 truncate px-2.5 py-1.5 text-sm text-foreground"
+        className="max-w-48 truncate px-2.5 py-1.5 text-sm"
       >
         {label}
       </button>
+      {asks?.question && <WorkBoardTabAskBadge kind="question" />}
+      {asks?.permission && <WorkBoardTabAskBadge kind="permission" />}
       {badge && <WorkBoardTabBuildBadge badge={badge} label={label} />}
       <button
         type="button"
@@ -174,6 +213,20 @@ function WorkBoardProjectTab({
       >
         <Icon name="close" className="size-3" />
       </button>
+      {selected && <>
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bottom-0"
+          style={{ insetInlineEnd: '100%', width: FILLET_PX, height: FILLET_PX, backgroundImage: fillet(isRtl ? 'right' : 'left') }}
+          data-work-board-fillet
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute bottom-0"
+          style={{ insetInlineStart: '100%', width: FILLET_PX, height: FILLET_PX, backgroundImage: fillet(isRtl ? 'left' : 'right') }}
+          data-work-board-fillet
+        />
+      </>}
     </div>
   </div>;
 }
@@ -184,6 +237,7 @@ export function WorkBoardProjectTabs({
   activeProjectId,
   disabled,
   badges,
+  asks,
   onSelect,
   onAdd,
   onClose,
@@ -217,8 +271,12 @@ export function WorkBoardProjectTabs({
     onDragEnd={handleDragEnd}
     modifiers={[restrictToXAxis]}
   >
-    <nav aria-label={t('workBoard.projectTabs')} className="flex min-w-0 items-end gap-1">
-      <div className="flex min-w-0 items-end gap-1 overflow-x-auto">
+    {/* relative z-10 lifts the strip above the header's separator line, which is
+        drawn behind the tabs so the selected tab's own fill can break it. */}
+    <nav aria-label={t('workBoard.projectTabs')} className="relative z-10 flex min-w-0 items-end gap-1">
+      <div className="flex min-w-0 items-end gap-1 overflow-x-auto ps-1.5 -ms-1.5 pe-1.5 -me-1.5">
+        {/* The negative margins cancel the padding, so the tabs stay put while
+            the scroll container's clip keeps room for the end tabs' flares. */}
         {/* The horizontal strategy assumes later items sit further right; in RTL
             the rect strategy shifts neighbours from their real positions. */}
         <SortableContext items={openProjectIdList} strategy={isRtl ? rectSortingStrategy : horizontalListSortingStrategy}>
@@ -228,6 +286,7 @@ export function WorkBoardProjectTabs({
             selected={project.id === activeProjectId}
             disabled={disabled}
             badge={badges.get(project.id)}
+            asks={asks.get(project.id)}
             onSelect={onSelect}
             onClose={onClose}
           />)}
@@ -244,7 +303,7 @@ export function WorkBoardProjectTabs({
             title={t('workBoard.addProjectTab')}
             // Bottom-aligned with the tabs it follows, so it reads as the next
             // slot in the row rather than a control elsewhere in the header.
-            className="mb-px shrink-0"
+            className="shrink-0"
           >
             <Icon name="add" className="size-4" />
           </Button>
