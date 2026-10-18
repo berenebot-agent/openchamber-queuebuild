@@ -228,15 +228,18 @@ const TeamFileSection: React.FC<{ projectRef: ProjectRef; setupState: ProjectSet
 };
 
 /**
- * The project's build-queue rows. The queue enablement is its own read; the
+ * The project's build-queue rows, under one heading so the board's Settings
+ * button has a named block to open. The queue enablement is its own read; the
  * behavior and the repository come from one shared read, since the effective
  * behavior decides whether the repository row applies.
  */
 const ProjectBuildQueueRows: React.FC<{ directory: string }> = ({ directory }) => {
+  const { t } = useI18n();
   const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
   const { settings, reload } = useProjectQueueSettings(directory, !isVSCode);
+  if (isVSCode) return null;
   return (
-    <>
+    <SettingsSection title={t('settings.page.workBoard.title')} settingsItem="projects.work-board">
       <ProjectBuildQueueRow directory={directory} />
       {settings ? (
         <ProjectBuildQueuePolicyRow directory={directory} override={settings.policyOverride} onSaved={reload} />
@@ -249,7 +252,7 @@ const ProjectBuildQueueRows: React.FC<{ directory: string }> = ({ directory }) =
           onSaved={reload}
         />
       ) : null}
-    </>
+    </SettingsSection>
   );
 };
 

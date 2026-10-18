@@ -16,7 +16,10 @@ policies; `projects/useProjectQueueSettings.ts` reads the policy and repository
 once so a policy change reveals the repository row), and
 `projects/ProjectBuildQueueRepositoryRow.tsx`: a dropdown of the repositories
 found under the project folder, shown only for the Pause and Commit policies.
-Queue job controls remain on the Work Board. VS Code-only hides this page.
+Those three rows sit under the project's Work board section
+(`data-settings-item="projects.work-board"`), which is where the board's own
+Settings button lands. Queue job controls remain on the Work Board. VS Code-only
+hides this page.
 
 ## Autosave on the OpenCode configuration pages
 

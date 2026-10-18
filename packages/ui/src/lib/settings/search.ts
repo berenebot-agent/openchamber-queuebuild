@@ -60,6 +60,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    id: 'projects.work-board',
+    page: 'projects',
+    titleKey: 'settings.page.workBoard.title',
+    keywords: ['work board', 'board', 'queue', 'build', 'project', 'override'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'projects.build-queue',
     page: 'projects',
     titleKey: 'workBoard.queueEnabledLabel',

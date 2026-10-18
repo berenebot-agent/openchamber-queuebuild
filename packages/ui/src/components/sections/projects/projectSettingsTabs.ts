@@ -4,8 +4,9 @@ export type ProjectSettingsTab = 'general' | 'actions' | 'worktrees' | 'environm
 
 /**
  * The tab the Settings project page shows. It lives outside the page so a
- * Settings search result can open the tab that holds its target before the
- * page highlights it, and so switching projects keeps the tab.
+ * Settings search result, or a jump from elsewhere in the app, can open the tab
+ * that holds its target before the page highlights it, and so switching
+ * projects keeps the tab.
  */
 export const useProjectSettingsTabStore = create<{
   tab: ProjectSettingsTab;
@@ -15,8 +16,9 @@ export const useProjectSettingsTabStore = create<{
   setTab: (tab) => set({ tab }),
 }));
 
-/** Search targets inside a tab. The name and the icon sit in the page header, above every tab. */
+/** The tab each anchor lives in, whether a search result or a jump reaches it. The name and the icon sit in the page header, above every tab. */
 const SEARCH_TARGET_TABS = new Map<string, ProjectSettingsTab>([
+  ['projects.work-board', 'general'],
   ['projects.default-agent', 'general'],
   ['projects.default-model', 'general'],
   ['projects.default-thinking', 'general'],

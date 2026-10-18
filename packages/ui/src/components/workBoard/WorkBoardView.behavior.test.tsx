@@ -672,7 +672,7 @@ test('cards drag from the whole card, the check moves one to Done, and queue row
   }
 });
 
-test('the board header opens its own Settings page and closes the board', async () => {
+test('the board header opens this project\'s settings and closes the board', async () => {
   const dom = new Window({ url: 'http://localhost' });
   const globals = domGlobals(dom);
   const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
@@ -714,7 +714,10 @@ test('the board header opens its own Settings page and closes the board', async 
     // The board is a full-window surface; it steps aside so the Settings dialog is not behind it.
     expect(useUIStore.getState().isWorkBoardOpen).toBe(false);
     expect(useUIStore.getState().isSettingsDialogOpen).toBe(true);
-    expect(useUIStore.getState().settingsJumpRequest).toEqual({ page: 'work-board', itemId: 'work-board.policy' });
+    // The project's own overrides live on its page, so the jump selects this
+    // board's project and targets the Work board section that holds them.
+    expect(useUIStore.getState().settingsProjectsSelectedId).toBe('project');
+    expect(useUIStore.getState().settingsJumpRequest).toEqual({ page: 'projects', itemId: 'projects.work-board' });
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore();

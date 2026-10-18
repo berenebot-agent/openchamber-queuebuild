@@ -909,11 +909,14 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
       });
   };
-  // The board's settings live on their own Settings page. Closing the board
-  // first keeps the two full-window surfaces from stacking.
+  // The board's settings are the project's own, so this opens this board's
+  // project page on its Work board section, where the per-project overrides
+  // live. Closing the board first keeps the two full-window surfaces from
+  // stacking.
   const openBoardSettings = () => {
     useUIStore.getState().setWorkBoardOpen(false);
-    useUIStore.getState().requestSettingsJump('work-board', 'work-board.policy');
+    useUIStore.getState().setSettingsProjectsSelectedId(projectId);
+    useUIStore.getState().requestSettingsJump('projects', 'projects.work-board');
     useUIStore.getState().setSettingsDialogOpen(true);
   };
   const moveQueued = (itemId: string, delta: number) => {

@@ -598,7 +598,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       return;
     }
     useUIStore.getState().clearSettingsJumpRequest();
-    if (settingsJumpRequest.itemId) openChatSettingsTabFor(settingsJumpRequest.itemId);
+    if (settingsJumpRequest.itemId) {
+      openChatSettingsTabFor(settingsJumpRequest.itemId);
+      const projectTab = projectSettingsTabForSearchTarget(settingsJumpRequest.itemId);
+      if (projectTab) useProjectSettingsTabStore.getState().setTab(projectTab);
+    }
     setPendingSearchItemId(settingsJumpRequest.itemId);
     openPage(resolveSettingsSlug(settingsJumpRequest.page));
     if (isMobile) {

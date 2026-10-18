@@ -184,5 +184,7 @@ describe('settings search', () => {
     expect(defaults.find((result) => result.id === 'work-board.default-enabled')?.page).toBe('work-board');
     const project = buildSettingsSearchResults({ query: 'follow default', runtimeCtx, t, getPageTitle: (page) => page });
     expect(project.find((result) => result.id === 'projects.build-queue')?.page).toBe('projects');
+    const section = buildSettingsSearchResults({ query: 'work board', runtimeCtx, t, getPageTitle: (page) => page });
+    expect(section.find((result) => result.id === 'projects.work-board')?.page).toBe('projects');
   });
 });

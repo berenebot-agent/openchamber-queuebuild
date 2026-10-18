@@ -124,7 +124,10 @@ project's own choice, and is optimistic and reverts on a failed write. A project
 that never chose follows the instance default set on the Work board settings
 page; the Projects page shows that same choice as Follow default / On / Off, so
 the two surfaces write one value. The Git policy selector is not here: it lives
-in Settings → Work board.
+in Settings → Work board. The header's Settings button opens this board's
+project page on its Work board section, where the project's own enablement, Git
+behavior and repository choices sit; the instance defaults stay on Settings →
+Work board.
 
 ## Search
 
