@@ -180,6 +180,14 @@
         "mobile"
       ]
     },
+    "workBoardSessionDays": {
+      "scope": "profile",
+      "surfaces": [
+        "web",
+        "desktop",
+        "mobile"
+      ]
+    },
     "browserProvider": {
       "scope": "instance"
     },
@@ -881,10 +889,6 @@
       "local": true
     },
     "workBoardProjectTabsByRuntime": {
-      "scope": "device",
-      "local": true
-    },
-    "workBoardOlderSessions": {
       "scope": "device",
       "local": true
     },

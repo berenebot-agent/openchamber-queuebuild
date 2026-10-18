@@ -2399,14 +2399,16 @@ describe('project-wide build queue', () => {
 });
 
 describe('queue settings', () => {
-  const settingsRuntime = ({ enabled = null, repository = null } = {}) => {
-    const state = { enabled, repository, written: [] };
+  const settingsRuntime = ({ enabled = null, repository = null, policy = null } = {}) => {
+    const state = { enabled, repository, policy, written: [], writtenPolicy: [] };
     return {
       state,
       readBuildQueueEnabled: async () => state.enabled,
       setBuildQueueEnabled: async (_projectId, value) => { state.written.push(value); state.enabled = value; return state.enabled; },
       readBuildQueueRepository: async () => state.repository,
       setBuildQueueRepository: async (_projectId, value) => { state.repository = value; return value; },
+      readBuildQueueGitPolicy: async () => state.policy,
+      setBuildQueueGitPolicy: async (_projectId, value) => { state.writtenPolicy.push(value); state.policy = value; return value; },
       readProjectSetup: async () => ({}),
       updateProjectSetup: async () => ({}),
       resolveProjectConfigPath: () => '/tmp/none.json',
@@ -2421,14 +2423,14 @@ describe('queue settings', () => {
   it('answers enabled by default, and off only after an explicit off', async () => {
     const projectConfigRuntime = settingsRuntime();
     const { runtime } = createRuntime({ projectConfigRuntime, resolveProjectIdentity: identityOf });
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null });
     await runtime.writeQueueSettings({ directory: DIRECTORY }, false);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: false, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: false, policy: 'pause', policyOverride: null, repository: null });
     await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, policy: 'pause', policyOverride: null, repository: null });
     // Null clears the project's choice; it follows the instance default again.
     await runtime.writeQueueSettings({ directory: DIRECTORY }, null);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null });
     expect(projectConfigRuntime.state.written).toEqual([false, true, null]);
     runtime.stop();
     await runtime.flush();
@@ -2450,7 +2452,7 @@ describe('queue settings', () => {
 
   it('answers enabled when the setting cannot be stored at all', async () => {
     const { runtime } = createRuntime({ resolveProjectIdentity: identityOf });
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null });
     runtime.stop();
     await runtime.flush();
   });
@@ -2460,10 +2462,55 @@ describe('queue settings', () => {
     fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueDefaultEnabled: false }));
     const { runtime } = createRuntime({ settingsFilePath, projectConfigRuntime: settingsRuntime(), resolveProjectIdentity: identityOf });
     // No stored choice, so the project reads the default, which is off here.
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: null, policy: 'pause', policyOverride: null, repository: null });
     // An explicit on beats the default and is kept as the project's own choice.
     await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, policy: 'pause', policyOverride: null, repository: null });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('lets a project override the instance policy and clear it', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue' }));
+    const projectConfigRuntime = settingsRuntime();
+    const { runtime } = createRuntime({ settingsFilePath, projectConfigRuntime, resolveProjectIdentity: identityOf });
+    // No project choice: the instance policy stands.
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY }))
+      .toEqual({ enabled: true, override: null, policy: 'continue', policyOverride: null, repository: null });
+    await expect(runtime.writeQueuePolicy({ directory: DIRECTORY }, 'pause'))
+      .resolves.toEqual({ policy: 'pause', policyOverride: 'pause' });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY }))
+      .toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: 'pause', repository: null });
+    // Null clears the project's choice back to the instance policy.
+    await expect(runtime.writeQueuePolicy({ directory: DIRECTORY }, null))
+      .resolves.toEqual({ policy: 'continue', policyOverride: null });
+    expect(projectConfigRuntime.state.writtenPolicy).toEqual(['pause', null]);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('rejects a policy that is not one of the three', async () => {
+    const { runtime } = createRuntime({ projectConfigRuntime: settingsRuntime(), resolveProjectIdentity: identityOf });
+    await expect(runtime.writeQueuePolicy({ directory: DIRECTORY }, 'automatic')).rejects.toThrow(TypeError);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('dispatches with the project policy even when the instance policy differs', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue' }));
+    const checkBuildGit = vi.fn(async () => 'Dirty');
+    // The project chose Pause, which runs the Git check the instance policy skips.
+    const { runtime } = createRuntime({
+      settingsFilePath,
+      projectConfigRuntime: settingsRuntime({ policy: 'pause' }),
+      resolveProjectIdentity: identityOf,
+      checkBuildGit,
+    });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(checkBuildGit).toHaveBeenCalled();
     runtime.stop();
     await runtime.flush();
   });
@@ -2504,6 +2551,8 @@ describe('queue repository choice', () => {
       setBuildQueueEnabled: async () => null,
       readBuildQueueRepository: async () => state.repository,
       setBuildQueueRepository: async (_projectId, value) => { state.repository = value; return value; },
+      readBuildQueueGitPolicy: async () => null,
+      setBuildQueueGitPolicy: async () => null,
       readProjectSetup: async () => ({}),
       updateProjectSetup: async () => ({}),
       resolveProjectConfigPath: () => '/tmp/none.json',

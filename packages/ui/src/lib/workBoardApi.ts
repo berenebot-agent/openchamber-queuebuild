@@ -24,6 +24,10 @@ type PlacementWrite = { lane: PlacementLane; expectedUpdatedAt?: number; before?
   | { directory: string; lane: PlacementLane; targets: PlacementTarget[] };
 type QueueSettingsWrite = { directory: string; enabled: boolean | null };
 type QueueRepositoryWrite = { directory: string; repository: string | null };
+type QueuePolicyWrite = { directory: string; policy: QueueGitPolicy | null };
+
+/** The Git behavior a queue runs with; `null` in a project means "follow the instance". */
+export type QueueGitPolicy = 'continue' | 'commit' | 'pause';
 
 export class WorkBoardRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -32,7 +36,7 @@ export class WorkBoardRequestError extends Error {
   }
 }
 
-async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite | QueueSettingsWrite | QueueRepositoryWrite) {
+async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite | QueueSettingsWrite | QueuePolicyWrite | QueueRepositoryWrite) {
   const runtime = getRuntimeKey();
   const response = await runtimeFetch(path, {
     method,
@@ -177,8 +181,8 @@ export type WorkBoardWaitingKind = WorkBoardSnapshot['waitingFor'][string];
  * Read the board projection. A failure throws, so the caller keeps the board it
  * already had rather than replacing it with an empty one.
  */
-export async function fetchWorkBoardSnapshot(directory: string, includeOlder = false): Promise<WorkBoardSnapshot> {
-  return snapshotSchema.parse(await request(`/api/work-board/snapshot?directory=${encodeURIComponent(directory)}&includeOlder=${includeOlder ? 'true' : 'false'}`));
+export async function fetchWorkBoardSnapshot(directory: string, days = 30): Promise<WorkBoardSnapshot> {
+  return snapshotSchema.parse(await request(`/api/work-board/snapshot?directory=${encodeURIComponent(directory)}&days=${days}`));
 }
 
 /**
@@ -192,14 +196,33 @@ export async function updateQueueSettings(directory: string, enabled: boolean | 
 }
 
 /** The project's effective enablement and the choice it stores, if any. */
-export async function fetchQueueSettings(directory: string): Promise<{ enabled: boolean; override: boolean | null; repository: string | null }> {
+export async function fetchQueueSettings(directory: string): Promise<{ enabled: boolean; override: boolean | null; policy: QueueGitPolicy; policyOverride: QueueGitPolicy | null; repository: string | null }> {
   return z.object({
     enabled: z.boolean(),
     override: z.boolean().nullable(),
     // A server that predates the choice answers without the field, which is
     // "no choice", not a failed read.
     repository: z.string().nullish().transform(value => value ?? null),
-  }).parse(await request(`/api/build-queue/settings?directory=${encodeURIComponent(directory)}`));
+    // Likewise for the policy: an older server answers without it, and the row
+    // then falls back to the instance value it already holds.
+    policy: z.enum(['continue', 'commit', 'pause']).nullish(),
+    policyOverride: z.enum(['continue', 'commit', 'pause']).nullish(),
+  }).transform(value => ({
+    enabled: value.enabled,
+    override: value.override,
+    repository: value.repository,
+    policy: value.policy ?? 'pause',
+    policyOverride: value.policyOverride ?? null,
+  })).parse(await request(`/api/build-queue/settings?directory=${encodeURIComponent(directory)}`));
+}
+
+/** The queue behavior a project stores for itself, or `null` to follow the instance default. */
+export async function updateQueuePolicy(directory: string, policy: QueueGitPolicy | null): Promise<{ policy: QueueGitPolicy; policyOverride: QueueGitPolicy | null }> {
+  const parsed = z.object({
+    policy: z.enum(['continue', 'commit', 'pause']),
+    policyOverride: z.enum(['continue', 'commit', 'pause']).nullable(),
+  }).parse(await request('/api/build-queue/policy', 'PUT', { directory, policy }));
+  return parsed;
 }
 
 /**

@@ -206,7 +206,7 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     title: 'Work board',
     group: 'general',
     kind: 'single',
-    keywords: ['work board', 'board', 'build queue', 'queue', 'git', 'commit', 'staged', 'pause', 'policy', 'include older sessions'],
+    keywords: ['work board', 'board', 'build queue', 'queue', 'git', 'commit', 'staged', 'pause', 'policy', 'session window', 'days'],
     // The board and its queue are unavailable in VS Code, so the page has nothing to describe there.
     isAvailable: (ctx) => !ctx.isVSCode,
   },

@@ -5,14 +5,16 @@ every page is built from; see `.agents/skills/settings-ui-patterns/SKILL.md` for
 which primitive to reach for.
 
 `openchamber/BuildQueueSettings.tsx` holds the instance-wide Git policy for
-project Build queues and preserves the legacy clean-Git fallback, and
+project Build queues and preserves the legacy clean-Git fallback,
 `openchamber/BuildQueueDefaultsSettings.tsx` holds the queue enablement a project
-follows until it chooses its own. `openchamber/WorkBoardViewSettings.tsx` adds
-the board's own Include older sessions choice, scoped by the page's project
-selector. The per-project queue choice lives on the Projects page
-(`projects/ProjectBuildQueueRow.tsx`) as Follow default / On / Off, and the
-repository those Git policies run against lives beside it
-(`projects/ProjectBuildQueueRepositoryRow.tsx`): a dropdown of the repositories
+follows until it chooses its own, and `openchamber/WorkBoardSessionsSettings.tsx`
+holds how far back the board lists sessions (`workBoardSessionDays`, one shared
+window; `0` shows every session). The per-project queue choices live on the
+Projects page: `projects/ProjectBuildQueueRow.tsx` (Follow default / On / Off),
+`projects/ProjectBuildQueuePolicyRow.tsx` (Follow default / the three Git
+policies; `projects/useProjectQueueSettings.ts` reads the policy and repository
+once so a policy change reveals the repository row), and
+`projects/ProjectBuildQueueRepositoryRow.tsx`: a dropdown of the repositories
 found under the project folder, shown only for the Pause and Commit policies.
 Queue job controls remain on the Work Board. VS Code-only hides this page.
 

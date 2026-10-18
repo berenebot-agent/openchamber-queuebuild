@@ -91,9 +91,12 @@ and every dispatch, pause, cancel and reorder decision test the same
 as an ordinary queued message — it stays persisted and takeable, but never
 surfaces, prepares, or holds the queue.
 
-Queue behavior (`buildQueueGitPolicy`) is a Settings control; the server remains
-authoritative for preparation, failures and dispatch. Web, Electron, hosted
-mobile and Capacitor use the server queue. VS Code does not offer it.
+Queue behavior (`buildQueueGitPolicy`) is a Settings control, with a per-project
+override on the project's page; the server remains authoritative for
+preparation, failures and dispatch. The Work board page's session window
+(`workBoardSessionDays`) is the only value the board sends with its snapshot
+request. Web, Electron, hosted mobile and Capacitor use the server queue. VS
+Code does not offer it.
 
 The board's cards have two sizes and the size carries the state: the running
 build, the waiting rows, a running plan turn and any card showing a notice share

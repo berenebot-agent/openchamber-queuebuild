@@ -47,26 +47,24 @@ test('Work Board tabs hydrate per runtime, keep explicit empty lists, and persis
       },
     },
   });
-  expect(useUIStore.getState().workBoardOlderSessions).toEqual({});
-  useUIStore.getState().setWorkBoardOlderSessions('runtime-a', '/alpha', true);
-  const key = JSON.stringify(['runtime-a', '/alpha']);
-  expect(useUIStore.getState().workBoardOlderSessions[key]).toBe(true);
-  expect(useUIStore.getState().workBoardOlderSessions[JSON.stringify(['runtime-b', '/alpha'])]).toBeUndefined();
-  expect(useUIStore.getState().workBoardOlderSessions[JSON.stringify(['runtime-a', '/beta'])]).toBeUndefined();
-  expect(writes.at(-1)).toMatchObject({ state: { workBoardOlderSessions: { [key]: true } } });
+  expect(useUIStore.getState().workBoardSessionDays).toBe(30);
+  useUIStore.getState().setWorkBoardSessionDays(7);
+  expect(useUIStore.getState().workBoardSessionDays).toBe(7);
+  expect(writes.at(-1)).toMatchObject({ state: { workBoardSessionDays: 7 } });
 });
 
-test('older-session preferences survive hydration and migrate from UI state version 25', async () => {
+test('the session window keeps its default and drops the old per-board record on hydration', async () => {
   const key = JSON.stringify(['runtime-a', '/alpha']);
   useUIStore.persist.setOptions({
     ...originalOptions,
     storage: {
-      getItem: () => ({ version: 25, state: { workBoardOlderSessions: { [key]: true } } }),
+      getItem: () => ({ version: 26, state: { workBoardOlderSessions: { [key]: true } } }),
       setItem: () => undefined,
       removeItem: () => undefined,
     },
   });
   useUIStore.setState(useUIStore.getInitialState(), true);
   await useUIStore.persist.rehydrate();
-  expect(useUIStore.getState().workBoardOlderSessions).toEqual({ [key]: true });
+  expect(useUIStore.getState().workBoardSessionDays).toBe(30);
+  expect('workBoardOlderSessions' in useUIStore.getState()).toBe(false);
 });

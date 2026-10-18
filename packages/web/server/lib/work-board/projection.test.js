@@ -38,12 +38,12 @@ describe('work board session listing', () => {
     expect((await projection.snapshot('/repo')).cards.map(card => card.sessionId)).toEqual(['first', 'second']);
   });
 
-  it('keeps the recency limit, includes older sessions on request, and rejects failed pages', async () => {
+  it('keeps the recency limit, widens it on request, and rejects failed pages', async () => {
     const client = { session: { list: async () => ({ data: [
       { id: 'old', location: { directory: '/repo' }, time: { updated: 1 } },
     ] }) } };
     expect(await readWorkBoardSessions(client, '/repo')).toEqual([]);
-    expect((await readWorkBoardSessions(client, '/repo', { includeOlder: true })).map(session => session.id)).toEqual(['old']);
+    expect((await readWorkBoardSessions(client, '/repo', { windowDays: 0 })).map(session => session.id)).toEqual(['old']);
     await expect(readWorkBoardSessions({ session: { list: async () => ({}) } }, '/repo')).rejects.toThrow('unavailable');
   });
 

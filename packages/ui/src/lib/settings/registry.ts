@@ -311,6 +311,15 @@ export const SETTINGS_REGISTRY = {
     parse: parseBoolean,
     ui: uiStore('buildQueueDefaultEnabled', (v) => useUIStore.getState().setBuildQueueDefaultEnabled(v)),
   }),
+  // How far back the board lists sessions, in days; `0` shows every session.
+  // A profile setting: one window for the person, shared by every client, so
+  // the board looks the same on a phone and a desktop.
+  workBoardSessionDays: field({
+    scope: 'profile',
+    surfaces: ['web', 'desktop', 'mobile'],
+    parse: parseIntegerInRange(0, 3650),
+    ui: uiStore('workBoardSessionDays', (v) => useUIStore.getState().setWorkBoardSessionDays(v)),
+  }),
   // `builtin` or an installed extension id; the server falls back to `builtin` when that extension cannot serve.
   browserProvider: field({ scope: 'instance', parse: parseNonEmptyString, ui: uiStore('browserProvider', (v) => useUIStore.getState().setBrowserProvider(v)) }),
   agentNotifyToolEnabled: field({ scope: 'instance', parse: parseBoolean, ui: uiStore('agentNotifyToolEnabled', (v) => useUIStore.getState().setAgentNotifyToolEnabled(v)) }),
@@ -679,10 +688,9 @@ export const LOCAL_DEVICE_KEYS = [
   'alwaysShowScrollbars',
   'agentMemoryViewedAt',
   'projectContextSidebarWidth',
-  // Work Board view preferences: which tabs this device had open, whether it
-  // shows older sessions, and the last project it looked at.
+  // Work Board view preferences that stay on this device: which tabs it had
+  // open and the last project it looked at.
   'workBoardProjectTabsByRuntime',
-  'workBoardOlderSessions',
   'workBoardProjectId',
 ] as const;
 

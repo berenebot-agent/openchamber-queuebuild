@@ -1016,6 +1016,31 @@ export const createProjectConfigRuntime = (deps) => {
     return enabled;
   });
 
+  const GIT_POLICIES = ['continue', 'commit', 'pause'];
+
+  /**
+   * The queue behavior this project chose for itself, or `null` when it never
+   * chose one. A project with no choice follows the instance's own
+   * `buildQueueGitPolicy`; an explicit choice is stored so the project keeps it
+   * whichever way the instance default later moves, and `null` clears it.
+   */
+  const readBuildQueueGitPolicy = async (projectID) => {
+    const raw = await readRawProjectConfigFromDisk(projectID);
+    return GIT_POLICIES.includes(raw.buildQueueGitPolicy) ? raw.buildQueueGitPolicy : null;
+  };
+
+  const setBuildQueueGitPolicy = async (projectID, policy) => withProjectWriteLock(projectID, async () => {
+    if (policy !== null && !GIT_POLICIES.includes(policy)) {
+      throw new TypeError('build queue policy must be continue, commit, pause, or null');
+    }
+    const existing = await readRawProjectConfigFromDisk(projectID);
+    const next = { ...existing, version: PROJECT_CONFIG_VERSION };
+    if (policy === null) delete next.buildQueueGitPolicy;
+    else next.buildQueueGitPolicy = policy;
+    await writeRawProjectConfigToDisk(projectID, next);
+    return policy;
+  });
+
   /**
    * The repository the project's build queue runs its Git gate and automatic
    * commit against, or `null` when the project never chose one. Null means the
@@ -1184,6 +1209,8 @@ export const createProjectConfigRuntime = (deps) => {
     setLoopApproval,
     readBuildQueueEnabled,
     setBuildQueueEnabled,
+    readBuildQueueGitPolicy,
+    setBuildQueueGitPolicy,
     readBuildQueueRepository,
     setBuildQueueRepository,
     resolveProjectConfigPath,

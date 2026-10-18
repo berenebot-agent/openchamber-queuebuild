@@ -24,7 +24,10 @@ import type { useProjectIdentityForm } from './useProjectIdentityForm';
 import type { ProjectSetupState } from './useProjectSetup';
 import { ProjectSetupUnavailable } from './ProjectSettingsBits';
 import { ProjectBuildQueueRow } from './ProjectBuildQueueRow';
+import { ProjectBuildQueuePolicyRow } from './ProjectBuildQueuePolicyRow';
 import { ProjectBuildQueueRepositoryRow } from './ProjectBuildQueueRepositoryRow';
+import { useProjectQueueSettings } from './useProjectQueueSettings';
+import { isVSCodeRuntime } from '@/lib/desktop';
 
 type ProjectIdentityFormState = ReturnType<typeof useProjectIdentityForm>;
 
@@ -224,6 +227,32 @@ const TeamFileSection: React.FC<{ projectRef: ProjectRef; setupState: ProjectSet
   );
 };
 
+/**
+ * The project's build-queue rows. The queue enablement is its own read; the
+ * behavior and the repository come from one shared read, since the effective
+ * behavior decides whether the repository row applies.
+ */
+const ProjectBuildQueueRows: React.FC<{ directory: string }> = ({ directory }) => {
+  const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
+  const { settings, reload } = useProjectQueueSettings(directory, !isVSCode);
+  return (
+    <>
+      <ProjectBuildQueueRow directory={directory} />
+      {settings ? (
+        <ProjectBuildQueuePolicyRow directory={directory} override={settings.policyOverride} onSaved={reload} />
+      ) : null}
+      {settings ? (
+        <ProjectBuildQueueRepositoryRow
+          directory={directory}
+          policy={settings.policy}
+          repository={settings.repository}
+          onSaved={reload}
+        />
+      ) : null}
+    </>
+  );
+};
+
 export const ProjectGeneralTab: React.FC<{
   form: ProjectIdentityFormState;
   projectRef: ProjectRef;
@@ -231,8 +260,7 @@ export const ProjectGeneralTab: React.FC<{
 }> = ({ form, projectRef, setupState }) => (
   <>
     <ChatDefaultsSection form={form} />
-    {form.project ? <ProjectBuildQueueRow directory={form.project.path} /> : null}
-    {form.project ? <ProjectBuildQueueRepositoryRow directory={form.project.path} /> : null}
+    {form.project ? <ProjectBuildQueueRows directory={form.project.path} /> : null}
     <TeamFileSection projectRef={projectRef} setupState={setupState} />
   </>
 );

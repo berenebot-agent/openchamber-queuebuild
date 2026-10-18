@@ -1034,6 +1034,31 @@ describe('project-config build queue enablement', () => {
     } finally { await cleanup(); }
   });
 
+  it('reads null until the project picks a policy, stores it, and clears it', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      expect(await runtime.readBuildQueueGitPolicy('project-test')).toBeNull();
+      await runtime.setBuildQueueGitPolicy('project-test', 'commit');
+      expect(await runtime.readBuildQueueGitPolicy('project-test')).toBe('commit');
+      // Null clears it: the project follows the instance policy again.
+      await runtime.setBuildQueueGitPolicy('project-test', null);
+      expect(await runtime.readBuildQueueGitPolicy('project-test')).toBeNull();
+      const raw = JSON.parse(await readFile(path.join(tempRoot, 'project-test.json'), 'utf8'));
+      expect('buildQueueGitPolicy' in raw).toBe(false);
+      expect(raw.version).toBe(1);
+    } finally { await cleanup(); }
+  });
+
+  it('ignores a stored policy that is not one of the three, and rejects writing one', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      await writeFile(path.join(tempRoot, 'project-test.json'), JSON.stringify({ version: 1, scheduledTasks: [], buildQueueGitPolicy: 'automatic' }));
+      expect(await runtime.readBuildQueueGitPolicy('project-test')).toBeNull();
+      await expect(runtime.setBuildQueueGitPolicy('project-test', 'automatic')).rejects.toThrow(TypeError);
+      await expect(runtime.setBuildQueueGitPolicy('project-test', true)).rejects.toThrow(TypeError);
+    } finally { await cleanup(); }
+  });
+
   it('keeps the repository choice alongside the keys the module does not own', async () => {
     const { runtime, tempRoot, cleanup } = await createRuntime();
     try {

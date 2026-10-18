@@ -11,7 +11,9 @@ import { createWorkBoardActivity } from './activity.js';
 
 const LANES = ['todo', 'plan', 'queue', 'build', 'done'];
 const CARD_LANES = ['todo', 'plan', 'build', 'done'];
-const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+/** Days back the board lists sessions when the client names no window. */
+const DEFAULT_WINDOW_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_PAGES = 4;
 // Which agents are subagent-only comes from the project's own config, not from
 // the board, so one read is reused for this long.
@@ -20,9 +22,13 @@ const SUBAGENT_AGENTS_TTL_MS = 60 * 1000;
 // bounded like the server's session lineage.
 const DELEGATED_CACHE_LIMIT = 5000;
 
-export async function readWorkBoardSessions(client, directory, { includeOlder = false, recentWindowMs = RECENT_WINDOW_MS } = {}) {
+export async function readWorkBoardSessions(client, directory, { windowDays = DEFAULT_WINDOW_DAYS } = {}) {
   const sessions = [];
   const seenCursors = new Set();
+  const nowMs = Date.now();
+  // `windowDays === 0` is the user asking for every session; any other value
+  // bounds the list to the sessions updated inside that window.
+  const cutoffMs = windowDays === 0 ? 0 : nowMs - windowDays * DAY_MS;
   let cursor;
   for (let pageNumber = 0; pageNumber < SESSION_PAGES; pageNumber += 1) {
     const page = await client.session.list({ directory, ...(cursor ? { cursor } : { order: 'desc', limit: 100 }) });
@@ -30,16 +36,15 @@ export async function readWorkBoardSessions(client, directory, { includeOlder = 
     sessions.push(...page.data);
     const next = page.cursor?.next;
     if (!next || seenCursors.has(next)) break;
-    if (!includeOlder && (page.data.at(-1)?.time?.updated ?? 0) < Date.now() - recentWindowMs) break;
+    if (windowDays !== 0 && (page.data.at(-1)?.time?.updated ?? 0) < cutoffMs) break;
     seenCursors.add(next);
     cursor = next;
   }
-  const cutoff = includeOlder ? 0 : Date.now() - recentWindowMs;
   // Delegated sessions are returned with the rest; the projection leaves them
   // off the board rather than the read hiding them.
   return sessions.filter(session => session?.id
     && normaliseDirectory(session.location?.directory) === normaliseDirectory(directory)
-    && (session.time?.updated ?? 0) >= cutoff);
+    && (session.time?.updated ?? 0) >= cutoffMs);
 }
 
 const directoryValueSchema = z.string();
@@ -215,10 +220,10 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
     }
   };
 
-  const readInherited = async (directory, includeOlder) => {
+  const readInherited = async (directory, windowDays) => {
     const key = normaliseDirectory(directory);
     try {
-      const sessions = await listSessions(directory, { includeOlder });
+      const sessions = await listSessions(directory, { windowDays });
       if (!Array.isArray(sessions)) throw new Error('Session list is not a list');
       const subagentAgentIds = await readSubagentAgentIds(directory);
       const listed = sessions.filter(session => session?.id);
@@ -232,9 +237,9 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
     }
   };
 
-  const snapshot = async (directory, { includeOlder = false } = {}) => {
+  const snapshot = async (directory, { windowDays = DEFAULT_WINDOW_DAYS } = {}) => {
     const stored = (await store.list(directory)).filter(card => normaliseDirectory(card.directory) === normaliseDirectory(directory));
-    const sessions = await readInherited(directory, includeOlder);
+    const sessions = await readInherited(directory, windowDays);
     // A delegated session is not the user's card: neither an inherited card for
     // it nor a stored card that links it belongs on the board.
     const onBoard = (await Promise.all(stored.map(async card => (
@@ -381,7 +386,7 @@ export function createWorkBoardProjectionRuntime({ store, readPage, readSessions
     listActiveSessionIds: readActiveSessionIds,
     listMessages: readPage,
   });
-  const listSessions = (directory, { includeOlder = false } = {}) => readSessions(directory, { includeOlder, recentWindowMs: RECENT_WINDOW_MS });
+  const listSessions = (directory, { windowDays = DEFAULT_WINDOW_DAYS } = {}) => readSessions(directory, { windowDays });
   const projection = createWorkBoardProjection({ store, activity, listSessions, listAgents, readSession, readQueueSnapshot, readQueueEnabled, readPendingRequests, now });
 
   /**

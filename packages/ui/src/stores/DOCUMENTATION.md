@@ -15,11 +15,12 @@ in the server work-board module; `lib/workBoardApi.ts` parses their HTTP contrac
 Project tabs and their selected project are persisted per runtime. Closing a tab
 only removes it from that runtime's tab list, and dragging one tab onto another
 reorders that list while leaving the selected project unchanged.
-UI state version 26 adds `workBoardOlderSessions`, which persists the Include
-older sessions preference by the
-JSON-encoded runtime and directory pair. Missing or malformed preferences default
-to on. The board filters inherited cards to the last 30 days before requesting
-their histories, with exceptions for live and queued work. Saved cards are
+UI state version 27 replaces the per-board `workBoardOlderSessions` record with
+`workBoardSessionDays`, one synced window in days (`0` shows every session) that
+every client of the instance shares. The old record is dropped on migration and
+the window takes its 30-day default. The board sends the window to the server
+with each snapshot request, which filters inherited cards to it before their
+histories are read, with exceptions for live and queued work. Saved cards are
 unaffected.
 `workBoardProjectId` remembers the last visited board for the chat's return
 button. It is navigation intent and does not own card contents or completion.

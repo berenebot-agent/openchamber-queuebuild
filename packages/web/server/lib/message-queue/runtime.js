@@ -1644,7 +1644,7 @@ export function createMessageQueueRuntime({
       }
       // Claim preparation before awaiting Git or the model. The dispatch lease
       // follows preparation and remains durable before the prompt is sent.
-      const policy = buildGitPolicy();
+      const policy = await effectiveBuildGitPolicy(current.directory);
       if (policy !== 'commit') preparationFailures.delete(current.directory);
       if (policy === 'commit') {
         if (preparationFailures.get(current.directory) === item.id) {
@@ -2280,7 +2280,32 @@ export function createMessageQueueRuntime({
     const repository = projectConfigRuntime
       ? await projectConfigRuntime.readBuildQueueRepository(projectId).catch(() => null)
       : null;
-    return { enabled: stored === null ? buildQueueDefaultEnabled() : stored, override: stored, repository };
+    // `policy` is what the queue will run; `policyOverride` is this project's
+    // own choice, if any, so the page can show "Follow default".
+    const policyOverride = projectConfigRuntime
+      ? await projectConfigRuntime.readBuildQueueGitPolicy(projectId).catch(() => null)
+      : null;
+    return {
+      enabled: stored === null ? buildQueueDefaultEnabled() : stored,
+      override: stored,
+      policy: policyOverride ?? buildGitPolicy(),
+      policyOverride,
+      repository,
+    };
+  };
+
+  /**
+   * The queue behavior this project follows: its own stored choice, else the
+   * instance default. Kept next to the enablement reader so both settings the
+   * project can override resolve the same way.
+   */
+  const effectiveBuildGitPolicy = async (directory) => {
+    if (!projectConfigRuntime) return buildGitPolicy();
+    const identity = await projectIdentityOf({ directory });
+    const projectId = asNonEmptyString(identity?.projectId);
+    if (!projectId) return buildGitPolicy();
+    const stored = await projectConfigRuntime.readBuildQueueGitPolicy(projectId).catch(() => null);
+    return stored ?? buildGitPolicy();
   };
 
   /**
@@ -2368,6 +2393,23 @@ export function createMessageQueueRuntime({
     return { enabled: enabled === null ? buildQueueDefaultEnabled() : enabled };
   });
 
+  /**
+   * This project's own queue behavior, or `null` to follow the instance default
+   * again. A policy change takes effect before the next preparation, like the
+   * instance setting, so no run needs interrupting.
+   */
+  const writeQueuePolicy = async (identityInput, policy) => withAdmission(async () => {
+    if (policy !== null && !['continue', 'commit', 'pause'].includes(policy)) {
+      throw new TypeError('policy must be continue, commit, pause, or null');
+    }
+    const identity = await projectIdentityOf(identityInput);
+    const projectId = asNonEmptyString(identity?.projectId);
+    if (!projectId) throw httpError('A project directory is required', 400);
+    if (!projectConfigRuntime) throw httpError('This server cannot store the build queue setting', 503);
+    await projectConfigRuntime.setBuildQueueGitPolicy(projectId, policy);
+    return { policy: policy ?? buildGitPolicy(), policyOverride: policy };
+  });
+
   /** The admission path the prompt route uses, serialized with the setting. */
   const admitSubmission = (input) => withAdmission(() => admitBuildPrompt(input));
 
@@ -2403,6 +2445,7 @@ export function createMessageQueueRuntime({
     queueEnabledStateFor,
     readQueueSettings,
     writeQueueSettings,
+    writeQueuePolicy,
     writeQueueRepository,
     cancelScheduledTask,
     parkSession,
@@ -2444,6 +2487,16 @@ export function registerMessageQueueRoutes(app, runtime) {
         req.body?.enabled,
       ));
     } catch (error) { respondError(res, error, 'Failed to save build queue settings'); }
+  });
+  // The queue behavior this project follows, or the instance default when it
+  // chose none; `null` clears the choice back to the instance policy.
+  app.put('/api/build-queue/policy', async (req, res) => {
+    try {
+      res.json(await runtime.writeQueuePolicy(
+        { directory: req.body?.directory },
+        req.body?.policy ?? null,
+      ));
+    } catch (error) { respondError(res, error, 'Failed to save the build queue policy'); }
   });
   // The repository a project's queue runs its Git gate and automatic commit
   // against; `null` clears the choice back to the dispatch directory's own.

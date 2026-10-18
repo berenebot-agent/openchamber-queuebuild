@@ -47,15 +47,23 @@ the server resolves it to its canonical project first, so a prompt cannot opt
 itself out of its session's queue by asking with another directory.
 
 `GET /api/build-queue/settings?directory=…` answers `{ enabled, override,
-repository }`, where `enabled` is what the queue does, `override` is the
-project's own choice or `null` when it follows the default, and `repository` is
-the project's chosen repository or `null`;
+policy, policyOverride, repository }`, where `enabled` is what the queue does,
+`override` is the project's own enablement or `null` when it follows the default,
+`policy` is the queue behavior the project runs (`continue`, `commit` or `pause`),
+`policyOverride` is the project's own behavior or `null` when it follows the
+instance policy, and `repository` is the project's chosen repository or `null`;
 `PUT /api/build-queue/settings` with `{ directory, enabled }` saves the switch
 and answers `{ enabled }`. A directory the server cannot place in a project is 400.
 Turning the queue off is refused with 409 while a build is running, being
 prepared, being dispatched, or waiting for that project — those builds would
 otherwise be stranded. Clearing to the default is refused the same way when the
 instance default is off.
+
+`PUT /api/build-queue/policy` with `{ directory, policy }` saves the project's
+own queue behavior (`continue`, `commit`, `pause`, or `null` to follow the
+instance policy) and answers `{ policy, policyOverride }` with the effective and
+stored values. Like the instance setting, a change takes effect before the next
+preparation starts, so it never interrupts a build.
 
 `PUT /api/build-queue/repository` with `{ directory, repository }` saves the
 repository the project's Git policies use; `repository: null` clears it. The
@@ -382,9 +390,13 @@ aim the queue's Git commands at a repository outside the project. It never
 applies to a worktree directory, which sits outside the project folder and
 carries its own checkout.
 
-The policy is `buildQueueGitPolicy`, read from the merged settings at admission.
-Null or absent keeps the legacy `buildQueueRequireCleanGit` behavior, true for
-pause and false for continue. Missing or unreadable settings default to pause.
+The policy is `buildQueueGitPolicy`, read from the merged settings at admission
+unless the project stored its own (`buildQueueGitPolicy` in its project config,
+set from the project's page next to the queue switch). The project's choice
+beats the instance value; clearing it returns the project to the instance
+default. Null or absent instance values keep the legacy
+`buildQueueRequireCleanGit` behavior, true for pause and false for continue.
+Missing or unreadable settings default to pause.
 Existing users never opt into automatic commits through migration. The selector
 replaces the old Chat settings checkbox and its Settings search entry.
 
@@ -556,8 +568,9 @@ allowlists.
 | Route | Purpose |
 |---|---|
 | `GET /api/message-queue` | Full snapshot `{ revision, sessions[] }` |
-| `GET /api/build-queue/settings?directory=` | `{ enabled, override, repository }` for the project that directory belongs to |
+| `GET /api/build-queue/settings?directory=` | `{ enabled, override, policy, policyOverride, repository }` for the project that directory belongs to |
 | `PUT /api/build-queue/settings` | `{ directory, enabled }` → `{ enabled }`; `enabled: null` clears the project's choice; 409 while that project's builds are running or waiting |
+| `PUT /api/build-queue/policy` | `{ directory, policy }` → `{ policy, policyOverride }`; `continue`/`commit`/`pause`, `null` clears the project's choice back to the instance policy |
 | `PUT /api/build-queue/repository` | `{ directory, repository }` → `{ repository }`; a path outside the project's tree or without a `.git` entry is 400, `null` clears the choice |
 | `POST .../sessions/:id/items` | Append `{ directory, item }`; returns `{ revision, session, itemId }` and arms a dispatch (the session may already be idle) |
 | `DELETE .../sessions/:id/items/:itemId` | Remove; `409` while that item is in flight. Returns `{ revision, session, item? }` — the removed item's full payload — so the composer can restore a cancelled build instead of losing the prompt |

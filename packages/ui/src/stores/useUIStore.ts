@@ -968,8 +968,9 @@ interface UIStore {
   workBoardProjectId: string | null;
   /** Open Work Board project tabs and their active project, persisted per runtime. */
   workBoardProjectTabsByRuntime: Record<string, WorkBoardProjectTabState>;
-  workBoardOlderSessions: Record<string, boolean>;
-  setWorkBoardOlderSessions: (runtimeKey: string, directory: string, include: boolean) => void;
+  /** How many days back the board lists sessions; `0` shows every session. */
+  workBoardSessionDays: number;
+  setWorkBoardSessionDays: (days: number) => void;
   openGuestPageId: string | null;
   worktreesPageProjectId: string | null;
   /** The project whose isolated spaces fill the main area, opened from its menu in the sidebar. */
@@ -1529,7 +1530,7 @@ export const useUIStore = create<UIStore>()(
         isWorkBoardOpen: false,
         workBoardProjectId: null,
         workBoardProjectTabsByRuntime: {},
-        workBoardOlderSessions: {},
+        workBoardSessionDays: 30,
         openGuestPageId: null,
         worktreesPageProjectId: null,
         spacesPageProjectId: null,
@@ -2510,11 +2511,8 @@ export const useUIStore = create<UIStore>()(
             },
           }));
         },
-        setWorkBoardOlderSessions: (runtimeKey, directory, include) => {
-          set(current => ({ workBoardOlderSessions: {
-            ...current.workBoardOlderSessions,
-            [JSON.stringify([runtimeKey, directory])]: include,
-          } }));
+        setWorkBoardSessionDays: (days) => {
+          set({ workBoardSessionDays: days });
         },
         setSourceBoardOpen: (open) => {
           set(open
@@ -3419,7 +3417,7 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 26,
+        version: 27,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
@@ -3428,8 +3426,10 @@ export const useUIStore = create<UIStore>()(
 
           // v24 -> v25: persist Work Board project tabs separately per runtime.
           state.workBoardProjectTabsByRuntime = workBoardProjectTabsByRuntimeSchema.parse(state.workBoardProjectTabsByRuntime);
-          // v25 -> v26: older-session visibility is local to each board.
-          state.workBoardOlderSessions = z.record(z.string(), z.boolean()).catch({}).parse(state.workBoardOlderSessions);
+          // v26 -> v27: the board's per-project "include older sessions" toggle
+          // became the shared `workBoardSessionDays` setting, so the old record
+          // is dropped; the new field takes its default.
+          delete state.workBoardOlderSessions;
 
           // v22 -> v23: table cell wrap is on by default. The local copy only
           // ever held the old default; a choice the user made is restored from
@@ -3685,7 +3685,7 @@ export const useUIStore = create<UIStore>()(
           sidebarWidth: state.sidebarWidth,
           contextPanelByDirectory: withoutForeignComparisons(state.contextPanelByDirectory),
           workBoardProjectTabsByRuntime: state.workBoardProjectTabsByRuntime,
-          workBoardOlderSessions: state.workBoardOlderSessions,
+          workBoardSessionDays: state.workBoardSessionDays,
           workBoardProjectId: state.workBoardProjectId,
           contextRailOrder: state.contextRailOrder,
           contextRailHiddenSurfaces: state.contextRailHiddenSurfaces,

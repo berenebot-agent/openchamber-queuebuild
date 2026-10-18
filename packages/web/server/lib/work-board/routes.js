@@ -25,10 +25,12 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
   // is a real failure, not an empty board: the client keeps what it had.
   app.get('/api/work-board/snapshot', async (req, res) => {
     try {
-      const query = z.object({ directory: z.string().trim().min(1), includeOlder: z.enum(['true', 'false']).optional() }).parse(req.query);
+      const query = z.object({ directory: z.string().trim().min(1), days: z.coerce.number().int().min(0).max(3650).optional() }).parse(req.query);
       if (!workBoardProjection) throw Object.assign(new Error('Work board snapshot is unavailable'), { status: 503 });
       const directory = await resolveDirectory(req, query.directory);
-      return res.json(await workBoardProjection.snapshot(directory, { includeOlder: query.includeOlder === 'true' }));
+      // A request without `days` leaves it undefined, and the projection's own
+      // default window stands.
+      return res.json(await workBoardProjection.snapshot(directory, { windowDays: query.days }));
     } catch (error) { return failure(res, error); }
   });
   app.post('/api/work-board', json, async (req, res) => {

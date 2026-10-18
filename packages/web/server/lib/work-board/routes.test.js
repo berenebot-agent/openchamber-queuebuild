@@ -262,7 +262,7 @@ describe('work board placement routes', () => {
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
   });
 
-  it('returns the projection with includeOlder passed through to the session reader', async () => {
+  it('returns the projection with the session window passed through to the session reader', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-snapshot-live-'));
     try {
       const store = createWorkBoardStore({ dataDir });
@@ -275,12 +275,18 @@ describe('work board placement routes', () => {
       registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }), workBoardProjection: projection });
       const plain = await request(app).get('/api/work-board/snapshot').query({ directory: '/repo' }).expect(200);
       expect(plain.body.directory).toBe('/repo');
-      const older = await request(app).get('/api/work-board/snapshot').query({ directory: '/repo', includeOlder: 'true' }).expect(200);
-      expect(older.body.directory).toBe('/repo');
+      const all = await request(app).get('/api/work-board/snapshot').query({ directory: '/repo', days: '0' }).expect(200);
+      expect(all.body.directory).toBe('/repo');
+      const week = await request(app).get('/api/work-board/snapshot').query({ directory: '/repo', days: '7' }).expect(200);
+      expect(week.body.directory).toBe('/repo');
       expect(calls).toEqual([
-        { directory: '/repo', options: { includeOlder: false } },
-        { directory: '/repo', options: { includeOlder: true } },
+        // No window named: the server's own default stands (the projection applies it).
+        { directory: '/repo', options: {} },
+        { directory: '/repo', options: { windowDays: 0 } },
+        { directory: '/repo', options: { windowDays: 7 } },
       ]);
+      // A window outside the sensible range is a bad request, not a silent clamp.
+      await request(app).get('/api/work-board/snapshot').query({ directory: '/repo', days: '-1' }).expect(400);
       // The plain card list stays available for other consumers.
       await request(app).get('/api/work-board').query({ directory: '/repo' }).expect(200);
     } finally { await fs.rm(dataDir, { recursive: true, force: true }); }

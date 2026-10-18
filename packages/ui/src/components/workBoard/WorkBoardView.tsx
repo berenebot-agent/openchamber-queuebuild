@@ -539,7 +539,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     });
   };
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
-  const includeOlder = useUIStore(state => state.workBoardOlderSessions[JSON.stringify([runtimeKey, directory])] ?? true);
+  const sessionDays = useUIStore(state => state.workBoardSessionDays);
   // Remember which board the user is on so any chat can return to it, and so a
   // New to-do draft is rooted in this project rather than the sidebar's.
   React.useEffect(() => {
@@ -550,7 +550,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
   // The board is a server-owned projection: the client renders the lanes, order,
   // queue state and live activity the server derived, and never classifies
   // history or polls a five-second timer itself.
-  const { snapshot, error: snapshotError, refresh } = useWorkBoardSnapshot(directory, includeOlder);
+  const { snapshot, error: snapshotError, refresh } = useWorkBoardSnapshot(directory, sessionDays);
   const [error, setError] = React.useState('');
   const [actionError, setActionError] = React.useState('');
   const [busy, setBusy] = React.useState(false);

@@ -5,7 +5,7 @@ import { MergedWorktreeCleanupSettings } from './MergedWorktreeCleanupSettings';
 import { SessionWorkSettings } from './SessionWorkSettings';
 import { BuildQueueSettings } from './BuildQueueSettings';
 import { BuildQueueDefaultsSettings } from './BuildQueueDefaultsSettings';
-import { WorkBoardViewSettings } from './WorkBoardViewSettings';
+import { WorkBoardSessionsSettings } from './WorkBoardSessionsSettings';
 import { PasskeySettings } from './PasskeySettings';
 import { AppLinkSecuritySettings } from './AppLinkSecuritySettings';
 import { DefaultsSettings } from './DefaultsSettings';
@@ -185,14 +185,15 @@ const SessionsSectionContent: React.FC<{ runtimeEndpointEpoch: number }> = ({ ru
     );
 };
 
-// Work board section: the instance-wide queue behaviour, the enablement new
-// projects follow, then the board's own display.
+// Work board section: the instance-wide queue behavior, the enablement new
+// projects follow, then how far back the board lists sessions. Every setting
+// here is instance/profile-wide; the per-project choices live on the project.
 const WorkBoardSectionContent: React.FC = () => {
     return (
         <>
             <BuildQueueSettings />
             <BuildQueueDefaultsSettings />
-            <WorkBoardViewSettings />
+            <WorkBoardSessionsSettings />
         </>
     );
 };

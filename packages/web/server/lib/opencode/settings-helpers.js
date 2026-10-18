@@ -347,6 +347,10 @@ export const createSettingsHelpers = (dependencies) => {
     if (candidate.buildQueueDefaultEnabled === true || candidate.buildQueueDefaultEnabled === false) {
       result.buildQueueDefaultEnabled = candidate.buildQueueDefaultEnabled;
     }
+    // How far back the board lists sessions, in days; `0` means every session.
+    if (Number.isInteger(candidate.workBoardSessionDays) && candidate.workBoardSessionDays >= 0 && candidate.workBoardSessionDays <= 3650) {
+      result.workBoardSessionDays = candidate.workBoardSessionDays;
+    }
     if (typeof candidate.desktopUiPassword === 'string') {
       result.desktopUiPassword = candidate.desktopUiPassword.trim();
     }

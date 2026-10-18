@@ -44,11 +44,11 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
-    id: 'work-board.include-older-sessions',
+    id: 'work-board.session-window',
     page: 'work-board',
-    titleKey: 'workBoard.includeOlderSessions',
-    descriptionKey: 'settings.page.workBoard.includeOlderInfo',
-    keywords: ['older', 'sessions', 'board', 'cards', 'history', '30 days'],
+    titleKey: 'settings.page.workBoard.sessionsLabel',
+    descriptionKey: 'settings.page.workBoard.sessionWindowInfo',
+    keywords: ['older', 'sessions', 'board', 'cards', 'history', 'days', 'window'],
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
@@ -73,6 +73,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'workBoard.repository.label',
     descriptionKey: 'workBoard.repository.info',
     keywords: ['queue', 'build', 'git', 'repository', 'repo', 'subfolder', 'commit', 'pause'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'projects.build-queue-policy',
+    page: 'projects',
+    titleKey: 'settings.openchamber.buildQueue.policy.title',
+    descriptionKey: 'settings.projects.page.queue.policyInfo',
+    keywords: ['queue', 'build', 'git', 'policy', 'behavior', 'continue', 'commit', 'pause', 'follow default', 'override'],
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {

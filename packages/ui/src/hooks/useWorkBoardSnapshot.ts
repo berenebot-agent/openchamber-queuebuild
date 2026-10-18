@@ -9,7 +9,7 @@ import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
  * server's own work-board/queue events, on visibility, and on a reconnect
  * interval. No history poll — the server derives activity once.
  */
-export function useWorkBoardSnapshot(directory: string, includeOlder = false, enabled = true) {
+export function useWorkBoardSnapshot(directory: string, days = 30, enabled = true) {
   const [snapshot, setSnapshot] = React.useState<WorkBoardSnapshot | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const sequence = React.useRef(0);
@@ -19,7 +19,7 @@ export function useWorkBoardSnapshot(directory: string, includeOlder = false, en
     const request = ++sequence.current;
     const runtime = getRuntimeKey();
     try {
-      const next = await fetchWorkBoardSnapshot(directory, includeOlder);
+      const next = await fetchWorkBoardSnapshot(directory, days);
       if (request !== sequence.current || runtime !== getRuntimeKey()) return;
       if (next.directory !== directory) return;
       setSnapshot(next);
@@ -28,7 +28,7 @@ export function useWorkBoardSnapshot(directory: string, includeOlder = false, en
       if (request !== sequence.current || runtime !== getRuntimeKey()) return;
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [directory, enabled, includeOlder]);
+  }, [directory, enabled, days]);
 
   React.useEffect(() => {
     // A new board starts empty; the fetch below fills it. The previous board's
@@ -60,7 +60,7 @@ export function useWorkBoardSnapshot(directory: string, includeOlder = false, en
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [directory, enabled, includeOlder, refresh]);
+  }, [directory, enabled, days, refresh]);
 
   return { snapshot, error, refresh };
 }
