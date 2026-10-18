@@ -44,22 +44,25 @@ test('live builds without queue entries remain visible and reconcile without dup
   const notifications = useNotificationStore.getState();
   const sessionUI = useSessionUIStore.getState();
   const sessionDisplay = useSessionDisplayStore.getState();
-  const sessionRecords = ['direct-a', 'direct-b', 'planning'].map(id => ({
+  const sessionRecords = ['direct-a', 'direct-b', 'planning', 'idle-plan'].map(id => ({
     id, directory: '/repo', projectID: 'project', title: id,
     cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 1, updated: Date.now() },
   }));
-  // Two live Build sessions the queue does not manage, and one running Plan.
+  // Two live Build sessions the queue does not manage, one running Plan, and
+  // one idle Plan: the running one and the idle one differ only by the turn.
   let snapshot: WorkBoardSnapshot = makeSnapshot({
     cards: [
       snapshotCard({ id: 'session:direct-a', lane: 'queue', text: 'direct-a', sessionId: 'direct-a', stage: 'done' }),
       snapshotCard({ id: 'session:direct-b', lane: 'queue', text: 'direct-b', sessionId: 'direct-b', stage: 'done' }),
       snapshotCard({ id: 'session:planning', lane: 'plan', text: 'planning', sessionId: 'planning', stage: 'plan' }),
+      snapshotCard({ id: 'session:idle-plan', lane: 'plan', text: 'idle-plan', sessionId: 'idle-plan', stage: 'plan' }),
     ],
     activities: {
       'direct-a': { busy: false, messages: [] },
       'direct-b': { busy: false, messages: [] },
       planning: { busy: true, messages: [] },
+      'idle-plan': { busy: false, messages: [] },
     },
   });
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
@@ -101,6 +104,10 @@ test('live builds without queue entries remain visible and reconcile without dup
     const planCard = lane('Plan').querySelector('button[title="planning"]')!.closest('article')!;
     expect(planCard.querySelector('.oc-build-stripes-plan')).not.toBeNull();
     expect(planCard.hasAttribute('data-work-board-working')).toBe(true);
+    // The running plan reserves the status line, so it is the same height as the
+    // running build beside it; an idle plan reserves nothing.
+    expect(planCard.querySelector('p[aria-hidden="true"]')).not.toBeNull();
+    expect(lane('Plan').querySelector('button[title="idle-plan"]')!.closest('article')!.querySelector('p[aria-hidden="true"]')).toBeNull();
     await act(async () => { openButtons()[0].click(); });
     expect(openSpy.mock.calls.at(-1)).toEqual(['direct-a', '/repo']);
 

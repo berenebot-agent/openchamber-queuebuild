@@ -484,6 +484,9 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
     {checking ? <p className="min-h-[1lh] text-xs leading-5 text-muted-foreground">{t('common.loading')}</p>
       : feedback ? <WorkBoardSessionFeedback feedback={feedback} />
       : waitingFor ? <p className="min-h-[1lh] text-xs leading-5 text-[var(--status-warning-text)]">{waitingLabel}</p>
+      // A running plan reserves its status line even with nothing to say, so the
+      // card matches the running build and the waiting rows in the queue lane.
+      : activePlan ? <p aria-hidden="true" className="min-h-[1lh] text-xs leading-5" />
       : null}
     </div>
   </article>;
@@ -1256,10 +1259,10 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
               // A card is one of two sizes. Every card that can carry a status
               // line — a working plan, or any card linked to a session, which
               // can gain "Needs attention" or a loading line — takes the larger
-              // box. That is what makes the running build, the waiting rows and
-              // a working plan card in the queue column one height. A card with
-              // nothing to report, and an unstarted To-do with no session to
-              // report on, stays compact.
+              // box. A working plan reserves its status line, even empty, so it
+              // is the same height as the running build and the waiting rows.
+              // A card with nothing to report, and an unstarted To-do with no
+              // session to report on, stays compact.
               const large = (lane === 'plan' && hasRunningTurn) || lane !== 'todo' || Boolean(card.sessionId);
               return <WorkBoardCard
                 key={card.id}
