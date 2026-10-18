@@ -64,6 +64,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { closeTopmostBackLayer } from '@/lib/mobileBackLayers';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import { SyncProvider } from '@/sync/sync-context';
 
 import { SyncAppEffects } from './AppEffects';
@@ -77,7 +78,9 @@ import { UsageStatsView } from '@/components/views/usage/UsageStatsView';
 import { ArchiveSessionsView } from '@/components/views/ArchiveView';
 import { MobileSourceBoard } from '@/components/sourceBoard/SourceBoardView';
 // The board is opened on demand; the native chat boot should not load its history UI.
-const MobileWorkBoard = React.lazy(() => import('@/components/workBoard/WorkBoardView').then(m => ({ default: m.WorkBoardView })));
+// Chunk recovery: a redeploy invalidates cached chunk names, and the board must
+// reload the shell instead of crashing in the error boundary.
+const MobileWorkBoard = lazyWithChunkRecovery(() => import('@/components/workBoard/WorkBoardView').then(m => ({ default: m.WorkBoardView })));
 import { ScheduledTasksView, type ScheduledTasksLeaveReason } from '@/components/session/ScheduledTasksDialog';
 import { MobileWorkspaceDrawer, type MobileWorkspaceTab } from './MobileWorkspaceDrawer';
 import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
