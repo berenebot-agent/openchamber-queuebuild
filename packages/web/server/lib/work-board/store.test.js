@@ -59,7 +59,10 @@ describe('work board persistence', () => {
     try {
       const original = await store.create(input());
       const completed = await store.complete(original);
-      expect(completed).toMatchObject({ id: original.id, stage: 'done', text: original.text, completedAt: expect.any(Number) });
+      // Bun's toMatchObject corrupts any field asserted via expect.any, and the
+      // corrupted card would then fail this file's own persisted read-back.
+      expect(completed).toMatchObject({ id: original.id, stage: 'done', text: original.text });
+      expect(completed.completedAt).toEqual(expect.any(Number));
       const inherited = await store.complete({ id: 'session:session1', sessionId: 'session1', directory: '/project', text: 'Inherited plan', updatedAt: 123 });
       expect(inherited).toMatchObject({ stage: 'done', sessionId: 'session1', text: 'Inherited plan' });
       expect(await createWorkBoardStore({ dataDir }).list('/project')).toEqual([completed, inherited]);
