@@ -212,21 +212,25 @@ function WorkBoardQueueRowItem({ row, index, order, busy, disabled, mobile, onOp
       <DropdownMenuContent align="end">
         <DropdownMenuItem disabled={busy || index === 0} onClick={() => onMove(row.itemId, -1)}>{t('workBoard.moveUp', { title: row.title })}</DropdownMenuItem>
         <DropdownMenuItem disabled={busy || index === order.length - 1} onClick={() => onMove(row.itemId, 1)}>{t('workBoard.moveDown', { title: row.title })}</DropdownMenuItem>
-        <DropdownMenuItem disabled={busy} onClick={() => onTogglePause(row)}>{t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}</DropdownMenuItem>
+        <DropdownMenuItem disabled={busy} className={row.paused ? 'text-[var(--status-warning-text)]' : undefined} onClick={() => onTogglePause(row)}>{t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}</DropdownMenuItem>
         <DropdownMenuItem disabled={busy} onClick={() => onForce(row)}>{t('workBoard.force', { title: row.title })}</DropdownMenuItem>
         <DropdownMenuItem disabled={busy} onClick={() => onCancel(row)}>{t('workBoard.cancelBuild', { title: row.title })}</DropdownMenuItem>
       </DropdownMenuContent>
-    </DropdownMenu> : <div className="flex shrink-0 items-center gap-0.5 opacity-40 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
+    </DropdownMenu> : <div className={'flex shrink-0 items-center gap-0.5 transition-opacity ' + (row.paused
+      // A paused row keeps its controls up so the resume control is visible
+      // without hovering; every other row reveals them on hover as before.
+      ? 'opacity-100 '
+      : 'opacity-40 focus-within:opacity-100 group-hover:opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100')}>
       <Button size="icon" variant="ghost" className="size-6" disabled={busy || index === 0}
         aria-label={t('workBoard.moveUp', { title: row.title })} title={t('workBoard.moveUp', { title: row.title })}
         onClick={() => onMove(row.itemId, -1)}><Icon name="arrow-up-s" className="size-3.5" /></Button>
       <Button size="icon" variant="ghost" className="size-6" disabled={busy || index === order.length - 1}
         aria-label={t('workBoard.moveDown', { title: row.title })} title={t('workBoard.moveDown', { title: row.title })}
         onClick={() => onMove(row.itemId, 1)}><Icon name="arrow-down-s" className="size-3.5" /></Button>
-      <Button size="icon" variant="ghost" className="size-6" disabled={busy}
+      <Button size="icon" variant="ghost" className={'size-6' + (row.paused ? ' text-[var(--status-warning-text)]' : '')} disabled={busy}
         aria-label={t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}
         title={t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}
-        onClick={() => onTogglePause(row)}><Icon name={row.paused ? 'play' : 'time'} className="size-3.5" /></Button>
+        onClick={() => onTogglePause(row)}><Icon name={row.paused ? 'play' : 'pause'} className="size-3.5" /></Button>
       <Button size="icon" variant="ghost" className="size-6" disabled={busy}
         aria-label={t('workBoard.force', { title: row.title })} title={t('workBoard.force', { title: row.title })}
         onClick={() => onForce(row)}><Icon name="rocket" className="size-3.5" /></Button>
@@ -844,6 +848,21 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     onLeave?.();
   };
 
+  // One queue request, without the busy flag or the refresh, so a bulk action
+  // can fan several of them out over a single refresh.
+  const queueRequest = async (url: string, method: 'PUT' | 'DELETE' | 'POST', body?: WorkBoardQueueWrite) => {
+    const init: RequestInit = { method };
+    if (body) {
+      init.headers = { 'Content-Type': 'application/json' };
+      init.body = JSON.stringify(body);
+    }
+    const response = await runtimeFetch(url, init);
+    const payload = queueErrorSchema.safeParse(await response.json().catch(() => null));
+    if (!response.ok) throw new Error((payload.success && payload.data.error) || `HTTP ${response.status}`);
+    // A forced build can report that its prompt was not confirmed: the item
+    // stays queued, so say so instead of reading as a clean success.
+    if (payload.success && payload.data.warning) setQueueActionError(payload.data.warning);
+  };
   // Queue rows act on the queue itself. The board is a second surface on the
   // same server state, so every one of these refreshes the snapshot rather than
   // guessing the result.
@@ -851,17 +870,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     setQueueBusy(true);
     setQueueActionError('');
     try {
-      const init: RequestInit = { method };
-      if (body) {
-        init.headers = { 'Content-Type': 'application/json' };
-        init.body = JSON.stringify(body);
-      }
-      const response = await runtimeFetch(url, init);
-      const payload = queueErrorSchema.safeParse(await response.json().catch(() => null));
-      if (!response.ok) throw new Error((payload.success && payload.data.error) || `HTTP ${response.status}`);
-      // A forced build can report that its prompt was not confirmed: the item
-      // stays queued, so say so instead of reading as a clean success.
-      if (payload.success && payload.data.warning) setQueueActionError(payload.data.warning);
+      await queueRequest(url, method, body);
       await refresh();
     } catch (cause) {
       setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
@@ -907,9 +916,30 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     order.splice(overIndex, 0, moved);
     void queueMutate('/api/build-queue/order', 'PUT', { directory, ids: order });
   };
+  const queuePauseUrl = (row: { itemId: string; sessionId: string }) =>
+    '/api/build-queue/sessions/' + encodeURIComponent(row.sessionId) +
+    '/items/' + encodeURIComponent(row.itemId) + '/pause';
   const toggleQueuedPause = (row: { itemId: string; sessionId: string; paused: boolean }) =>
-    void queueMutate('/api/build-queue/sessions/' + encodeURIComponent(row.sessionId) +
-      '/items/' + encodeURIComponent(row.itemId) + '/pause', 'PUT', { paused: !row.paused });
+    void queueMutate(queuePauseUrl(row), 'PUT', { paused: !row.paused });
+  // The server has no whole-queue pause, so this is the rows' own pause state
+  // fanned out over one refresh: a resume-all also clears items the user paused
+  // one at a time, and a build queued after a pause-all still dispatches.
+  const allQueuedPaused = queueRows.length > 0 && queueRows.every(row => row.paused);
+  const toggleAllQueuedPause = async () => {
+    const paused = !allQueuedPaused;
+    const targets = queueRows.filter(row => row.paused !== paused);
+    if (!targets.length) return;
+    setQueueBusy(true);
+    setQueueActionError('');
+    try {
+      await Promise.all(targets.map(row => queueRequest(queuePauseUrl(row), 'PUT', { paused })));
+      await refresh();
+    } catch (cause) {
+      setQueueActionError(cause instanceof Error ? cause.message : t('workBoard.failed'));
+    } finally {
+      setQueueBusy(false);
+    }
+  };
   const adoptCancelledBuild = (
     sessionId: string,
     item: { content: string; attachments?: Array<{ filename: string; mimeType: string; dataUrl?: string }> },
@@ -1168,6 +1198,16 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
           <div className="flex items-center gap-2 px-3 py-3">
             <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{count}</span></h2>
             {(lane === 'todo' || lane === 'plan') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane === 'plan' && !agents.some(agent => agent.name === 'plan'))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')} title={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')}><Icon name="add" className="size-4" /></Button>}
+            {/* Pauses or resumes every waiting build at once. It only appears
+                with rows to act on, and lights up once the whole queue waits. */}
+            {lane === 'queue' && queueRows.length > 0 && <Button size="sm" variant="ghost"
+              disabled={!directory || busy || queueBusy}
+              className={allQueuedPaused ? 'text-[var(--status-warning-text)]' : undefined}
+              onClick={() => void toggleAllQueuedPause()}
+              aria-label={t(allQueuedPaused ? 'workBoard.resumeAll' : 'workBoard.pauseAll')}
+              title={t(allQueuedPaused ? 'workBoard.resumeAll' : 'workBoard.pauseAll')}>
+              <Icon name={allQueuedPaused ? 'play' : 'pause'} className="size-4" />
+            </Button>}
             {lane !== 'queue' && <DropdownMenu>
               <DropdownMenuTrigger asChild><Button size="sm" variant="ghost" disabled={busy || !inLane.length} aria-label={t('workBoard.laneActions')} title={t('workBoard.laneActions')}><Icon name="more" className="size-4" /></Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end"><DropdownMenuItem onClick={() => completeAllIn(lane)}>{t('workBoard.completeAll')}</DropdownMenuItem></DropdownMenuContent>

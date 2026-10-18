@@ -12,6 +12,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds in the queue', 'workBoard.headerQueueError': '{project}: build queue status unavailable', 'workBoard.queuedModel': 'Model: {model}',
     'workBoard.editConflictTitle': 'This card changed', 'workBoard.editConflictDescription': 'Someone else changed this card while you were editing. Choose the version to keep.', 'workBoard.useSavedVersion': 'Use saved version', 'workBoard.keepMyEdits': 'Overwrite with my edits', 'workBoard.editConflictBriefRemoved': 'This saved brief was removed. Save a new to-do from the composer to replace it.', 'workBoard.force': 'Force {title}', 'workBoard.outsideQueue': 'Outside queue',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Pause all queued builds', 'workBoard.resumeAll': 'Resume all queued builds',
   },
   de: {
     'workBoard.removeTodo': 'Aufgabe entfernen', 'workBoard.removeTodoConfirm': 'Möchtest du diese Aufgabe wirklich löschen? Die Sitzung bleibt in ihrer aktuellen Spalte und der gesamte Chatverlauf bleibt erhalten.', 'workBoard.updateTodo': 'Aufgabe aktualisieren', 'workBoard.editingTodo': 'Gespeicherte Aufgabe bearbeiten', 'workBoard.planningTodo': 'Gespeicherte Aufgabe für den Chat vorbereiten', 'workBoard.promotionFailed': 'Nachricht gesendet. Das Board konnte nicht aktualisiert werden. Versuche es erneut, um nur das Board zu aktualisieren.',
@@ -25,6 +26,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} Builds in der Warteschlange', 'workBoard.headerQueueError': '{project}: Status der Build-Warteschlange nicht verfügbar', 'workBoard.queuedModel': 'Modell: {model}',
     'workBoard.editConflictTitle': 'Diese Karte wurde geändert', 'workBoard.editConflictDescription': 'Jemand anderes hat die Karte während deiner Bearbeitung geändert. Wähle, welche Version bleiben soll.', 'workBoard.useSavedVersion': 'Gespeicherte Version verwenden', 'workBoard.keepMyEdits': 'Mit meinen Änderungen überschreiben', 'workBoard.editConflictBriefRemoved': 'Dieser gespeicherte Aufgabenentwurf wurde entfernt. Speichere im Eingabefeld eine neue Aufgabe.', 'workBoard.force': '{title} erzwingen', 'workBoard.outsideQueue': 'Außerhalb der Warteschlange',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Alle wartenden Builds pausieren', 'workBoard.resumeAll': 'Alle wartenden Builds fortsetzen',
 
   },
   fr: {
@@ -39,6 +41,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project} : {count} builds en file d’attente', 'workBoard.headerQueueError': '{project} : état de la file de build indisponible', 'workBoard.queuedModel': 'Modèle : {model}',
     'workBoard.editConflictTitle': 'Cette carte a changé', 'workBoard.editConflictDescription': 'Quelqu’un a modifié cette carte pendant votre édition. Choisissez la version à conserver.', 'workBoard.useSavedVersion': 'Utiliser la version enregistrée', 'workBoard.keepMyEdits': 'Remplacer par mes modifications', 'workBoard.editConflictBriefRemoved': 'Cette consigne enregistrée a été supprimée. Enregistrez une nouvelle tâche depuis le champ de saisie.', 'workBoard.force': 'Forcer {title}', 'workBoard.outsideQueue': 'Hors file',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Mettre en pause tous les builds en attente', 'workBoard.resumeAll': 'Reprendre tous les builds en attente',
 
   },
   nl: {
@@ -53,6 +56,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds in de wachtrij', 'workBoard.headerQueueError': '{project}: status van de buildwachtrij niet beschikbaar', 'workBoard.queuedModel': 'Model: {model}',
     'workBoard.editConflictTitle': 'Deze kaart is gewijzigd', 'workBoard.editConflictDescription': 'Iemand anders heeft deze kaart gewijzigd terwijl je eraan werkte. Kies welke versie je wilt bewaren.', 'workBoard.useSavedVersion': 'Opgeslagen versie gebruiken', 'workBoard.keepMyEdits': 'Overschrijven met mijn wijzigingen', 'workBoard.editConflictBriefRemoved': 'Deze opgeslagen opdracht is verwijderd. Sla een nieuwe taak op vanuit het invoerveld.', 'workBoard.force': '{title} forceren', 'workBoard.outsideQueue': 'Buiten de wachtrij',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Alle wachtende builds pauzeren', 'workBoard.resumeAll': 'Alle wachtende builds hervatten',
 
   },
   es: {
@@ -67,6 +71,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds en la cola', 'workBoard.headerQueueError': '{project}: estado de la cola de build no disponible', 'workBoard.queuedModel': 'Modelo: {model}',
     'workBoard.editConflictTitle': 'Esta tarjeta ha cambiado', 'workBoard.editConflictDescription': 'Alguien cambió esta tarjeta mientras la editabas. Elige qué versión conservar.', 'workBoard.useSavedVersion': 'Usar la versión guardada', 'workBoard.keepMyEdits': 'Sobrescribir con mis cambios', 'workBoard.editConflictBriefRemoved': 'Se eliminó esta instrucción guardada. Guarda una nueva tarea desde el compositor.', 'workBoard.force': 'Forzar {title}', 'workBoard.outsideQueue': 'Fuera de la cola',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Pausar todas las compilaciones en cola', 'workBoard.resumeAll': 'Reanudar todas las compilaciones en cola',
 
   },
   ja: {
@@ -81,6 +86,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: キュー内のビルド {count} 件', 'workBoard.headerQueueError': '{project}: ビルドキューの状態を確認できません', 'workBoard.queuedModel': 'モデル: {model}',
     'workBoard.editConflictTitle': 'カードが変更されました', 'workBoard.editConflictDescription': '編集中に別のユーザーがこのカードを変更しました。残すバージョンを選んでください。', 'workBoard.useSavedVersion': '保存済みのバージョンを使う', 'workBoard.keepMyEdits': '自分の編集内容で上書き', 'workBoard.editConflictBriefRemoved': 'この保存済みの概要は削除されました。入力欄から新しいタスクを保存してください。', 'workBoard.force': '{title} を強制実行', 'workBoard.outsideQueue': 'キュー外',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': '待機中のビルドをすべて一時停止', 'workBoard.resumeAll': '待機中のビルドをすべて再開',
 
   },
   ko: {
@@ -95,6 +101,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: 대기열에 빌드 {count}개', 'workBoard.headerQueueError': '{project}: 빌드 대기열 상태를 사용할 수 없습니다', 'workBoard.queuedModel': '모델: {model}',
     'workBoard.editConflictTitle': '카드가 변경되었습니다', 'workBoard.editConflictDescription': '편집하는 동안 다른 사람이 이 카드를 변경했습니다. 유지할 버전을 선택하세요.', 'workBoard.useSavedVersion': '저장된 버전 사용', 'workBoard.keepMyEdits': '내 편집 내용으로 덮어쓰기', 'workBoard.editConflictBriefRemoved': '이 저장된 요약이 삭제되었습니다. 입력기에서 새 할 일을 저장하세요.', 'workBoard.force': '{title} 강제 실행', 'workBoard.outsideQueue': '대기열 외부',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': '대기 중인 빌드 모두 일시 중지', 'workBoard.resumeAll': '대기 중인 빌드 모두 재개',
 
   },
   pl: {
@@ -109,6 +116,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} kompilacji w kolejce', 'workBoard.headerQueueError': '{project}: status kolejki kompilacji niedostępny', 'workBoard.queuedModel': 'Model: {model}',
     'workBoard.editConflictTitle': 'Ta karta została zmieniona', 'workBoard.editConflictDescription': 'Ktoś zmienił tę kartę podczas Twojej edycji. Wybierz wersję, którą chcesz zachować.', 'workBoard.useSavedVersion': 'Użyj zapisanej wersji', 'workBoard.keepMyEdits': 'Zastąp moimi zmianami', 'workBoard.editConflictBriefRemoved': 'Ten zapisany opis został usunięty. Zapisz nowe zadanie w polu wiadomości.', 'workBoard.force': 'Wymuś {title}', 'workBoard.outsideQueue': 'Poza kolejką',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Wstrzymaj wszystkie oczekujące kompilacje', 'workBoard.resumeAll': 'Wznów wszystkie oczekujące kompilacje',
 
   },
   'pt-BR': {
@@ -123,6 +131,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds na fila', 'workBoard.headerQueueError': '{project}: status da fila de build indisponível', 'workBoard.queuedModel': 'Modelo: {model}',
     'workBoard.editConflictTitle': 'Este cartão foi alterado', 'workBoard.editConflictDescription': 'Outra pessoa alterou este cartão enquanto você o editava. Escolha qual versão manter.', 'workBoard.useSavedVersion': 'Usar versão salva', 'workBoard.keepMyEdits': 'Substituir pelas minhas alterações', 'workBoard.editConflictBriefRemoved': 'Estas instruções salvas foram removidas. Salve uma nova tarefa no compositor.', 'workBoard.force': 'Forçar {title}', 'workBoard.outsideQueue': 'Fora da fila',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Pausar todos os builds na fila', 'workBoard.resumeAll': 'Retomar todos os builds na fila',
 
   },
   uk: {
@@ -138,6 +147,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} збірок у черзі', 'workBoard.headerQueueError': '{project}: статус черги збірок недоступний', 'workBoard.queuedModel': 'Модель: {model}',
     'workBoard.editConflictTitle': 'Картку змінено', 'workBoard.editConflictDescription': 'Хтось змінив цю картку, поки ви її редагували. Виберіть, яку версію залишити.', 'workBoard.useSavedVersion': 'Використати збережену версію', 'workBoard.keepMyEdits': 'Замінити моїми змінами', 'workBoard.editConflictBriefRemoved': 'Цей збережений опис видалено. Збережіть нове завдання в полі введення.', 'workBoard.force': 'Примусово зібрати {title}', 'workBoard.outsideQueue': 'Поза чергою',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Призупинити всі збірки в черзі', 'workBoard.resumeAll': 'Продовжити всі збірки в черзі',
 
   },
   'zh-CN': {
@@ -152,6 +162,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}：队列中有 {count} 个构建', 'workBoard.headerQueueError': '{project}：构建队列状态不可用', 'workBoard.queuedModel': '模型：{model}',
     'workBoard.editConflictTitle': '卡片已更改', 'workBoard.editConflictDescription': '你编辑期间，其他人更改了这张卡片。请选择要保留的版本。', 'workBoard.useSavedVersion': '使用已保存的版本', 'workBoard.keepMyEdits': '用我的更改覆盖', 'workBoard.editConflictBriefRemoved': '此已保存的任务说明已被移除。请在输入框中保存新的待办。', 'workBoard.force': '强制构建 {title}', 'workBoard.outsideQueue': '队列之外',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': '暂停所有排队中的构建', 'workBoard.resumeAll': '恢复所有排队中的构建',
 
   },
   'zh-TW': {
@@ -166,6 +177,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}：佇列中有 {count} 個建置', 'workBoard.headerQueueError': '{project}：建置佇列狀態無法使用', 'workBoard.queuedModel': '模型：{model}',
     'workBoard.editConflictTitle': '卡片已變更', 'workBoard.editConflictDescription': '你編輯期間，其他人變更了這張卡片。請選擇要保留的版本。', 'workBoard.useSavedVersion': '使用已儲存的版本', 'workBoard.keepMyEdits': '以我的變更覆蓋', 'workBoard.editConflictBriefRemoved': '此已儲存的任務說明已被移除。請在輸入框中儲存新的待辦。', 'workBoard.force': '強制建置 {title}', 'workBoard.outsideQueue': '佇列之外',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': '暫停所有佇列中的建置', 'workBoard.resumeAll': '繼續所有佇列中的建置',
 
   },
   tr: {
@@ -180,6 +192,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: kuyrukta {count} derleme', 'workBoard.headerQueueError': '{project}: derleme kuyruğu durumu kullanılamıyor', 'workBoard.queuedModel': 'Model: {model}',
     'workBoard.editConflictTitle': 'Kart değiştirildi', 'workBoard.editConflictDescription': 'Siz düzenlerken başka biri bu kartı değiştirdi. Hangi sürümün kalacağını seçin.', 'workBoard.useSavedVersion': 'Kaydedilen sürümü kullan', 'workBoard.keepMyEdits': 'Değişikliklerimle üzerine yaz', 'workBoard.editConflictBriefRemoved': 'Bu kayıtlı görev açıklaması kaldırıldı. Düzenleyiciden yeni bir görev kaydedin.', 'workBoard.force': '{title} derlemesini zorla', 'workBoard.outsideQueue': 'Kuyruk dışı',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'Kuyruktaki tüm derlemeleri duraklat', 'workBoard.resumeAll': 'Kuyruktaki tüm derlemeleri sürdür',
 
   },
   ar: {
@@ -194,6 +207,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} عمليات بناء في قائمة الانتظار', 'workBoard.headerQueueError': '{project}: حالة قائمة انتظار البناء غير متاحة', 'workBoard.queuedModel': 'الطراز: {model}',
     'workBoard.editConflictTitle': 'تغيّرت هذه البطاقة', 'workBoard.editConflictDescription': 'غيّر شخص آخر هذه البطاقة أثناء تعديلك لها. اختر النسخة التي تريد الاحتفاظ بها.', 'workBoard.useSavedVersion': 'استخدام النسخة المحفوظة', 'workBoard.keepMyEdits': 'استبدالها بتعديلاتي', 'workBoard.editConflictBriefRemoved': 'تمت إزالة هذا الموجز المحفوظ. احفظ مهمة جديدة من محرر الرسائل.', 'workBoard.force': 'فرض {title}', 'workBoard.outsideQueue': 'خارج قائمة الانتظار',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'إيقاف كل عمليات البناء في قائمة الانتظار مؤقتًا', 'workBoard.resumeAll': 'استئناف كل عمليات البناء في قائمة الانتظار',
 
   },
   he: {
@@ -208,6 +222,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} בניות בתור', 'workBoard.headerQueueError': '{project}: מצב תור הבנייה אינו זמין', 'workBoard.queuedModel': 'מודל: {model}',
     'workBoard.editConflictTitle': 'הכרטיס השתנה', 'workBoard.editConflictDescription': 'מישהו אחר שינה את הכרטיס בזמן העריכה. בחרו איזו גרסה לשמור.', 'workBoard.useSavedVersion': 'שימוש בגרסה השמורה', 'workBoard.keepMyEdits': 'החלפה בעריכות שלי', 'workBoard.editConflictBriefRemoved': 'התיאור השמור הזה הוסר. שמרו משימה חדשה מהמלחין.', 'workBoard.force': 'כפה {title}', 'workBoard.outsideQueue': 'מחוץ לתור',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
+    'workBoard.pauseAll': 'השהיית כל הבניות בתור', 'workBoard.resumeAll': 'המשך כל הבניות בתור',
 
   },
 } as const;

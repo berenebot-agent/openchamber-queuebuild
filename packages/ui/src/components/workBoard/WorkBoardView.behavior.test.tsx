@@ -396,11 +396,27 @@ test('the build queue column runs one ordered list with its own row controls', a
       order: ['queued1', 'queued2', 'queued3'],
     },
   });
+  // What the board reads once every waiting row has been paused, so the same
+  // control flips from Pause all to Resume all.
+  const allPausedSnapshot = makeSnapshot({
+    queue: {
+      active: { sessionId: 'running', itemId: 'active1', startedAt: 1, needsReview: false, retryAvailable: false, content: null, model: null },
+      rows: [
+        { itemId: 'queued1', sessionId: 's1', directory: '/repo', content: 'First build', paused: true, position: 0, model: { providerID: 'anthropic', id: 'claude' } },
+        { itemId: 'queued2', sessionId: 's2', directory: '/repo', content: 'Second build', paused: true, position: 1, model: null },
+        { itemId: 'queued3', sessionId: 's3', directory: '/repo', content: 'Third build', paused: true, position: 2, model: null },
+      ],
+      order: ['queued1', 'queued2', 'queued3'],
+    },
+  });
+  let allPaused = false;
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
     if (url.includes('/api/build-queue')) {
       if (init?.method) requests.push({ url, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null });
+      // Once a pause-all write lands, the projection reads every waiting row paused.
+      if (init?.method === 'PUT' && url.endsWith('/pause') && JSON.parse(String(init.body)).paused === true) allPaused = true;
       // A cancelled build hands its prompt back so the board can put it in the
       // session's draft.
       if (init?.method === 'DELETE') {
@@ -412,7 +428,7 @@ test('the build queue column runs one ordered list with its own row controls', a
       }
       return Response.json({ revision: 1, issues: [], active: [], queued: [] });
     }
-    if (url.includes('/api/work-board/snapshot')) return Response.json(snapshot);
+    if (url.includes('/api/work-board/snapshot')) return Response.json(allPaused ? allPausedSnapshot : snapshot);
     if (url.includes('/api/work-board')) return Response.json({ cards: [] });
     return Response.json({});
   });
@@ -466,6 +482,23 @@ test('the build queue column runs one ordered list with its own row controls', a
     expect(requests.at(-1)?.method).toBe('PUT');
     expect(requests.at(-1)?.url.endsWith('/api/build-queue/sessions/s2/items/queued2/pause')).toBe(true);
     expect(requests.at(-1)?.body).toEqual({ paused: false });
+    // A running row carries the pause glyph, a paused row the play glyph.
+    expect(container.querySelector('button[aria-label="Pause Session s1"] use[href="#oc-pause"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Resume Session s2"] use[href="#oc-play"]')).not.toBeNull();
+    // Pause all hits the waiting builds, not the row that is already paused.
+    await click('Pause all queued builds');
+    expect(requests.slice(-2).map(request => [request.url.split('/sessions/')[1], request.body])).toEqual([
+      ['s1/items/queued1/pause', { paused: true }],
+      ['s3/items/queued3/pause', { paused: true }],
+    ]);
+    // Every waiting row now reads paused, so the one control resumes them all —
+    // including the row paused on its own.
+    await click('Resume all queued builds');
+    expect(requests.slice(-3).map(request => [request.url.split('/sessions/')[1], request.body])).toEqual([
+      ['s1/items/queued1/pause', { paused: false }],
+      ['s2/items/queued2/pause', { paused: false }],
+      ['s3/items/queued3/pause', { paused: false }],
+    ]);
     await click('Cancel Session s3');
     expect(requests.at(-1)?.method).toBe('DELETE');
     expect(requests.at(-1)?.url.endsWith('/api/build-queue/sessions/s3/items/queued3')).toBe(true);
