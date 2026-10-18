@@ -943,14 +943,18 @@ export function createMessageQueueRuntime({
    *
    * `unknown` (the directory list could not be read) is a third answer, and the
    * caller must not dispatch on it: an unreadable list is not "no live build".
-   * Sessions the user forced are excluded — a Force exists to run beside the
-   * queue, and the queue must not start waiting for it.
+   * A session the queue does not own is excluded from both routes below — a
+   * Force exists to run beside the queue, and the queue must not start waiting
+   * for it, whether the session is running a turn or only a background job.
    */
   const findLiveBuild = async (directory) => {
     const body = asRecord(await openCodeFetch('/api/session/active').catch(() => null));
     const statuses = asRecord(body && 'data' in body ? body.data : body);
     if (!statuses) return undefined;
-    const activeIds = Object.keys(statuses).filter(sessionId => asRecord(statuses[sessionId]) && !forcedBuilds.has(sessionId));
+    // A Force still being confirmed is outside the queue the same way a running
+    // one is: the reservation is what survives a restart in its place.
+    const outsideQueue = new Set([...forcedBuilds.keys(), ...forceReservations.keys()]);
+    const activeIds = Object.keys(statuses).filter(sessionId => asRecord(statuses[sessionId]) && !outsideQueue.has(sessionId));
     // A session with no running turn but a live background job resumes when the
     // job exits, so it still counts as a live build: the lane waits for it
     // rather than starting a second build that would run beside it.
@@ -964,10 +968,13 @@ export function createMessageQueueRuntime({
     }).catch(() => null))?.data);
     if (!listed) return undefined;
     const key = directoryKey(directory);
-    const live = listed.map(asRecord).find(session => session && !session.parentID
-      && (activeIds.includes(asNonEmptyString(session.id) ?? '') || shells.has(asNonEmptyString(session.id) ?? ''))
-      && directoryKey(asNonEmptyString(asRecord(session.location)?.directory) ?? '') === key
-      && isBuildAgentName(asNonEmptyString(session.agent) ?? ''));
+    const live = listed.map(asRecord).find(session => {
+      const id = asNonEmptyString(session?.id) ?? '';
+      return Boolean(session) && !session.parentID && !outsideQueue.has(id)
+        && (activeIds.includes(id) || shells.has(id))
+        && directoryKey(asNonEmptyString(asRecord(session.location)?.directory) ?? '') === key
+        && isBuildAgentName(asNonEmptyString(session.agent) ?? '');
+    });
     return live ? asNonEmptyString(live.id) : null;
   };
   const wakeProject = (directory) => {

@@ -1407,6 +1407,31 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('does not adopt a forced build that is held only by its background job', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10, buildCompletionGraceMs: 60 });
+    // The force's own turn is over, but the job it started still runs, so the
+    // outside-queue marker stays on it. It is a Build session of this project,
+    // and only its exclusion keeps the lane free for the newly queued build.
+    const forced = 'ses_queue_test_forced';
+    await runtime.enqueue(forced, DIRECTORY, item({ content: 'force me', text: 'force me', buildQueue: true }));
+    const forcedId = (await runtime.snapshot()).sessions.find(entry => entry.sessionId === forced).items[0].id;
+    await runtime.forceDispatch(DIRECTORY, forced, forcedId);
+    openCode.state.sessions = [{ id: forced, agent: 'build', location: { directory: DIRECTORY } }];
+    openCode.state.shells = [runningShell(forced, DIRECTORY, Date.now() - 5000)];
+    openCode.state.tail = [{ type: 'assistant', time: { created: Date.now() - 6000, completed: Date.now() - 5000 } }];
+
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'queued', text: 'queued', buildQueue: true }));
+    await settle(80);
+    // The force is one row outside the queue, not a second active build: the
+    // queued build starts instead of waiting behind the job.
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+    expect(runtime.buildSnapshot().forced.map(entry => entry.sessionId)).toEqual([forced]);
+    expect(promptCalls(openCode).map(call => call.body.text)).toContain('queued');
+
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('waits while the live build list is unreadable, and dispatches once it reads', async () => {
     const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 20, buildRecheckMs: 10 });
     // Something is running in this project, and the directory list that would
