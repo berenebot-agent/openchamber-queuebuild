@@ -1,4 +1,4 @@
-const DEFAULT_PWA_APP_NAME = 'OpenChamber';
+const DEFAULT_PWA_APP_NAME = 'Open Chamber Q';
 const mapPwaOrientationToManifest = (value) => {
   if (value === 'portrait') {
     return 'portrait-primary';

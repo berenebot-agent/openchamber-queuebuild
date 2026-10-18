@@ -1,6 +1,6 @@
 {
-  "name": "OpenChamber",
-  "short_name": "OpenChamber",
+  "name": "Open Chamber Q",
+  "short_name": "Open Chamber Q",
   "description": "OpenChamber desktop companion for the OpenCode AI coding agent",
   "start_url": "/",
   "display": "standalone",

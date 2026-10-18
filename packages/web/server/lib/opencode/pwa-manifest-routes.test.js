@@ -65,6 +65,8 @@ describe('PWA manifest route', () => {
       await handler({ query: {} }, res);
 
       const manifest = JSON.parse(res.body);
+      expect(manifest.name).toBe('Open Chamber Q');
+      expect(manifest.short_name).toBe('Open Chamber Q');
       expect(fetchCalls).toHaveLength(2);
       expect(manifest.shortcuts).toEqual([
         {
