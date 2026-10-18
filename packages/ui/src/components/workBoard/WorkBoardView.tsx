@@ -34,6 +34,7 @@ import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectI
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
+import { WorkBoardCardMenu } from './WorkBoardCardMenu';
 import { readMobileWorkBoardLane, rememberMobileWorkBoardLane } from './workBoardMobileLane';
 import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs, projectLabel } from './workBoardProjectState';
 import { useWorkBoardSavedTodo } from './workBoardSavedTodo';
@@ -1310,23 +1311,20 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:text-[var(--status-success-text)] hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                     <Icon name="check" className="size-3.5" />
                   </button>}
-                  {(!card.sessionId || canReturnToTodo || canRemove) ? <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" disabled={busy || loading || Boolean(error)} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" title="Card actions" aria-label={`Actions for ${title}`}>
-                      <Icon name="more" className="size-3.5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {!card.sessionId && <DropdownMenuItem onClick={() => promote(card)}>{t('workBoard.startPlan')}</DropdownMenuItem>}
-                    {canReturnToTodo && <DropdownMenuItem onClick={() => void mutate(async () => {
+                  <WorkBoardCardMenu
+                    sessionId={card.sessionId ?? null}
+                    directory={card.directory}
+                    title={title}
+                    disabled={busy || loading || Boolean(error)}
+                    onStartPlan={card.sessionId ? null : () => promote(card)}
+                    onReturnToTodo={canReturnToTodo ? () => void mutate(async () => {
                       const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
                       await saveSessionToTodo(card.sessionId!, card.directory, actualDirectory, card.text, []);
-                    })}>{t('workBoard.backTodo')}</DropdownMenuItem>}
-                    {canRemove && <DropdownMenuItem onClick={() => void mutate(async () => {
+                    }) : null}
+                    onRemove={canRemove ? () => void mutate(async () => {
                       await deleteWorkBoardCard(card.id);
-                    })}>{t('workBoard.remove')}</DropdownMenuItem>}
-                  </DropdownMenuContent>
-                </DropdownMenu> : null}
+                    }) : null}
+                  />
                 </>}
               />;
             })}

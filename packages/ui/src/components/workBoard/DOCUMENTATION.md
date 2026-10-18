@@ -9,6 +9,10 @@ not classify sessions itself.
 - `WorkBoardView.tsx` — the view: tabs, lanes, drag-and-drop, card editing,
   queue rows, the project queue toggle, and the recovery dialogs. Its `mobile`
   prop renders the same board as a one-lane phone view for the mobile shells.
+- `WorkBoardCardMenu.tsx` — a card's own three-dot menu: the board's entries
+  (start Plan, back to To-do, remove) and, for a card linked to a session, the
+  session actions a sidebar row offers. Pin is not among them: a card already
+  carries its own place on the board.
 - `workBoardMobileLane.ts` — the last lane the phone showed, remembered per
   client and connected server.
 - `workBoardWorkflow.ts` — pure helpers: lane ordering within a drop, feedback
@@ -67,6 +71,13 @@ captures no chips. A build whose session cannot be resolved still cancels.
 Placements are stamped by the server's clock, and each one carries the card
 version the client read, so a change made on another device between the read and
 the write is a 409 the board reports instead of an overwrite.
+
+The card menu's session actions are the session's own, not board writes: rename
+and AI rename title it, archive and delete run through the shared session actions
+(a card's session is resolved with the same subtree walk a flat sidebar row uses,
+and Delete goes through the global delete dialog), and Export Markdown saves the
+conversation. Archiving or deleting leaves the card where it is; its brief is the
+only copy of it.
 
 Moving a card to or from Done also syncs the linked session's Done/In-work
 state (`setSessionWorkState`). That write is separate and best-effort: the card
