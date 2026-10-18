@@ -153,11 +153,11 @@ function WorkBoardQueueTooltip({ model, content, children }: {
   if (!modelName && !content) return children;
   return <Tooltip>
     <TooltipTrigger asChild>{children}</TooltipTrigger>
-    <TooltipContent side="right" sideOffset={8} className="max-w-80 text-start">
-      <span className="block space-y-1.5">
-        {modelName && <span className="block font-medium">{t('workBoard.queuedModel', { model: modelName })}</span>}
-        {content && <span dir="auto" className="block whitespace-pre-wrap break-words">{content}</span>}
-      </span>
+    <TooltipContent side="right" sideOffset={8} className="max-w-xs text-start">
+      <div className="flex min-w-44 flex-col gap-1.5 text-start text-xs">
+        {modelName && <div className="min-w-0 truncate text-muted-foreground">{t('workBoard.queuedModel', { model: modelName })}</div>}
+        {content && <p className="min-w-0 line-clamp-4 whitespace-pre-wrap break-words">{content}</p>}
+      </div>
     </TooltipContent>
   </Tooltip>;
 }

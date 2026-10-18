@@ -451,8 +451,9 @@ test('the build queue column runs one ordered list with its own row controls', a
       await new Promise(resolve => setTimeout(resolve, 700));
     });
     const cardTooltip = document.querySelector('[data-slot="tooltip-content"]');
-    expect(cardTooltip?.textContent).toContain('Model: Claude');
-    expect(cardTooltip?.textContent).toContain('First build');
+    // The model and the message sit on their own rows, never one line.
+    const tooltipRows = [...(cardTooltip?.firstElementChild?.children ?? [])].map(row => row.textContent);
+    expect(tooltipRows).toEqual(['Model: Claude', 'First build']);
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s1 up"]')?.disabled).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Move Session s3 down"]')?.disabled).toBe(true);
     // A move sends the project's whole order with just those two swapped, so
