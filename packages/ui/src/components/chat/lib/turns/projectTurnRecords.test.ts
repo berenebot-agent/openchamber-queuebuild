@@ -119,6 +119,51 @@ describe('projectTurnRecords', () => {
         expect(projection.ungroupedMessageIds.has('c1')).toBe(false);
     });
 
+    test('keeps an injected prompt as an ungrouped row before the prompt it was sent with', () => {
+        const injected: ChatMessageEntry = {
+            info: {
+                id: 's1',
+                sessionID: 'ses_1',
+                role: 'synthetic',
+                time: { created: 1 },
+                text: 'You have memory that persists across sessions.',
+            },
+            parts: [],
+        };
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 2 });
+        const assistant = createMessageEntry({ id: 'a1', role: 'assistant', createdAt: 3 });
+
+        const projection = projectTurnRecords([injected, user, assistant]);
+
+        expect(projection.turns.map((turn) => turn.turnId)).toEqual(['u1']);
+        expect(projection.ungroupedMessageIds.has('s1')).toBe(true);
+    });
+
+    test('opens a turn at an injected prompt between two answers, so its row heads the new turn', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
+        const answer: ChatMessageEntry = {
+            info: { id: 'a1', sessionID: 'ses_1', role: 'assistant', time: { created: 2 }, agent: 'build', providerID: 'openai', modelID: 'gpt-5', finish: 'stop' },
+            parts: [],
+        };
+        const injected: ChatMessageEntry = {
+            info: {
+                id: 's1',
+                sessionID: 'ses_1',
+                role: 'system',
+                time: { created: 3 },
+                text: 'The user pinned the following project context.',
+            },
+            parts: [],
+        };
+        const reaction = createMessageEntry({ id: 'a2', role: 'assistant', createdAt: 4 });
+
+        const projection = projectTurnRecords([user, answer, injected, reaction]);
+
+        expect(projection.turns.map((turn) => turn.turnId)).toEqual(['u1', 's1']);
+        expect(projection.turns[1]?.assistantMessageIds).toEqual(['a2']);
+        expect(projection.ungroupedMessageIds.has('s1')).toBe(false);
+    });
+
     test('keeps non-assistant orphan messages available as ungrouped entries', () => {
         const system = createMessageEntry({ id: 's1', role: 'system', createdAt: 1 });
 

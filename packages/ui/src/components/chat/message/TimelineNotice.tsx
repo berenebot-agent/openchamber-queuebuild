@@ -8,7 +8,8 @@
  * going through `ChatMessage`. So does a background subagent run, which v2
  * reports as a synthetic message (see `@/lib/opencode/subagent-run`), and the
  * result of a session the agent dispatched with `returnResult` (see
- * `@/lib/opencode/dispatched-session`).
+ * `@/lib/opencode/dispatched-session`). So does a prompt OpenChamber injected
+ * for the model, which has nowhere else to show (see `InjectedEntryNotice`).
  */
 
 import React from 'react';
@@ -29,6 +30,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSession } from '@/sync/sync-context';
 import { useI18n } from '@/lib/i18n';
 import type { Message, ToolPart as ToolPartType } from '@/lib/opencode/model';
+import { isInjectedContextEntry } from '@/components/chat/lib/timelineRoles';
 import { cn } from '@/lib/utils';
 
 /** The shared frame every notice row sits in, so they line up with messages. */
@@ -136,6 +138,9 @@ const ShellNotice: React.FC<{ message: Extract<Message, { role: 'shell' }> }> = 
 };
 
 type SyntheticMessage = Extract<Message, { role: 'synthetic' }>;
+
+/** A prompt OpenChamber injected: our plumbing, or an instruction update. */
+type InjectedEntryMessage = Extract<Message, { role: 'synthetic' | 'system' }>;
 
 /**
  * A background subagent run is shown as the subagent tool call it stands in
@@ -303,11 +308,43 @@ const DispatchedSessionNotice: React.FC<{ message: SyntheticMessage; result: Dis
     );
 };
 
+/**
+ * A prompt OpenChamber injected, which the user did not write and the
+ * transcript would otherwise hide: a command's hidden instructions, a goal
+ * briefing, a response-style rule, a queue build's brief, a skill mention (on a
+ * synthetic message), or the session's instructions (on a system message).
+ *
+ * One collapsed row, so a session that carries a page of injected text still
+ * reads as a conversation. It opens to the text as Markdown.
+ */
+const InjectedEntryNotice: React.FC<{ message: InjectedEntryMessage }> = ({ message }) => {
+    const { t } = useI18n();
+    const isInstruction = message.role === 'system';
+
+    return (
+        <NoticeRow>
+            <ReasoningTimelineBlock
+                text={message.text}
+                blockId={message.id}
+                presentation={{
+                    icon: isInstruction ? 'file-text' : 'sparkling',
+                    title: isInstruction ? t('chat.systemPrompt.title') : t('chat.injectedContext.title'),
+                    expandLabel: isInstruction ? t('chat.systemPrompt.show') : t('chat.injectedContext.show'),
+                    collapseLabel: isInstruction ? t('chat.systemPrompt.hide') : t('chat.injectedContext.hide'),
+                    markdownVariant: 'assistant',
+                    maxHeightClassName: 'max-h-[60vh]',
+                }}
+            />
+        </NoticeRow>
+    );
+};
+
 const SubagentNotice: React.FC<{ message: SyntheticMessage }> = ({ message }) => {
     const run = React.useMemo(() => readSubagentRun(message), [message]);
     const dispatched = React.useMemo(() => (run ? undefined : readDispatchedSessionResult(message)), [message, run]);
     if (run) return <SubagentRunNotice message={message} run={run} />;
-    return dispatched ? <DispatchedSessionNotice message={message} result={dispatched} /> : null;
+    if (dispatched) return <DispatchedSessionNotice message={message} result={dispatched} />;
+    return null;
 };
 
 /**
@@ -317,7 +354,11 @@ const SubagentNotice: React.FC<{ message: SyntheticMessage }> = ({ message }) =>
 export const TimelineNotice: React.FC<{ message: Message }> = ({ message }) => {
     switch (message.role) {
         case 'synthetic':
-            return <SubagentNotice message={message} />;
+            return isInjectedContextEntry(message)
+                ? <InjectedEntryNotice message={message} />
+                : <SubagentNotice message={message} />;
+        case 'system':
+            return <InjectedEntryNotice message={message} />;
         case 'compaction':
             return <CompactionNotice message={message} />;
         case 'shell':

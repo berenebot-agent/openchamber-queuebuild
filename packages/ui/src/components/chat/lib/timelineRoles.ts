@@ -6,15 +6,20 @@ import { readSubagentRun } from '@/lib/opencode/subagent-run';
 const NOTICE_ROLES = new Set<Message['role']>(['compaction', 'shell']);
 
 /**
- * Roles the timeline never shows.
+ * Roles the timeline renders nothing for, except the entries named below.
  *
  * `synthetic` is prompt plumbing: the items the user attached in the composer
  * are re-attached to the user message they belong to (see
  * `attachSyntheticContext`), and everything else a plugin injects is machinery
- * the user did not write. The exception is a background report (see
- * `isBackgroundReportEntry`). `system`, `skill` and `location-switched` carry no
- * decision the user has to see. `agent-switched` and `model-switched` say what
- * the composer already shows.
+ * the user did not write. Two kinds stay visible: a background report (see
+ * `isBackgroundReportEntry`) and a prompt OpenChamber injected, which shows as
+ * its own collapsed row (see `isInjectedTimelineEntry`). `skill` and
+ * `location-switched` carry no decision the user has to see. `agent-switched`
+ * and `model-switched` say what the composer already shows.
+ *
+ * A `system` message is an instruction update OpenCode reports and shows the
+ * same way. It stays in this set so turn grouping and windowing read it as the
+ * notice it has always been, and only its rendering changes.
  */
 const SKIPPED_ROLES = new Set<Message['role']>([
     'synthetic',
@@ -51,6 +56,28 @@ export const isBackgroundReportEntry = (message: Message): boolean =>
  */
 export const isTurnOpeningNotice = (message: Message): boolean =>
     message.role === 'compaction' || isBackgroundReportEntry(message);
+
+/**
+ * A prompt OpenChamber injected for the model, which the user did not write
+ * and cannot see anywhere else: a command's hidden instructions, a goal
+ * briefing, a response-style rule, a queue build's brief, a skill mention.
+ *
+ * Injected plumbing is the only synthetic message with no metadata. What the
+ * user attached carries its payload in the metadata and renders as a chip on
+ * the prompt, and a background report carries its own.
+ */
+export const isInjectedContextEntry = (message: Message): boolean =>
+    message.role === 'synthetic'
+    && message.metadata === undefined
+    && message.text.trim().length > 0;
+
+/** An instruction update OpenCode reported for the session, which OpenChamber wrote. */
+export const isInjectedInstructionEntry = (message: Message): boolean =>
+    message.role === 'system' && message.text.trim().length > 0;
+
+/** Whether the timeline renders this injected entry as its own collapsed row. */
+export const isInjectedTimelineEntry = (message: Message): boolean =>
+    isInjectedContextEntry(message) || isInjectedInstructionEntry(message);
 
 /** Whether the timeline renders nothing for this message. */
 export const isSkippedTimelineMessage = (message: Message): boolean =>

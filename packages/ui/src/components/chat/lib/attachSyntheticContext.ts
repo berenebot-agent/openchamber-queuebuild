@@ -13,16 +13,26 @@
  * was minted before the prompt's (see the loop). The ones carrying context metadata come
  * back as text parts on the user message, which is exactly where v1 kept them,
  * so they render as context chips inside the user bubble. A background report
- * stays as its own entry. A notice that splits a turn between two answers
- * stays too (`createNoticeTurnSplitter`): turn projection opens the later
- * answer's turn at it, and it renders as nothing. Everything else the timeline
- * never shows is dropped here instead of rendering as an empty row.
+ * stays as its own entry, and so does a prompt OpenChamber injected
+ * (`isInjectedTimelineEntry`): it has no metadata and nowhere else to show, so
+ * the timeline renders it as its own collapsed row. A notice that splits a turn
+ * between two answers stays too (`createNoticeTurnSplitter`): turn projection
+ * opens the later answer's turn at it, and it renders as nothing. Everything
+ * else the timeline never shows is dropped here instead of rendering as an
+ * empty row.
  */
 
 import type { Part, TextPart } from '@/lib/opencode/model';
 import { readContextPart } from '@/lib/messages/contextParts';
 
-import { createNoticeTurnSplitter, isSkippedTimelineRole, isBackgroundReportEntry } from './timelineRoles';
+import {
+    createNoticeTurnSplitter,
+    isInjectedContextEntry,
+    isInjectedInstructionEntry,
+    isInjectedTimelineEntry,
+    isSkippedTimelineRole,
+    isBackgroundReportEntry,
+} from './timelineRoles';
 import type { ChatMessageEntry } from './turns/types';
 
 const contextPartFromSyntheticMessage = (message: ChatMessageEntry): TextPart => {
@@ -108,10 +118,19 @@ export const attachSyntheticContext = (messages: ChatMessageEntry[]): ChatMessag
                     pendingContext.push(part);
                 }
             }
+            // Injected plumbing renders where it was sent instead of being dropped.
+            if (isInjectedContextEntry(message.info)) {
+                result.push(message);
+            }
             continue;
         }
 
-        if (isSkippedTimelineRole(role)) continue;
+        if (isSkippedTimelineRole(role)) {
+            if (isInjectedInstructionEntry(message.info)) {
+                result.push(message);
+            }
+            continue;
+        }
 
         if (role === 'user') {
             const contextParts = pendingContext;
@@ -125,7 +144,9 @@ export const attachSyntheticContext = (messages: ChatMessageEntry[]): ChatMessag
         // it was sent with.
         pendingContext = [];
         openUser = null;
-        if (noticeIndex >= 0) result.push(messages[noticeIndex]);
+        // An injected entry was kept when it was walked; only a notice the
+        // timeline renders nothing for is re-added here.
+        if (noticeIndex >= 0 && !isInjectedTimelineEntry(messages[noticeIndex].info)) result.push(messages[noticeIndex]);
         result.push(message);
     }
 

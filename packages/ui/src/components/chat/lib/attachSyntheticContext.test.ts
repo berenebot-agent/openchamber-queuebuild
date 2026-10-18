@@ -67,6 +67,15 @@ const pluginMessage = (id: string): ChatMessageEntry => entry({
     text: 'Welcome back, here is where you left off.',
 });
 
+const instructionMessage = (id: string, text = 'The user pinned the following project context.'): ChatMessageEntry => entry({
+    id,
+    sessionID: SESSION,
+    role: 'system',
+    time: { created: 1 },
+    text,
+    description: 'Instructions updated: openchamber.pinned',
+});
+
 const subagentReport = (id: string): ChatMessageEntry => entry({
     id,
     sessionID: SESSION,
@@ -91,7 +100,7 @@ describe('attachSyntheticContext', () => {
         expect(user.parts).toHaveLength(1);
     });
 
-    test('drops synthetic prompt plumbing and the roles the timeline never shows', () => {
+    test('keeps an injected prompt as its own row and drops the roles the timeline never shows', () => {
         const result = attachSyntheticContext([
             roleMessage('m1', 'model-switched'),
             roleMessage('sw1', 'agent-switched'),
@@ -100,8 +109,25 @@ describe('attachSyntheticContext', () => {
             roleMessage('a1', 'assistant'),
         ]);
 
-        expect(result.map((message) => message.info.id)).toEqual(['u1', 'a1']);
-        expect(result[0]?.parts).toHaveLength(1);
+        expect(result.map((message) => message.info.id)).toEqual(['s1', 'u1', 'a1']);
+        expect(result[1]?.parts).toHaveLength(1);
+    });
+
+    test('keeps an instruction update as its own row', () => {
+        const result = attachSyntheticContext([
+            userMessage('u1', 'hello'),
+            instructionMessage('sys1'),
+            roleMessage('a1', 'assistant'),
+        ]);
+
+        expect(result.map((message) => message.info.id)).toEqual(['u1', 'sys1', 'a1']);
+    });
+
+    test('drops an injected prompt with no text', () => {
+        const empty = entry({ id: 's0', sessionID: SESSION, role: 'synthetic', time: { created: 1 }, text: '   ' });
+        const result = attachSyntheticContext([empty, userMessage('u1', 'hello')]);
+
+        expect(result.map((message) => message.info.id)).toEqual(['u1']);
     });
 
     test('keeps notice roles and does not carry context across them', () => {
@@ -176,6 +202,8 @@ describe('attachSyntheticContext', () => {
             roleMessage('a2', 'assistant'),
         ]);
 
+        // The injected prompt is kept once, where it was sent; the later answer
+        // opens its turn at it (see `projectTurnRecords`).
         expect(result.map((message) => message.info.id)).toEqual(['u1', 'a1', 's1', 'a2']);
     });
 

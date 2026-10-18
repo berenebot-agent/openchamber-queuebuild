@@ -4,7 +4,7 @@ import { LegendList, type LegendListRef } from '@legendapp/list/react';
 import ChatMessage from './ChatMessage';
 import { TimelineNotice } from './message/TimelineNotice';
 import { useRunningSubagentRuns, withRunningSubagentRuns } from './lib/runningSubagentRuns';
-import { isSkippedTimelineMessage, isBackgroundReportEntry, isTimelineNoticeRole } from './lib/timelineRoles';
+import { isSkippedTimelineMessage, isBackgroundReportEntry, isInjectedTimelineEntry, isTimelineNoticeRole } from './lib/timelineRoles';
 import { earlierAssistantText } from './lib/turns/earlierAssistantText';
 import { areOptionalRenderRelevantMessagesEqual, areRelevantTurnGroupingContextsEqual, areRenderRelevantMessagesEqual } from './message/renderCompare';
 import TurnItem from './components/TurnItem';
@@ -206,8 +206,9 @@ const MessageRow = React.memo<MessageRowProps>(({
     // Roles that are not a conversation turn render as their own timeline row
     // (or as nothing); only user and assistant go through ChatMessage.
     const role = message.info.role;
-    if (isSkippedTimelineMessage(message.info)) return null;
-    if (isTimelineNoticeRole(role) || isBackgroundReportEntry(message.info)) return <TimelineNotice message={message.info} />;
+    const injected = isInjectedTimelineEntry(message.info);
+    if (isSkippedTimelineMessage(message.info) && !injected) return null;
+    if (isTimelineNoticeRole(role) || isBackgroundReportEntry(message.info) || injected) return <TimelineNotice message={message.info} />;
 
     return (
         <ChatMessage
