@@ -54,7 +54,7 @@ describe('work board persistence', () => {
     } finally { await remove(dataDir); }
   });
 
-  it('round-trips completion for legacy To-do cards and inherited sessions without losing content', async () => {
+  it('round-trips completion for legacy To-do cards and stores an inherited session brief-less', async () => {
     const { dataDir, store } = await setup();
     try {
       const original = await store.create(input());
@@ -63,14 +63,15 @@ describe('work board persistence', () => {
       // corrupted card would then fail this file's own persisted read-back.
       expect(completed).toMatchObject({ id: original.id, stage: 'done', text: original.text });
       expect(completed.completedAt).toEqual(expect.any(Number));
+      // The inherited card's text is the session's title, a label, not a brief.
       const inherited = await store.complete({ id: 'session:session1', sessionId: 'session1', directory: '/project', text: 'Inherited plan', updatedAt: 123 });
-      expect(inherited).toMatchObject({ stage: 'done', sessionId: 'session1', text: 'Inherited plan' });
+      expect(inherited).toMatchObject({ stage: 'done', sessionId: 'session1', text: '', briefRemoved: true });
       expect(await createWorkBoardStore({ dataDir }).list('/project')).toEqual([completed, inherited]);
       const completedAgain = await store.complete(completed);
       expect(completedAgain.completedAt).toBeGreaterThan(completed.completedAt);
       await expect(store.complete({ id: 'session:session1', sessionId: 'session1', directory: '/project', text: 'Duplicate', updatedAt: 123 })).rejects.toMatchObject({ status: 409 });
       const parked = await store.parkSession({ directory: '/project', sessionId: 'session1', text: '', attachments: [] });
-      expect(parked).toMatchObject({ id: inherited.id, stage: 'todo', text: 'Inherited plan' });
+      expect(parked).toMatchObject({ id: inherited.id, stage: 'todo', text: '', briefRemoved: true });
       expect(parked.completedAt).toBeUndefined();
     } finally { await remove(dataDir); }
   });
@@ -171,6 +172,20 @@ describe('work board persistence', () => {
       const retried = await store.placement(card.id, { lane: 'todo', expectedUpdatedAt: changed.updatedAt });
       expect(retried.stage).toBe('todo');
       expect(retried.placementAt).toBe(2000);
+    } finally { await remove(dataDir); }
+  });
+
+  it('creates an inherited card brief-less on its first placement', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      // An inherited card's text is the session's title, a label the projection
+      // adds; the placement that creates its record must not store it as a brief.
+      const placed = await store.placement('session:session1', { lane: 'todo', directory: '/project', sessionId: 'session1', text: 'Session one' });
+      expect(placed).toMatchObject({ directory: '/project', sessionId: 'session1', stage: 'todo', text: '', briefRemoved: true });
+      // The stored card now owns that session, so the derived id is no duplicate.
+      await expect(store.placement('session:session1', { lane: 'done', directory: '/project', sessionId: 'session1', text: 'Again' }))
+        .rejects.toMatchObject({ status: 404 });
+      expect(await store.list('/project')).toEqual([placed]);
     } finally { await remove(dataDir); }
   });
 

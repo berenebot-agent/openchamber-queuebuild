@@ -13,6 +13,8 @@ type Operation = {
   card: WorkBoardCard;
   runtimeKey: string;
   scope: string;
+  /** The new-session draft it was handed to, null for a session's composer. */
+  newSessionDraftId: number | null;
   previous: { text: string; files: AttachedFile[]; todoMode: boolean };
   phase: 'draft' | 'saving' | 'sending' | 'sent';
 };
@@ -20,6 +22,8 @@ type Operation = {
 type Options = {
   scope: string;
   sessionId: string | null;
+  /** The open new-session draft this composer is on, if it is on one. */
+  newSessionDraftId?: number | null;
   /** The main chat column's composer; a pinned column never takes a board's card. */
   isPrimary: boolean;
   available: boolean;
@@ -68,6 +72,7 @@ export function useSavedTodoComposer(options: Options) {
         if (!nextFiles.some(existing => existing.id === file.id)) nextFiles.push(attachSavedFile(file));
       }
       change({ card, scope: current.scope, runtimeKey: getRuntimeKey(), phase: 'draft',
+        newSessionDraftId: current.newSessionDraftId ?? null,
         previous: { text, files, todoMode: current.todoMode } });
       current.setText([text, card.text].filter(value => value.length > 0).join('\n\n'));
       current.setFiles(nextFiles);
@@ -112,6 +117,16 @@ export function useSavedTodoComposer(options: Options) {
     change(null);
     current.focus();
   }, [change, owns]);
+
+  // A brief handed to a new-session draft belongs to that draft. Replacing the
+  // draft — New Plan, New To-do — withdraws the brief with it, the same way
+  // Cancel does, instead of leaving the edit on whatever the user opens next.
+  React.useEffect(() => {
+    const current = operationRef.current;
+    if (!current || !owns(current) || current.newSessionDraftId === (options.newSessionDraftId ?? null)) return;
+    if (current.phase === 'draft') cancel();
+    else change(null);
+  }, [options.newSessionDraftId, cancel, change, owns]);
 
   React.useEffect(() => {
     if (mutation?.card.briefRemoved && mutation.card.id === operation?.card.id

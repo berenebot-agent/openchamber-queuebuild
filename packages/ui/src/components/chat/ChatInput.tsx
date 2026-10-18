@@ -1368,6 +1368,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const savedTodo = useSavedTodoComposer({
         scope: chatDraftIdentity ? getChatDraftIdentityKey(chatDraftIdentity) : '',
         sessionId: currentSessionId,
+        newSessionDraftId: newSessionDraftOpen ? newSessionDraft.draftId : null,
         isPrimary: !columnPinned,
         available: todoAvailable,
         todoMode,

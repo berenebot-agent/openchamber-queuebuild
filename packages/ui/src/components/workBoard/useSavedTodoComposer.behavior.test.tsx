@@ -144,3 +144,54 @@ test('a card with no session is taken by the new-session draft composer', async 
     }
   }
 });
+
+test('replacing the new-session draft withdraws the brief it was handed', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = domGlobals(dom);
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  const { createRoot } = await import('react-dom/client');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const { useSavedTodoComposer } = await import('./useSavedTodoComposer');
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  let composer: ReturnType<typeof useSavedTodoComposer> | null = null;
+  let replaceDraft = () => {};
+  const Probe = () => {
+    const [text, setText] = React.useState('Keep this draft');
+    const [files, setFiles] = React.useState<AttachedFile[]>([]);
+    const [todoMode, setTodoMode] = React.useState(false);
+    // The open new-session draft's id: New Plan / New To-do opens a new one.
+    const [draftId, setDraftId] = React.useState(1);
+    replaceDraft = () => setDraftId(2);
+    const options = React.useMemo(() => ({
+      scope: 'draft', sessionId: null, newSessionDraftId: draftId, isPrimary: true, available: true,
+      todoMode, setTodoMode,
+      readText: () => text, setText, files, setFiles, focus: () => {},
+    }), [text, files, todoMode, draftId]);
+    composer = useSavedTodoComposer(options);
+    return <div>{`${todoMode ? 'todo' : 'send'}:${text}:${files.length}`}</div>;
+  };
+  try {
+    await act(async () => { root.render(<I18nProvider><Probe /></I18nProvider>); });
+    await act(async () => {
+      useWorkBoardSavedTodo.setState({ pendingLoad: { runtimeKey: getRuntimeKey(), card: card({ sessionId: undefined }) } });
+    });
+    expect(container.textContent).toBe('todo:Keep this draft\n\nSaved brief:0');
+    expect(composer!.active?.card.id).toBe('card1');
+    // The next draft the user opens is not the one that took the brief, so the
+    // brief goes back and the draft they had returns.
+    await act(async () => { replaceDraft(); });
+    expect(container.textContent).toBe('send:Keep this draft:0');
+    expect(composer!.active).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    useWorkBoardSavedTodo.setState({ pendingLoad: null });
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});

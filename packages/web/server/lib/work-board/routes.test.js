@@ -58,11 +58,12 @@ describe('work board HTTP routes', () => {
       const store = createWorkBoardStore({ dataDir });
       const app = express();
       registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
-      // A card the board derived from a session has no stored record yet.
+      // A card the board derived from a session has no stored record yet. Its
+      // text is only the session's title, so the card it creates has no brief.
       const created = await request(app).post('/api/work-board/session:session1/placement')
         .send({ lane: 'done', before: null, directory: '/repo', sessionId: 'session1', text: 'Inherited plan' })
         .expect(200);
-      expect(created.body.card).toMatchObject({ directory: '/repo', sessionId: 'session1', text: 'Inherited plan', stage: 'done' });
+      expect(created.body.card).toMatchObject({ directory: '/repo', sessionId: 'session1', text: '', briefRemoved: true, stage: 'done' });
       // The stored card now owns that session, so a second inherited id for the
       // same session is refused rather than duplicated.
       await request(app).post('/api/work-board/session:session1/placement')

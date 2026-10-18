@@ -139,7 +139,11 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       if (!current && (target.id !== `session:${target.sessionId}` || !target.sessionId
         || cards.some(card => card.directory === target.directory && card.sessionId === target.sessionId))) throw conflict();
       const at = Math.max(now(), (current?.updatedAt ?? 0) + 1);
-      const card = cardSchema.parse({ ...(current ?? { id: id(), directory: target.directory, text: target.text, attachments: [], sessionId: target.sessionId, createdAt: at }),
+      // Like its first placement, the completion that creates an inherited
+      // card's record stores it with no brief: its text is the session's title.
+      const created = { id: id(), directory: target.directory, text: '', attachments: [],
+        briefRemoved: true, sessionId: target.sessionId, createdAt: at };
+      const card = cardSchema.parse({ ...(current ?? created),
         stage: 'done', completedAt: at, updatedAt: at });
       await write(current ? cards.map(entry => entry.id === current.id ? card : entry) : [...cards, card]);
       return card;
@@ -211,8 +215,12 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
         && !cards.some(card => card.directory === target.directory && card.sessionId === target.sessionId);
       if (index < 0 && !inherited) throw Object.assign(new Error('Work board card not found'), { status: 404 });
       const at = now();
-      const created = { id: id(), directory: target.directory, text: target.text ?? '', attachments: [],
-        sessionId: target.sessionId, stage: 'todo', createdAt: at, updatedAt: at };
+      // An inherited card carries the session's title as its text, a label the
+      // projection adds. Its first placement stores the linked card with no
+      // brief, so the board keeps showing that title and never opens it as a
+      // saved to-do.
+      const created = { id: id(), directory: target.directory, text: '', attachments: [],
+        briefRemoved: true, sessionId: target.sessionId, stage: 'todo', createdAt: at, updatedAt: at };
       const current = index < 0 ? created : cards[index];
       // Another device changed the card since this one read the board. The
       // check is inside the serialized write, so it cannot race a write that

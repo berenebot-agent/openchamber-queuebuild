@@ -38,7 +38,10 @@ not classify sessions itself.
   the line and its base flares into the board.
 - `useSavedTodoComposer.ts`, `workBoardSavedTodo.ts` — the saved-brief surfaces
   shared with the chat composer: the card the board opened is handed to its
-  composer as the draft, and the save returns the user to the board.
+  composer as the draft, and the save returns the user to the board. A brief
+  handed to a new-session draft belongs to that draft: replacing it (New Plan,
+  New To-do) gives the brief back the way Cancel does, so the next draft never
+  inherits the card as its own.
 - `lib/workBoardApi.ts` — the HTTP contract: stored cards, placements, viewed
   acknowledgement, the projection snapshot, and the project queue settings.
 
