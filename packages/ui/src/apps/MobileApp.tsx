@@ -6,6 +6,7 @@ import { OpenCodeUpdateToast } from '@/components/update/OpenCodeUpdateToast';
 import { MobileAppUpdateToast } from '@/components/update/MobileAppUpdateToast';
 import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/icon/Icon';
 import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
 import { AppStartupOverlay } from '@/components/ui/AppStartupOverlay';
 import { ChatView } from '@/components/views/ChatView';
@@ -157,6 +158,16 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     if (runOverviewOpen) setSessionsSheetOpen(false);
   }, [runOverviewOpen]);
   const [activeSurface, setActiveSurface] = React.useState<MobileSurface | null>(null);
+  // The work board tells the shell how many of its open boards wait on the
+  // user; the title badge shows that number, and tapping it opens the picker
+  // the board draws in its own header.
+  const [boardAttentionCount, setBoardAttentionCount] = React.useState(0);
+  const [boardPickerOpen, setBoardPickerOpen] = React.useState(false);
+  // The picker's open state belongs to the board surface; leaving it drops the
+  // state so the next visit starts closed.
+  React.useEffect(() => {
+    if (activeSurface !== 'work-board') setBoardPickerOpen(false);
+  }, [activeSurface]);
   // Phone right drawer with the workspace tabs; the tab persists across
   // open/close so the right-edge swipe reopens where the user left off.
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
@@ -455,6 +466,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const leaveWorkBoard = React.useCallback(() => {
     closeSurface();
     setSessionsSheetOpen(false);
+    setBoardPickerOpen(false);
   }, [closeSurface]);
 
   // An opened archived session replaces the page: back to the chat, the same
@@ -763,10 +775,31 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 
         {activeSurface === 'work-board' ? (
           <MobileFullscreenSurface open variant={surfaceVariant} dialogAlign="app" onClose={closeSurface}
-            ariaLabel={t('workBoard.title')} title={t('workBoard.title')}>
+            ariaLabel={t('workBoard.title')}
+            title={<span className="flex min-w-0 items-center gap-1.5 typography-ui-label text-foreground">
+              <span className="truncate">{t('workBoard.title')}</span>
+              {boardAttentionCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setBoardPickerOpen(true)}
+                  aria-label={t('workBoard.blocked')}
+                  title={t('workBoard.blocked')}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--status-warning)_18%,transparent)] px-1.5 py-0.5 text-[11px] font-semibold leading-none tabular-nums text-[var(--status-warning-text)]"
+                >
+                  <Icon name="alert" className="size-3" />
+                  {boardAttentionCount}
+                </button>
+              ) : null}
+            </span>}>
             <ErrorBoundary>
               <React.Suspense fallback={<div role="status" className="p-4 text-sm text-muted-foreground">{t('common.loading')}</div>}>
-                <MobileWorkBoard mobile onLeave={leaveWorkBoard} />
+                <MobileWorkBoard
+                  mobile
+                  onLeave={leaveWorkBoard}
+                  onAttentionCountChange={setBoardAttentionCount}
+                  pickerOpen={boardPickerOpen}
+                  onPickerOpenChange={setBoardPickerOpen}
+                />
               </React.Suspense>
             </ErrorBoundary>
           </MobileFullscreenSurface>

@@ -345,6 +345,26 @@ export function workBoardTabAsks(
   return asks;
 }
 
+/**
+ * How many of the given boards carry a mark the user must act on. A plain
+ * running build is not one: the spinner says work is happening, not that
+ * anything waits on the user. A board counts when its tab would show a queue
+ * error, a paused queue (review or Git hold), or a pending ask.
+ */
+export function workBoardsNeedingAttention(
+  projectIds: readonly string[],
+  badges: ReadonlyMap<string, WorkBoardBuildBadge>,
+  asks: ReadonlyMap<string, WorkBoardTabAsks>,
+): number {
+  let count = 0;
+  for (const projectId of projectIds) {
+    const badge = badges.get(projectId);
+    const ask = asks.get(projectId);
+    if (badge?.error || badge?.paused || ask?.question || ask?.permission) count += 1;
+  }
+  return count;
+}
+
 type Selection = { providerID: string; modelID: string; variant?: string };
 type PromotionDependencies = {
   create: (directory: string, title: string, selection: Selection) => Promise<{ id: string }>;

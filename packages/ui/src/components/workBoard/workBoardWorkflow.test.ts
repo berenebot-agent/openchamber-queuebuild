@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardMoved, workBoardOrderNeighbour, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardTabAsks, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording, workBoardCardLane, workBoardSnapshotOrder, workBoardSnapshotRows, workBoardQueueFromSnapshot } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardMoved, workBoardOrderNeighbour, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording, workBoardCardLane, workBoardSnapshotOrder, workBoardSnapshotRows, workBoardQueueFromSnapshot } from './workBoardWorkflow';
+import type { WorkBoardBuildBadge, WorkBoardTabAsks } from './workBoardWorkflow';
 import type { WorkBoardCard, WorkBoardSnapshot, WorkBoardActivityMessage } from '@/lib/workBoardApi';
 
 const card: WorkBoardCard = { id: 'card1', directory: '/repo', text: 'Build a board', attachments: [], createdAt: 1, updatedAt: 1, stage: 'todo' };
@@ -182,6 +183,30 @@ describe('project tab asks', () => {
     // A worktree or a project without a tab does not inflate another's tab.
     expect(workBoardTabAsks(projects, [{ directory: '/repo/worktree', question: true, permission: false }]).size).toBe(0);
     expect(workBoardTabAsks([], [{ directory: '/repo', question: true, permission: false }]).size).toBe(0);
+  });
+});
+
+describe('boards needing attention', () => {
+  const noAsks = new Map<string, WorkBoardTabAsks>();
+  const noBadges = new Map<string, WorkBoardBuildBadge>();
+  test('counts a board waiting on the user, and never a plain running build', () => {
+    const badges = new Map<string, WorkBoardBuildBadge>([
+      ['running', { count: 3, error: false }],
+      ['paused', { count: 1, error: false, paused: 'review' }],
+      ['broken', { count: 0, error: true }],
+    ]);
+    expect(workBoardsNeedingAttention(['running', 'paused', 'broken'], badges, noAsks)).toBe(2);
+    // A Git hold waits on the user too, on the same terms as a review.
+    expect(workBoardsNeedingAttention(['git'], new Map([['git', { count: 2, error: false, paused: 'git' }]]), noAsks)).toBe(1);
+  });
+  test('counts a pending ask, and never a board with nothing waiting', () => {
+    const asks = new Map<string, WorkBoardTabAsks>([
+      ['question', { question: true, permission: false }],
+      ['permission', { question: false, permission: true }],
+    ]);
+    expect(workBoardsNeedingAttention(['question', 'permission', 'calm'], noBadges, asks)).toBe(2);
+    // A board with neither a bad queue nor an ask is not waiting on anyone.
+    expect(workBoardsNeedingAttention(['calm'], noBadges, noAsks)).toBe(0);
   });
 });
 

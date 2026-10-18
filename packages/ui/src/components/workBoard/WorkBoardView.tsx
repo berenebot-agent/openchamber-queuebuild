@@ -31,14 +31,16 @@ import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
 import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, updateQueueSettings, type WorkBoardCard, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
-import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardTabAsks, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
+import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { WorkBoardCardMenu } from './WorkBoardCardMenu';
 import { readMobileWorkBoardLane, rememberMobileWorkBoardLane } from './workBoardMobileLane';
-import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs, projectLabel } from './workBoardProjectState';
+import { readRecentWorkBoardProjects, rememberWorkBoardProjectAccess } from './workBoardRecentProjects';
+import { WorkBoardMobileProjectPicker } from './WorkBoardMobileProjectPicker';
+import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs } from './workBoardProjectState';
 import { requestTodoLoad, useWorkBoardSavedTodo } from './workBoardSavedTodo';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queue', 'build', 'done'];
@@ -476,7 +478,15 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
   </article>;
 }
 
-export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; onLeave?: () => void } = {}) {
+export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange, pickerOpen, onPickerOpenChange }: {
+  mobile?: boolean;
+  onLeave?: () => void;
+  /** The shell's title badge shows this; only the phone reads it. */
+  onAttentionCountChange?: (count: number) => void;
+  /** The shell's title badge opens the same project picker the header draws. */
+  pickerOpen?: boolean;
+  onPickerOpenChange?: (open: boolean) => void;
+} = {}) {
   const { t } = useI18n();
   // The phone and tablet shells show one lane at a time. The remembered lane
   // belongs to this client and the connected server, so each server reopens on
@@ -489,6 +499,12 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     setMobileLane(lane);
     rememberMobileWorkBoardLane(getRuntimeKey(), lane);
   };
+  // The picker lists the boards this device opened first, most recent at the
+  // top. Read per connected server, like the remembered lane.
+  const [recentProjectIds, setRecentProjectIds] = React.useState<string[]>(() => readRecentWorkBoardProjects(getRuntimeKey()));
+  React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
+    setRecentProjectIds(readRecentWorkBoardProjects(getRuntimeKey()));
+  }), []);
   const projects = useProjectsStore(state => state.projects);
   const activeProjectId = useProjectsStore(state => state.activeProjectId);
   const hasServerSnapshot = useProjectsStore(state => state.hasServerSnapshot);
@@ -538,6 +554,13 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
       activeProjectId: projectId,
     });
   };
+  // Opening or switching a board on a phone is what makes the picker's list
+  // recent-first; the read back keeps the list in step with what was just stored.
+  React.useEffect(() => {
+    if (!mobile || !projectId) return;
+    rememberWorkBoardProjectAccess(runtimeKey, projectId);
+    setRecentProjectIds(readRecentWorkBoardProjects(runtimeKey));
+  }, [mobile, projectId, runtimeKey]);
   const directory = projects.find(project => project.id === projectId)?.path ?? '';
   const sessionDays = useUIStore(state => state.workBoardSessionDays);
   // Remember which board the user is on so any chat can return to it, and so a
@@ -723,6 +746,13 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     }))),
     [visibleProjectTabs, blockingBySession],
   );
+  // How many open boards are waiting on the user — the number the phone's
+  // title badge shows and the count it opens the picker with.
+  const attentionCount = React.useMemo(
+    () => workBoardsNeedingAttention(visibleProjectTabs.map(project => project.id), buildBadges, tabAsks),
+    [visibleProjectTabs, buildBadges, tabAsks],
+  );
+  React.useEffect(() => onAttentionCountChange?.(attentionCount), [attentionCount, onAttentionCountChange]);
   const activeBuild = queue?.active ?? undefined;
   const snapshotTitles = snapshot?.sessionTitles;
   const sessionTitleFor = React.useCallback(
@@ -1101,14 +1131,16 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
       {!mobile && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border" />}
       {!mobile && <h1 className="pb-3 text-lg font-semibold">{t('workBoard.title')}</h1>}
       {mobile ? <>
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-          {t('workBoard.projectTabs')}
-          <select className="min-h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground"
-            value={projectId} onChange={event => addProjectTab(event.target.value)}
-            aria-label={t('workBoard.projectTabs')}>
-            {projects.map(project => <option key={project.id} value={project.id}>{projectLabel(project)}</option>)}
-          </select>
-        </label>
+        <WorkBoardMobileProjectPicker
+          projects={projects}
+          activeProjectId={projectId}
+          recentProjectIds={recentProjectIds}
+          badges={buildBadges}
+          asks={tabAsks}
+          open={pickerOpen}
+          onOpenChange={onPickerOpenChange}
+          onSelect={addProjectTab}
+        />
         {/* The queue switch stays on the board. It is the same server setting the
             desktop header shows, and it decides whether a Build prompt from this
             phone joins the queue. */}

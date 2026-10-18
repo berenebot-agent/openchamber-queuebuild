@@ -16,13 +16,23 @@ not classify sessions itself.
   among them: a card already carries its own place on the board.
 - `workBoardMobileLane.ts` — the last lane the phone showed, remembered per
   client and connected server.
+- `workBoardRecentProjects.ts` — the work board projects this device opened,
+  remembered per client and connected server, which is what makes the phone's
+  project picker recent-first.
 - `workBoardWorkflow.ts` — pure helpers: lane ordering within a drop, feedback
-  wording, queue rows/entries, tab badges, and the readers that adapt a server
-  snapshot into what the view renders (lane, order, queue state).
+  wording, queue rows/entries, tab badges, the attention count the phone's title
+  badge shows, and the readers that adapt a server snapshot into what the view
+  renders (lane, order, queue state).
 - `workBoardSnapshot.fixture.ts` — a test fixture that builds a snapshot the way
   the server projection does.
 - `WorkBoardProjectTabs.tsx`, `workBoardProjectState.ts` — project tab strip and
-  the project's display name. Each tab carries its project's build load and,
+  the project's display name.
+- `WorkBoardProjectMarks.tsx` — the marks a board carries (pending asks, then the
+  build queue), in one place, so the desktop tab strip and the phone's project
+  picker read a board the same way.
+- `WorkBoardMobileProjectPicker.tsx` — the phone's replacement for the tab strip:
+  one control naming the board on screen, opening the device's recent-first list
+  with each board's marks. Each tab carries its project's build load and,
   beside it, the asks waiting for the user (a question, a permission); the strip
   draws the header's separator behind itself so the selected tab's fill breaks
   the line and its base flares into the board.
@@ -137,6 +147,15 @@ The lane picker remembers the last lane per client and connected server in
 `workBoardMobileLane.ts`, and opens on the queue lane when nothing is stored or
 storage is blocked. The search field is not drawn on a phone: one lane at a
 time is already short enough to read.
+
+The project selector lists the boards this device opened first, most recent at
+the top, and carries each board's marks (`WorkBoardProjectMarks`) so the list
+says which board is waiting before it is opened. The recency is per client and
+connected server (`workBoardRecentProjects.ts`), remembered whenever the phone
+opens or switches a board. The shell's title badge shows how many open boards
+wait on the user — a queue error, a paused queue, or a pending ask, never a
+plain running build (`workBoardsNeedingAttention`) — and tapping it opens the
+same selector, so the row is a way in rather than a readout.
 
 The `onLeave` prop dismisses the board. The mobile shells draw the board over
 the chat, so opening a session or starting a draft calls it; the desktop shells
