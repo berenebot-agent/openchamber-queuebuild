@@ -125,7 +125,7 @@ const queueStateSchema = z.object({
   })),
   order: z.array(z.string()),
   active: z.object({
-    sessionId: z.string(), itemId: z.string(), startedAt: z.number(),
+    sessionId: z.string(), itemId: z.string().nullable(), startedAt: z.number(),
     needsReview: z.boolean(), retryAvailable: z.boolean(),
     content: z.string().nullable(), model: queuedModelSchema.nullable(),
   }).nullable(),

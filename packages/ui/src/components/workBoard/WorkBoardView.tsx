@@ -952,7 +952,7 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
   const confirmResolve = () => {
     if (!resolveConfirm || !directory) return;
     const body: WorkBoardQueueWrite = resolveConfirm.action === 'skip'
-      ? { directory, itemId: activeBuild?.itemId, action: 'skip' }
+      ? { directory, itemId: activeBuild?.itemId ?? undefined, action: 'skip' }
       : { directory, action: 'retry' };
     setResolveConfirm(null);
     void queueMutate('/api/build-queue/resolve', 'POST', body);

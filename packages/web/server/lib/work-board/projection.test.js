@@ -272,6 +272,17 @@ describe('work board projection', () => {
     ]);
   });
 
+  it('projects an adopted live build without a queue item', async () => {
+    const snapshot = await makeProjection({ queue: {
+      active: [{ directory: '/repo', sessionId: 's-run', startedAt: 5, adopted: true }],
+      queued: [], issues: [],
+    } }).snapshot('/repo');
+    expect(JSON.parse(JSON.stringify(snapshot)).queue.active).toEqual({
+      sessionId: 's-run', itemId: null, startedAt: 5,
+      needsReview: false, retryAvailable: false, content: null, model: null,
+    });
+  });
+
   it('carries the submitted model and the build message for queue cards', async () => {
     const snapshot = await makeProjection({ queue: {
       active: [{ directory: '/repo', sessionId: 's-run', itemId: 'i-run', startedAt: 5, content: 'running task', model: { providerID: 'anthropic', id: 'claude' } }],

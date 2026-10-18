@@ -17,7 +17,8 @@ const buildQueueEntrySchema = z.object({
 const buildQueueLeaseSchema = z.object({
   directory: z.string(),
   sessionId: z.string(),
-  itemId: z.string(),
+  // An adopted live build owns no queued item.
+  itemId: z.string().optional(),
   startedAt: z.number(),
   needsReview: z.boolean().optional(),
   reviewReason: z.string().optional(),

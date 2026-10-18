@@ -135,6 +135,25 @@ test('a failed read keeps the last snapshot and reports the error on top of it',
   });
 });
 
+test('an adopted live build needs no queued item id', async () => {
+  await withMockEventSource(async () => {
+    const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({
+      revision: 1, active: [{ directory: '/repo', sessionId: 'live', startedAt: 1, adopted: true }],
+      queued: [], issues: [],
+    }));
+    const probe = await mount(function Probe() {
+      const { snapshot, error } = useBuildQueueSnapshot();
+      return <span>{`${snapshot?.active[0]?.sessionId ?? 'none'}/${error ? 'error' : 'ok'}`}</span>;
+    });
+    try {
+      expect(probe.container.textContent).toBe('live/ok');
+    } finally {
+      await probe.unmount();
+      fetch.mockRestore();
+    }
+  });
+});
+
 test('a malformed payload is an error, never an empty queue', async () => {
   await withMockEventSource(async () => {
     const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ revision: 1, active: [] }));

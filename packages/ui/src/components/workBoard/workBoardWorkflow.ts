@@ -11,7 +11,7 @@ export type WorkBoardCardLane = Exclude<WorkBoardLane, 'queue'>;
  * value carrying the row controls' inputs.
  */
 export type WorkBoardQueueState = {
-  itemId: string;
+  itemId: string | null;
   paused: boolean;
   /** True for the lease the project is running now; false for one merely waiting. */
   active: boolean;

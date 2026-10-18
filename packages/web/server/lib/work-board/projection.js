@@ -96,7 +96,7 @@ function queueForDirectory(queue, directory) {
     })),
     order: queued.map(item => item.id),
     active: active ? {
-      sessionId: active.sessionId, itemId: active.itemId, startedAt: active.startedAt,
+      sessionId: active.sessionId, itemId: active.itemId ?? null, startedAt: active.startedAt,
       needsReview: Boolean(active.needsReview), retryAvailable: Boolean(active.retryAvailable),
       content: active.content ?? null, model: active.model ?? null,
     } : null,

@@ -104,19 +104,21 @@ test('live builds without queue entries remain visible and reconcile without dup
     await act(async () => { openButtons()[0].click(); });
     expect(openSpy.mock.calls.at(-1)).toEqual(['direct-a', '/repo']);
 
-    // The server now manages one of them: it becomes a queue row with controls,
-    // and the other stays a live build without them.
+    // The server adopts one without a queued item; the other becomes a waiting
+    // queue row with controls. Each session still appears only once.
     snapshot = makeSnapshot({
       cards: snapshot.cards,
       activities: snapshot.activities,
       queue: {
-        active: { sessionId: 'direct-a', itemId: 'active-a', startedAt: 1, needsReview: false, retryAvailable: false, content: null, model: null },
+        active: { sessionId: 'direct-a', itemId: null, startedAt: 1, needsReview: false, retryAvailable: false, content: null, model: null },
         rows: [{ itemId: 'waiting-b', sessionId: 'direct-b', directory: '/repo', content: 'Queued build', paused: false, position: 0, model: null }],
         order: ['waiting-b'],
       },
     });
     await refresh();
     expect(openButtons()).toHaveLength(1);
+    expect(lane('Build queue').querySelector('button[aria-label="Cancel direct-a"]')).toBeNull();
+    expect(lane('Build queue').textContent).not.toContain('Continue queue');
     expect(lane('Build queue').querySelectorAll('.oc-build-stripes')).toHaveLength(1);
     expect(lane('Build queue').querySelector('.oc-build-stripes-plan')).toBeNull();
     expect(lane('Build queue').querySelectorAll('button[aria-label="Cancel direct-b"]')).toHaveLength(1);
