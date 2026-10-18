@@ -87,11 +87,13 @@ function setup(surface: "desktop" | "mobile" | "vscode" = "desktop", recordsFor 
   let current = true
   const releases: SessionMessageTarget[] = []
   const active = new Set<string>()
+  const held = new Set<string>()
   loader.startCacheRetention({
     idleTtlMs,
     isCurrent: () => current,
     isViewed: (target) => target.directory === viewed.directory && target.sessionID === viewed.sessionID,
     isActive: (target) => target.directory === "/repo" && active.has(target.sessionID),
+    isProtected: (target) => target.directory === "/repo" && held.has(target.sessionID),
     releaseDerivedCache: (target) => releases.push(target),
   })
   cleanups.push(() => { loader.dispose(); childStores.disposeAll() })
@@ -114,6 +116,11 @@ function setup(surface: "desktop" | "mobile" | "vscode" = "desktop", recordsFor 
     setActive: (sessionID: string, value: boolean) => {
       if (value) active.add(sessionID)
       else active.delete(sessionID)
+      loader.scheduleCacheRetention("/repo")
+    },
+    setHeld: (sessionID: string, value: boolean) => {
+      if (value) held.add(sessionID)
+      else held.delete(sessionID)
       loader.scheduleCacheRetention("/repo")
     },
   }
@@ -196,6 +203,20 @@ describe("session cache retention", () => {
     await waitIdle()
     expect(env.messages("a")).toHaveLength(104)
     env.setActive("a", false)
+    await flush()
+    expect(env.messages("a")).toHaveLength(104)
+    await waitIdle()
+    expect(env.messages("a")).toBeUndefined()
+  })
+
+  test("a session held open by a surface outlives the idle grace until it is let go", async () => {
+    const env = setup("desktop", transcript, IDLE_TTL_MS)
+    await env.select("a")
+    env.setHeld("a", true)
+    await env.select("b")
+    await waitIdle()
+    expect(env.messages("a")).toHaveLength(104)
+    env.setHeld("a", false)
     await flush()
     expect(env.messages("a")).toHaveLength(104)
     await waitIdle()

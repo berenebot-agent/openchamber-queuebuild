@@ -286,6 +286,8 @@ export class SessionMessageLoader {
     isCurrent: () => boolean
     isViewed: (target: SessionMessageTarget) => boolean
     isActive: (target: SessionMessageTarget) => boolean
+    /** Held open by a surface the user keeps, past the idle grace. */
+    isProtected: (target: SessionMessageTarget) => boolean
     releaseDerivedCache: (target: SessionMessageTarget) => void
   }): () => void {
     this.retention?.dispose()
@@ -298,7 +300,8 @@ export class SessionMessageLoader {
       isProtected: (target) => {
         const key = this.keyFor(target)
         const entry = this.entries.get(key)
-        return options.isActive(target) || Boolean(this.historyReaders.get(key))
+        return options.isActive(target) || options.isProtected(target)
+          || Boolean(this.historyReaders.get(key))
           || Boolean(this.renderedSessions.get(key))
           || Boolean(entry?.inflight) || Boolean(entry?.optimistic.size)
       },

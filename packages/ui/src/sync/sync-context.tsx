@@ -83,6 +83,7 @@ import { markConfigCatalogStale, useConfigStore } from "@/stores/useConfigStore"
 import { refreshStoresForCatalogKind } from "@/stores/catalogRefresh"
 import { useMcpStore } from "@/stores/useMcpStore"
 import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
+import { useSessionTabsStore } from "@/stores/useSessionTabsStore"
 import { spaceIdOfDirectory } from "@/lib/spaces/space-route"
 import { isDirectoryOfKnownSpace, isSpaceDirectoryStopped, isSpaceStopped, knownSpaceIds, refreshSpacesJourney, spaceIdsGone, spacesRuntimeGeneration, useSpacesStore } from "@/lib/spaces/spaces-store"
 import { cleanupPersistedSessionState } from "./session-deletion-cleanup"
@@ -3273,6 +3274,11 @@ export function SyncProvider(props: {
       const live = useGlobalSessionStatusStore.getState().statusById.get(sessionID)
       return live?.directory === directory && live.status.type !== "idle"
     },
+    // The header's tab strip is the working set the user keeps open, so a
+    // tabbed session's transcript stays cached (past the idle grace and the
+    // count limit) until its tab closes. Only surfaces that render the strip
+    // hold anything: VS Code and native mobile have no tabs.
+    isProtected: ({ sessionID }) => useSessionTabsStore.getState().tabIds.includes(sessionID),
     releaseDerivedCache: ({ directory, sessionID }) => {
       const store = childStores.getChild(directory)
       if (store) dropCachedSessionMessageRecordsSnapshots(store, [sessionID])
