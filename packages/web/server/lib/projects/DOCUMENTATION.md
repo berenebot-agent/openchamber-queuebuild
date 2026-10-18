@@ -19,6 +19,7 @@ that writes it:
 |---|---|---|
 | `version`, `scheduledTasks` | `project-config.js` (scheduled-task runtime) | `/api/projects/:projectId/scheduled-tasks/*` |
 | `buildQueueEnabled` | `project-config.js` (`readBuildQueueEnabled` / `setBuildQueueEnabled`) | `GET/PUT /api/build-queue/settings` (`message-queue/runtime.js`) |
+| `buildQueueRepository` | `project-config.js` (`readBuildQueueRepository` / `setBuildQueueRepository`) | `PUT /api/build-queue/repository` (`message-queue/runtime.js`) |
 | `setup-worktree`, `setup-worktree-wait`, `projectActions`, `projectActionsPrimaryId`, `draftStarters`, `projectPath` | `project-setup.js` via `readProjectSetup` / `updateProjectSetup` on the same runtime | `GET/PUT /api/projects/:projectId/config` (`routes.js`) |
 
 `buildQueueEnabled` is the project's build-queue switch. Only an explicit off is
@@ -26,6 +27,15 @@ stored (`false`); a project that never chose has no key and reads as enabled, so
 existing project files need no migration and no one is opted out by an upgrade.
 The key is per project, not per worktree: every worktree of a checkout shares
 the project's answer while keeping its own queue lane.
+
+`buildQueueRepository` is the repository the project's build queue runs its Git
+gate and automatic commit against, for a checkout that lives in a subfolder of
+the project rather than at its root. It is an absolute canonical path the
+message queue validated against the project's own tree before storing it. A
+project that never chose has no key, and the queue then resolves the repository
+from the directory it is dispatching. The choice is per project like the switch
+above, but it applies only to directories inside the project folder: a worktree
+keeps its own checkout.
 
 Notes, todos, and plans moved out of this file to `packages/web/server/lib/project-context`.
 A project's environment variables and environment command are not in this file either: values can be secrets, so they live in `environment.json` (mode 0600, `packages/web/server/lib/environment`).

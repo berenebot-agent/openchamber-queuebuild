@@ -68,6 +68,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    id: 'projects.build-queue-repository',
+    page: 'projects',
+    titleKey: 'workBoard.repository.label',
+    descriptionKey: 'workBoard.repository.info',
+    keywords: ['queue', 'build', 'git', 'repository', 'repo', 'subfolder', 'commit', 'pause'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'chat.activity-default',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.section.activityDefault',

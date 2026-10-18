@@ -1007,6 +1007,47 @@ describe('project-config build queue enablement', () => {
     } finally { await cleanup(); }
   });
 
+  it('reads null until the project picks a repository, stores the path, and clears it', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      expect(await runtime.readBuildQueueRepository('project-test')).toBeNull();
+      await runtime.setBuildQueueRepository('project-test', '/repo/packages/app');
+      expect(await runtime.readBuildQueueRepository('project-test')).toBe('/repo/packages/app');
+      // Null clears it: the queue resolves the repository from its own directory.
+      await runtime.setBuildQueueRepository('project-test', null);
+      expect(await runtime.readBuildQueueRepository('project-test')).toBeNull();
+      const raw = JSON.parse(await readFile(path.join(tempRoot, 'project-test.json'), 'utf8'));
+      expect('buildQueueRepository' in raw).toBe(false);
+      expect(raw.version).toBe(1);
+    } finally { await cleanup(); }
+  });
+
+  it('ignores a repository value that is not a non-empty string', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      await writeFile(path.join(tempRoot, 'project-test.json'), JSON.stringify({ version: 1, scheduledTasks: [], buildQueueRepository: 42 }));
+      expect(await runtime.readBuildQueueRepository('project-test')).toBeNull();
+      await writeFile(path.join(tempRoot, 'project-test.json'), JSON.stringify({ version: 1, scheduledTasks: [], buildQueueRepository: '' }));
+      expect(await runtime.readBuildQueueRepository('project-test')).toBeNull();
+      await expect(runtime.setBuildQueueRepository('project-test', '')).rejects.toThrow(TypeError);
+      await expect(runtime.setBuildQueueRepository('project-test', 7)).rejects.toThrow(TypeError);
+    } finally { await cleanup(); }
+  });
+
+  it('keeps the repository choice alongside the keys the module does not own', async () => {
+    const { runtime, tempRoot, cleanup } = await createRuntime();
+    try {
+      await writeFile(path.join(tempRoot, 'project-test.json'), JSON.stringify({
+        version: 1, scheduledTasks: [], projectPath: '/repo', buildQueueEnabled: false,
+      }));
+      await runtime.setBuildQueueRepository('project-test', '/repo/app');
+      const raw = JSON.parse(await readFile(path.join(tempRoot, 'project-test.json'), 'utf8'));
+      expect(raw.buildQueueRepository).toBe('/repo/app');
+      expect(raw.buildQueueEnabled).toBe(false);
+      expect(raw.projectPath).toBe('/repo');
+    } finally { await cleanup(); }
+  });
+
   it('stores the off flag as false alongside the keys the module does not own', async () => {
     const { runtime, tempRoot, cleanup } = await createRuntime();
     try {

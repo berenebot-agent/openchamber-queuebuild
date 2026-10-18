@@ -46,15 +46,22 @@ keeps its own lane and lease. The directory a request names cannot change the an
 the server resolves it to its canonical project first, so a prompt cannot opt
 itself out of its session's queue by asking with another directory.
 
-`GET /api/build-queue/settings?directory=…` answers `{ enabled, override }`,
-where `enabled` is what the queue does and `override` is the project's own
-choice or `null` when it follows the default;
-`PUT /api/build-queue/settings` with `{ directory, enabled }` saves it and
-answers `{ enabled }`. A directory the server cannot place in a project is 400.
+`GET /api/build-queue/settings?directory=…` answers `{ enabled, override,
+repository }`, where `enabled` is what the queue does, `override` is the
+project's own choice or `null` when it follows the default, and `repository` is
+the project's chosen repository or `null`;
+`PUT /api/build-queue/settings` with `{ directory, enabled }` saves the switch
+and answers `{ enabled }`. A directory the server cannot place in a project is 400.
 Turning the queue off is refused with 409 while a build is running, being
 prepared, being dispatched, or waiting for that project — those builds would
 otherwise be stranded. Clearing to the default is refused the same way when the
 instance default is off.
+
+`PUT /api/build-queue/repository` with `{ directory, repository }` saves the
+repository the project's Git policies use; `repository: null` clears it. The
+server refuses a path that does not exist, is not inside the project's own tree,
+or holds no `.git` entry, and answers `{ repository }` with the canonical path it
+stored.
 
 ## Admission
 
@@ -335,7 +342,7 @@ and retries rather than guessing. An adopted lane is in-memory only — a restar
 re-detects the live build — and it never parks for review or reruns anything: it
 owns no queued item, so a Stop simply releases it.
 
-The Git policy selector in OpenChamber Settings (Chat page) applies to every
+The Git policy selector in Settings (Work board page) applies to every
 project on the instance, including when its current queue is empty. It has 3
 policies:
 
@@ -352,6 +359,18 @@ policies:
   working tree. A missing repository or failed check keeps the items queued.
   The existing recheck timer resumes the queue when Git becomes clean or a saved
   policy allows preparation or continuation.
+
+Both Git policies run against the project's chosen repository when it has one
+(`buildQueueRepository`, set from the project's settings page next to its queue
+switch), and against the dispatcher's own directory otherwise. Choosing a
+repository is how a project whose checkout sits in a subfolder reaches it: the
+gate names the project settings as the fix when the directory holds no
+repository, and a chosen repository that has gone missing fails with its own
+message instead of falling back to the project folder. The choice is stored as
+an absolute path that must be inside the project's own tree, so a browser cannot
+aim the queue's Git commands at a repository outside the project. It never
+applies to a worktree directory, which sits outside the project folder and
+carries its own checkout.
 
 The policy is `buildQueueGitPolicy`, read from the merged settings at admission.
 Null or absent keeps the legacy `buildQueueRequireCleanGit` behavior, true for
@@ -525,8 +544,9 @@ allowlists.
 | Route | Purpose |
 |---|---|
 | `GET /api/message-queue` | Full snapshot `{ revision, sessions[] }` |
-| `GET /api/build-queue/settings?directory=` | `{ enabled, override }` for the project that directory belongs to |
+| `GET /api/build-queue/settings?directory=` | `{ enabled, override, repository }` for the project that directory belongs to |
 | `PUT /api/build-queue/settings` | `{ directory, enabled }` → `{ enabled }`; `enabled: null` clears the project's choice; 409 while that project's builds are running or waiting |
+| `PUT /api/build-queue/repository` | `{ directory, repository }` → `{ repository }`; a path outside the project's tree or without a `.git` entry is 400, `null` clears the choice |
 | `POST .../sessions/:id/items` | Append `{ directory, item }`; returns `{ revision, session, itemId }` and arms a dispatch (the session may already be idle) |
 | `DELETE .../sessions/:id/items/:itemId` | Remove; `409` while that item is in flight. Returns `{ revision, session, item? }` — the removed item's full payload — so the composer can restore a cancelled build instead of losing the prompt |
 | `POST .../sessions/:id/items/:itemId/take` | Remove and return the full item (payloads included); `404`/`409` |

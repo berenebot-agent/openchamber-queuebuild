@@ -171,6 +171,50 @@ describe('automatic build commits', () => {
     await expect(fs.stat(path.join(project, '.git'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('commits in the repository the project chose when it sits in a subfolder', async () => {
+    const project = await fixture();
+    const repository = path.join(project, 'packages', 'app');
+    await fs.mkdir(repository, { recursive: true });
+    await fs.writeFile(path.join(repository, 'app.py'), 'print("app")\n');
+    await git(repository, ['init']);
+    await git(repository, ['add', 'app.py']);
+    const result = await prepare(project, { repository });
+    expect(result.subject).toBe('Add project source');
+    expect((await git(repository, ['log', '-1', '--format=%s'])).stdout.trim()).toBe('Add project source');
+    // The project folder is left alone: a chosen repository is never swapped
+    // for a new one initialized at the dispatching directory.
+    expect((await git(project, ['rev-parse', '--show-toplevel'])).success).toBe(false);
+    expect((await fs.readdir(project)).sort()).toEqual(['packages', 'source.py']);
+  });
+
+  it('refuses a chosen repository that has gone missing', async () => {
+    const project = await fixture();
+    await expect(prepare(project, { repository: path.join(project, 'gone') }))
+      .rejects.toThrow('chosen for this project is missing');
+    expect((await git(project, ['rev-parse', '--show-toplevel'])).success).toBe(false);
+  });
+
+  it('refuses a chosen folder that is not a checkout', async () => {
+    const project = await fixture();
+    const plain = path.join(project, 'plain');
+    await fs.mkdir(plain, { recursive: true });
+    await expect(prepare(project, { repository: plain })).rejects.toThrow('chosen for this project cannot be read');
+  });
+
+  it('keeps the project scope when the chosen repository contains the project folder', async () => {
+    const directory = await fixture();
+    await stageSource(directory);
+    await prepare(directory);
+    const project = path.join(directory, 'child');
+    await fs.mkdir(project);
+    await fs.writeFile(path.join(project, 'child.txt'), 'child');
+    await fs.writeFile(path.join(directory, 'source.py'), 'outside');
+    await git(directory, ['add', 'source.py']);
+    // The choice names the very repository the directory resolves anyway, so the
+    // project-subdirectory scope still applies.
+    await expect(prepare(project, { repository: directory })).rejects.toThrow('outside this project');
+  });
+
   it('cancels before committing if the queued item was removed', async () => {
     const directory = await fixture();
     await stageSource(directory);

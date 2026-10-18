@@ -32,6 +32,22 @@ describe('core-routes', () => {
     expect(cancelled.body.item).toEqual(removed);
   });
 
+  it('routes the build queue repository choice, and clears it when the body omits it', async () => {
+    const app = express();
+    registerCommonRequestMiddleware(app, { express });
+    const runtime = {
+      writeQueueRepository: vi.fn(async () => ({ repository: '/repo/app' })),
+    };
+    registerMessageQueueRoutes(app, runtime);
+    const saved = await request(app).put('/api/build-queue/repository')
+      .send({ directory: '/repo', repository: '/repo/app' }).expect(200);
+    expect(runtime.writeQueueRepository).toHaveBeenCalledWith({ directory: '/repo' }, '/repo/app');
+    expect(saved.body).toEqual({ repository: '/repo/app' });
+    // Picking the project folder clears the choice, so an omitted field is null.
+    await request(app).put('/api/build-queue/repository').send({ directory: '/repo' }).expect(200);
+    expect(runtime.writeQueueRepository).toHaveBeenLastCalledWith({ directory: '/repo' }, null);
+  });
+
   it('captures the final response status, including missing routes and parser errors, without request data', async () => {
     const journal = createServerDiagnosticJournal();
     const app = express();

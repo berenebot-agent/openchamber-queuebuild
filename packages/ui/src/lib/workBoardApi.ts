@@ -23,6 +23,7 @@ type PlacementLane = 'todo' | 'plan' | 'build' | 'done';
 type PlacementWrite = { lane: PlacementLane; expectedUpdatedAt?: number; before?: string | null }
   | { directory: string; lane: PlacementLane; targets: PlacementTarget[] };
 type QueueSettingsWrite = { directory: string; enabled: boolean | null };
+type QueueRepositoryWrite = { directory: string; repository: string | null };
 
 export class WorkBoardRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -31,7 +32,7 @@ export class WorkBoardRequestError extends Error {
   }
 }
 
-async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite | QueueSettingsWrite) {
+async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite | QueueSettingsWrite | QueueRepositoryWrite) {
   const runtime = getRuntimeKey();
   const response = await runtimeFetch(path, {
     method,
@@ -186,7 +187,24 @@ export async function updateQueueSettings(directory: string, enabled: boolean | 
 }
 
 /** The project's effective enablement and the choice it stores, if any. */
-export async function fetchQueueSettings(directory: string): Promise<{ enabled: boolean; override: boolean | null }> {
-  return z.object({ enabled: z.boolean(), override: z.boolean().nullable() })
-    .parse(await request(`/api/build-queue/settings?directory=${encodeURIComponent(directory)}`));
+export async function fetchQueueSettings(directory: string): Promise<{ enabled: boolean; override: boolean | null; repository: string | null }> {
+  return z.object({
+    enabled: z.boolean(),
+    override: z.boolean().nullable(),
+    // A server that predates the choice answers without the field, which is
+    // "no choice", not a failed read.
+    repository: z.string().nullish().transform(value => value ?? null),
+  }).parse(await request(`/api/build-queue/settings?directory=${encodeURIComponent(directory)}`));
+}
+
+/**
+ * Point this project's queue at one repository inside it, or clear the choice
+ * with `null` so the queue resolves the repository from the directory it is
+ * dispatching. The stored path comes back, which is the server's canonical
+ * form of what was sent.
+ */
+export async function updateQueueRepository(directory: string, repository: string | null): Promise<string | null> {
+  const body = z.object({ repository: z.string().nullable() })
+    .parse(await request('/api/build-queue/repository', 'PUT', { directory, repository }));
+  return body.repository;
 }

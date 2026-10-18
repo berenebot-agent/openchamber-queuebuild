@@ -23,6 +23,7 @@ import { createSessionActivityProbe } from '../opencode/session-activity.js';
 import { readMergedSettingsSync } from '../opencode/settings-files.js';
 import { attachmentHint } from '../routing/runtime.js';
 import { isBuildAgentName } from './build-classification.js';
+import { projectPathFromId } from '../projects/project-id.js';
 
 const QUEUE_FILE_NAME = 'message-queue.json';
 const QUEUE_FILE_VERSION = 2;
@@ -916,8 +917,9 @@ export function createMessageQueueRuntime({
       return stdout.trim() ? 'Repository has uncommitted or untracked changes. Commit or stash them to resume queued builds.' : null;
     } catch {
       // A directory that is not a Git repository, or one where Git cannot run,
-      // never satisfies the gate: name it plainly instead of a bare command error.
-      return 'Cannot verify the Git working tree. Check that Git is installed, or choose Allow continue in Settings.';
+      // never satisfies the gate: name it plainly instead of a bare command
+      // error, and name the fix for a repository that lives in a subfolder.
+      return 'Cannot verify the Git working tree. If the repository is in a subfolder, choose it in the project settings. Otherwise check that Git is installed, or choose Allow continue in Settings.';
     }
   };
   /**
@@ -1625,6 +1627,7 @@ export function createMessageQueueRuntime({
           armDispatch(sessionId, buildRecheckMs);
           return;
         }
+        const repository = await queueRepositoryFor(current.directory);
         const preparation = { itemId: item.id, phase: 'initializing' };
         preparingBuilds.set(current.directory, preparation);
         setBuildProblem(current.directory, null);
@@ -1642,6 +1645,7 @@ export function createMessageQueueRuntime({
             requestText: `${item.text}${attachmentHint({ files: item.attachments.map(toPromptFile) })}`.trim(),
           });
           const result = await prepareBuildCommit(current.directory, {
+            repository,
             sendConfig: buildSelection ? {
               ...config, providerID: buildSelection.model.providerID, modelID: buildSelection.model.id,
             } : config,
@@ -1670,7 +1674,8 @@ export function createMessageQueueRuntime({
         }
         if (!isCurrent()) { wakeProject(current.directory); return; }
       } else if (policy === 'pause') {
-        const problem = checkBuildGit ? await checkBuildGit(current.directory) : await inspectGit(current.directory);
+        const repository = await queueRepositoryFor(current.directory);
+        const problem = checkBuildGit ? await checkBuildGit(repository || current.directory) : await inspectGit(repository || current.directory);
         if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
       } else if (buildProblems.has(current.directory)) {
         setBuildProblem(current.directory, null);
@@ -2248,7 +2253,67 @@ export function createMessageQueueRuntime({
     // `enabled` is what the queue does; `override` is whether this project
     // chose for itself, so the settings page can show "Follow default".
     const stored = projectConfigRuntime ? await projectConfigRuntime.readBuildQueueEnabled(projectId).catch(() => null) : null;
-    return { enabled: stored === null ? buildQueueDefaultEnabled() : stored, override: stored };
+    const repository = projectConfigRuntime
+      ? await projectConfigRuntime.readBuildQueueRepository(projectId).catch(() => null)
+      : null;
+    return { enabled: stored === null ? buildQueueDefaultEnabled() : stored, override: stored, repository };
+  };
+
+  /**
+   * Accepts a repository only when it is a Git checkout inside the project's own
+   * tree: the queue runs Git commands there, so an unchecked path from the
+   * browser could commit outside the project. The canonical path is stored, so
+   * a later read compares the same form the file system reports.
+   */
+  const validatedRepositoryPath = async (projectId, repository) => {
+    const projectPath = projectPathFromId(projectId);
+    if (!projectPath) throw httpError('This project has no folder to search for a repository', 400);
+    const [projectRoot, chosen] = await Promise.all([
+      fs.promises.realpath(projectPath).catch(() => null),
+      fs.promises.realpath(repository).catch(() => null),
+    ]);
+    if (!projectRoot || !chosen) throw httpError('That repository folder no longer exists', 400);
+    const relative = path.relative(projectRoot, chosen);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw httpError('That folder is outside the project', 400);
+    }
+    const gitEntry = await fs.promises.lstat(path.join(chosen, '.git')).then(() => true).catch(() => false);
+    if (!gitEntry) throw httpError('That folder is not a Git repository', 400);
+    return chosen;
+  };
+
+  const writeQueueRepository = async (identityInput, repository) => withAdmission(async () => {
+    // A path with meaningful surrounding whitespace does not exist; anything
+    // that is not a non-empty string is rejected rather than guessed at.
+    const requested = asNonEmptyString(repository);
+    if (repository !== null && !requested) throw new TypeError('repository must be a non-empty string or null');
+    const identity = await projectIdentityOf(identityInput);
+    const projectId = asNonEmptyString(identity?.projectId);
+    if (!projectId) throw httpError('A project directory is required', 400);
+    if (!projectConfigRuntime) throw httpError('This server cannot store the build queue setting', 503);
+    const chosen = requested ? await validatedRepositoryPath(projectId, requested) : null;
+    await projectConfigRuntime.setBuildQueueRepository(projectId, chosen);
+    return { repository: chosen };
+  });
+
+  /**
+   * The repository a dispatch of this directory runs its Git checks against:
+   * the project's choice, or `null` to let the directory resolve its own.
+   *
+   * A worktree directory sits outside the project folder and carries its own
+   * checkout, so a choice made for the project never applies to it.
+   */
+  const queueRepositoryFor = async (directory) => {
+    const identity = await projectIdentityOf({ directory });
+    const projectId = asNonEmptyString(identity?.projectId);
+    if (!projectConfigRuntime || !projectId) return null;
+    const stored = await projectConfigRuntime.readBuildQueueRepository(projectId).catch(() => null);
+    if (!stored) return null;
+    const projectPath = projectPathFromId(projectId);
+    if (!projectPath) return null;
+    const relative = path.relative(path.resolve(projectPath), path.resolve(directory));
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+    return stored;
   };
 
   const writeQueueSettings = async (identityInput, enabled) => withAdmission(async () => {
@@ -2314,6 +2379,7 @@ export function createMessageQueueRuntime({
     queueEnabledStateFor,
     readQueueSettings,
     writeQueueSettings,
+    writeQueueRepository,
     cancelScheduledTask,
     parkSession,
     remove,
@@ -2354,6 +2420,16 @@ export function registerMessageQueueRoutes(app, runtime) {
         req.body?.enabled,
       ));
     } catch (error) { respondError(res, error, 'Failed to save build queue settings'); }
+  });
+  // The repository a project's queue runs its Git gate and automatic commit
+  // against; `null` clears the choice back to the dispatch directory's own.
+  app.put('/api/build-queue/repository', async (req, res) => {
+    try {
+      res.json(await runtime.writeQueueRepository(
+        { directory: req.body?.directory },
+        req.body?.repository ?? null,
+      ));
+    } catch (error) { respondError(res, error, 'Failed to save the build queue repository'); }
   });
   app.post('/api/build-queue/resolve', async (req, res) => {
     try { res.json(await runtime.resolveBuild(req.body?.directory, req.body?.action, req.body?.itemId)); }

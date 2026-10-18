@@ -1017,6 +1017,34 @@ export const createProjectConfigRuntime = (deps) => {
   });
 
   /**
+   * The repository the project's build queue runs its Git gate and automatic
+   * commit against, or `null` when the project never chose one. Null means the
+   * queue resolves the repository from the directory it is dispatching, which
+   * is what a project whose folder is itself a checkout needs.
+   *
+   * The path is absolute and was validated against the project root when it was
+   * written; a repository that no longer exists is a failure at dispatch, never
+   * a silent fall back to the project folder.
+   */
+  const readBuildQueueRepository = async (projectID) => {
+    const raw = await readRawProjectConfigFromDisk(projectID);
+    return asNonEmptyString(raw.buildQueueRepository);
+  };
+
+  const setBuildQueueRepository = async (projectID, repository) => withProjectWriteLock(projectID, async () => {
+    const stored = asNonEmptyString(repository);
+    if (repository !== null && stored === null) {
+      throw new TypeError('build queue repository must be a non-empty string or null');
+    }
+    const existing = await readRawProjectConfigFromDisk(projectID);
+    const next = { ...existing, version: PROJECT_CONFIG_VERSION };
+    if (stored === null) delete next.buildQueueRepository;
+    else next.buildQueueRepository = stored;
+    await writeRawProjectConfigToDisk(projectID, next);
+    return stored;
+  });
+
+  /**
    * Record (or, with a null fingerprint, withdraw) this machine's approval of
    * one project loop file. Kept in the per-machine project config, never in
    * the repository.
@@ -1156,6 +1184,8 @@ export const createProjectConfigRuntime = (deps) => {
     setLoopApproval,
     readBuildQueueEnabled,
     setBuildQueueEnabled,
+    readBuildQueueRepository,
+    setBuildQueueRepository,
     resolveProjectConfigPath,
   };
 };

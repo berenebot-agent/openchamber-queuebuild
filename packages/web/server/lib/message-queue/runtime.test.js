@@ -4,6 +4,7 @@ import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMessageQueueRuntime, parseQueuedItemInput } from './runtime.js';
 import { admitPrompt, createAdmissionFacts } from './admission.js';
+import { createProjectIdFromPath } from '../projects/project-id.js';
 
 const SESSION = 'ses_queue_test_1';
 const DIRECTORY = '/repo';
@@ -2246,12 +2247,14 @@ describe('project-wide build queue', () => {
 });
 
 describe('queue settings', () => {
-  const settingsRuntime = ({ enabled = null } = {}) => {
-    const state = { enabled, written: [] };
+  const settingsRuntime = ({ enabled = null, repository = null } = {}) => {
+    const state = { enabled, repository, written: [] };
     return {
       state,
       readBuildQueueEnabled: async () => state.enabled,
       setBuildQueueEnabled: async (_projectId, value) => { state.written.push(value); state.enabled = value; return state.enabled; },
+      readBuildQueueRepository: async () => state.repository,
+      setBuildQueueRepository: async (_projectId, value) => { state.repository = value; return value; },
       readProjectSetup: async () => ({}),
       updateProjectSetup: async () => ({}),
       resolveProjectConfigPath: () => '/tmp/none.json',
@@ -2266,14 +2269,14 @@ describe('queue settings', () => {
   it('answers enabled by default, and off only after an explicit off', async () => {
     const projectConfigRuntime = settingsRuntime();
     const { runtime } = createRuntime({ projectConfigRuntime, resolveProjectIdentity: identityOf });
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, repository: null });
     await runtime.writeQueueSettings({ directory: DIRECTORY }, false);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: false });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: false, repository: null });
     await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, repository: null });
     // Null clears the project's choice; it follows the instance default again.
     await runtime.writeQueueSettings({ directory: DIRECTORY }, null);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, repository: null });
     expect(projectConfigRuntime.state.written).toEqual([false, true, null]);
     runtime.stop();
     await runtime.flush();
@@ -2295,7 +2298,7 @@ describe('queue settings', () => {
 
   it('answers enabled when the setting cannot be stored at all', async () => {
     const { runtime } = createRuntime({ resolveProjectIdentity: identityOf });
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, repository: null });
     runtime.stop();
     await runtime.flush();
   });
@@ -2305,10 +2308,10 @@ describe('queue settings', () => {
     fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueDefaultEnabled: false }));
     const { runtime } = createRuntime({ settingsFilePath, projectConfigRuntime: settingsRuntime(), resolveProjectIdentity: identityOf });
     // No stored choice, so the project reads the default, which is off here.
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: null, repository: null });
     // An explicit on beats the default and is kept as the project's own choice.
     await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, repository: null });
     runtime.stop();
     await runtime.flush();
   });
@@ -2329,6 +2332,116 @@ describe('queue settings', () => {
     await expect(runtime.writeQueueSettings({ directory: DIRECTORY }, false)).rejects.toMatchObject({ status: 409 });
     expect(waiting.itemId).toBeTruthy();
     expect(runtime.buildSnapshot().queued).toHaveLength(1);
+    runtime.stop();
+    await runtime.flush();
+  });
+});
+
+describe('queue repository choice', () => {
+  const makeProject = () => {
+    const root = fs.realpathSync(makeDataDir());
+    const nested = path.join(root, 'packages', 'app');
+    fs.mkdirSync(path.join(nested, '.git'), { recursive: true });
+    return { root, nested };
+  };
+  const projectConfigRuntime = (repository = null) => {
+    const state = { repository };
+    return {
+      state,
+      readBuildQueueEnabled: async () => null,
+      setBuildQueueEnabled: async () => null,
+      readBuildQueueRepository: async () => state.repository,
+      setBuildQueueRepository: async (_projectId, value) => { state.repository = value; return value; },
+      readProjectSetup: async () => ({}),
+      updateProjectSetup: async () => ({}),
+      resolveProjectConfigPath: () => '/tmp/none.json',
+    };
+  };
+
+  it('stores the canonical path of a repository inside the project, and clears it', async () => {
+    const { root, nested } = makeProject();
+    const settings = projectConfigRuntime();
+    const { runtime } = createRuntime({
+      projectConfigRuntime: settings,
+      resolveProjectIdentity: () => ({ directory: root, projectId: createProjectIdFromPath(root) }),
+    });
+    // A path with a redundant segment canonicalises to the repository itself.
+    await expect(runtime.writeQueueRepository({ directory: root }, path.join(root, '.', 'packages', 'app')))
+      .resolves.toEqual({ repository: nested });
+    expect(await runtime.readQueueSettings({ directory: root })).toMatchObject({ repository: nested });
+    await expect(runtime.writeQueueRepository({ directory: root }, null)).resolves.toEqual({ repository: null });
+    expect(await runtime.readQueueSettings({ directory: root })).toMatchObject({ repository: null });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('refuses a repository outside the project and a folder that is not a checkout', async () => {
+    const { root } = makeProject();
+    const other = fs.realpathSync(makeDataDir());
+    fs.mkdirSync(path.join(other, '.git'), { recursive: true });
+    const plain = path.join(root, 'docs');
+    fs.mkdirSync(plain, { recursive: true });
+    const settings = projectConfigRuntime();
+    const { runtime } = createRuntime({
+      projectConfigRuntime: settings,
+      resolveProjectIdentity: () => ({ directory: root, projectId: createProjectIdFromPath(root) }),
+    });
+    await expect(runtime.writeQueueRepository({ directory: root }, other)).rejects.toMatchObject({ status: 400 });
+    await expect(runtime.writeQueueRepository({ directory: root }, plain)).rejects.toMatchObject({ status: 400 });
+    // Nothing was stored by a refused write.
+    expect(settings.state.repository).toBeNull();
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('checks the chosen repository instead of the dispatching directory', async () => {
+    const { root, nested } = makeProject();
+    const checked = [];
+    const { runtime } = createRuntime({
+      projectConfigRuntime: projectConfigRuntime(nested),
+      resolveProjectIdentity: () => ({ directory: root, projectId: createProjectIdFromPath(root) }),
+      checkBuildGit: async (directory) => { checked.push(directory); return null; },
+    });
+    await runtime.enqueue(SESSION, root, item({ buildQueue: true }));
+    await settle(80);
+    expect(checked).toContain(nested);
+    expect(checked).not.toContain(root);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('prepares the automatic commit in the chosen repository', async () => {
+    const { root, nested } = makeProject();
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'commit' }));
+    const prepareBuildCommit = vi.fn(async () => null);
+    const { runtime } = createRuntime({
+      settingsFilePath,
+      projectConfigRuntime: projectConfigRuntime(nested),
+      resolveProjectIdentity: () => ({ directory: root, projectId: createProjectIdFromPath(root) }),
+      prepareBuildCommit,
+    });
+    await runtime.enqueue(SESSION, root, item({ buildQueue: true }));
+    await settle(80);
+    expect(prepareBuildCommit).toHaveBeenCalledWith(root, expect.objectContaining({ repository: nested }));
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('keeps a worktree on its own repository', async () => {
+    const { root, nested } = makeProject();
+    const worktree = fs.realpathSync(makeDataDir());
+    const checked = [];
+    const { runtime } = createRuntime({
+      projectConfigRuntime: projectConfigRuntime(nested),
+      // A worktree shares its project's id while sitting outside its folder.
+      resolveProjectIdentity: ({ directory }) => ({ directory, projectId: createProjectIdFromPath(root) }),
+      checkBuildGit: async (directory) => { checked.push(directory); return null; },
+    });
+    await runtime.enqueue(SESSION, worktree, item({ buildQueue: true }));
+    await settle(80);
+    expect(checked).toContain(worktree);
+    expect(checked).not.toContain(nested);
     runtime.stop();
     await runtime.flush();
   });

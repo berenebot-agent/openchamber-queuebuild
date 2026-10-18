@@ -24,6 +24,7 @@ import type { useProjectIdentityForm } from './useProjectIdentityForm';
 import type { ProjectSetupState } from './useProjectSetup';
 import { ProjectSetupUnavailable } from './ProjectSettingsBits';
 import { ProjectBuildQueueRow } from './ProjectBuildQueueRow';
+import { ProjectBuildQueueRepositoryRow } from './ProjectBuildQueueRepositoryRow';
 
 type ProjectIdentityFormState = ReturnType<typeof useProjectIdentityForm>;
 
@@ -231,6 +232,7 @@ export const ProjectGeneralTab: React.FC<{
   <>
     <ChatDefaultsSection form={form} />
     {form.project ? <ProjectBuildQueueRow directory={form.project.path} /> : null}
+    {form.project ? <ProjectBuildQueueRepositoryRow directory={form.project.path} /> : null}
     <TeamFileSection projectRef={projectRef} setupState={setupState} />
   </>
 );

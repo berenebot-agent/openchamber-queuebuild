@@ -10,8 +10,11 @@ project Build queues and preserves the legacy clean-Git fallback, and
 follows until it chooses its own. `openchamber/WorkBoardViewSettings.tsx` adds
 the board's own Include older sessions choice, scoped by the page's project
 selector. The per-project queue choice lives on the Projects page
-(`projects/ProjectBuildQueueRow.tsx`) as Follow default / On / Off. Queue job
-controls remain on the Work Board. VS Code-only hides this page.
+(`projects/ProjectBuildQueueRow.tsx`) as Follow default / On / Off, and the
+repository those Git policies run against lives beside it
+(`projects/ProjectBuildQueueRepositoryRow.tsx`): a dropdown of the repositories
+found under the project folder, shown only for the Pause and Commit policies.
+Queue job controls remain on the Work Board. VS Code-only hides this page.
 
 ## Autosave on the OpenCode configuration pages
 

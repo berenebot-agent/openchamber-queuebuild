@@ -4252,7 +4252,11 @@ export async function unstageFiles(directory, paths) {
 }
 
 export async function prepareBuildCommit(directory, options) {
-  return withGitIndexMutationQueue(directory, () => prepareQueuedBuild({
+  // A project that chose its repository serializes on that repository's index,
+  // the same index every Git panel operation on it uses. Keying on the dispatch
+  // directory instead would let two directories of one project mutate one
+  // repository's index at once.
+  return withGitIndexMutationQueue(options?.repository || directory, () => prepareQueuedBuild({
     ...options,
     directory,
     run: async (cwd, args) => {

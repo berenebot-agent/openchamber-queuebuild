@@ -74,8 +74,26 @@ async function hasGitEntry(directory) {
   }
 }
 
-/** Runs inside the Git service's repository index mutation queue. */
-export async function prepareQueuedBuild({ directory, run, generateMessage, onProgress, isCurrent }) {
+/**
+ * The project directory's path relative to the repository root, or `''` when
+ * it is not inside it. `''` is the scope of "everything in this repository is
+ * this project's": a repository the project picked in a subfolder does not
+ * contain the project folder, and the whole repository is then what the build
+ * was staged in.
+ */
+function relativeWithin(root, project) {
+  const relative = path.relative(root, project);
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative)
+    ? relative.split(path.sep).join('/')
+    : '';
+}
+
+/**
+ * Runs inside the Git service's repository index mutation queue. `repository`
+ * is the project's own choice of the repository to commit in; absent means the
+ * directory's own repository, initialized here when it has none.
+ */
+export async function prepareQueuedBuild({ directory, repository = null, run, generateMessage, onProgress, isCurrent }) {
   const project = await fs.realpath(directory);
   const assertCurrent = () => {
     if (!isCurrent()) throw new Error('Build preparation was cancelled. Any prepared changes remain staged.');
@@ -87,21 +105,33 @@ export async function prepareQueuedBuild({ directory, run, generateMessage, onPr
     return result.stdout;
   };
   onProgress('initializing');
-  let probe = await run(project, ['rev-parse', '--show-toplevel']);
-  if (!probe.success) {
-    if (probe.exitCode !== 128 || !probe.stderr.includes('not a git repository') || await hasGitEntry(project)) {
-      throw new Error('Cannot inspect Git. Check that Git is installed and this directory is accessible.');
+  let root;
+  if (repository) {
+    // The project chose this repository, so it is never initialized here and
+    // never replaced by a containing one: a repository that went missing must
+    // fail loudly rather than commit somewhere the user did not choose.
+    const chosen = await fs.realpath(repository).catch(() => null);
+    if (!chosen) throw new Error('The Git repository chosen for this project is missing. Choose another one in the project settings.');
+    const chosenProbe = await run(chosen, ['rev-parse', '--show-toplevel']);
+    if (!chosenProbe.success) throw new Error('The Git repository chosen for this project cannot be read. Choose another one in the project settings.');
+    root = await fs.realpath(chosenProbe.stdout.trim());
+  } else {
+    let probe = await run(project, ['rev-parse', '--show-toplevel']);
+    if (!probe.success) {
+      if (probe.exitCode !== 128 || !probe.stderr.includes('not a git repository') || await hasGitEntry(project)) {
+        throw new Error('Cannot inspect Git. Check that Git is installed and this directory is accessible.');
+      }
+      if (unsupportedRepositoryRootReason(project)) throw new Error('Cannot initialize Git in a home directory or filesystem root.');
+      assertCurrent();
+      await installIgnore(project);
+      await execute(project, ['init'], 'Git initialization');
+      probe = await run(project, ['rev-parse', '--show-toplevel']);
     }
-    if (unsupportedRepositoryRootReason(project)) throw new Error('Cannot initialize Git in a home directory or filesystem root.');
-    assertCurrent();
-    await installIgnore(project);
-    await execute(project, ['init'], 'Git initialization');
-    probe = await run(project, ['rev-parse', '--show-toplevel']);
+    if (!probe.success) throw new Error('Cannot find the repository after Git initialization.');
+    root = await fs.realpath(probe.stdout.trim());
   }
-  if (!probe.success) throw new Error('Cannot find the repository after Git initialization.');
-  const root = await fs.realpath(probe.stdout.trim());
   if (unsupportedRepositoryRootReason(root)) throw new Error('Cannot prepare a repository rooted at a home directory or filesystem root.');
-  const relative = path.relative(root, project).split(path.sep).join('/');
+  const relative = relativeWithin(root, project);
   const status = await execute(root, ['status', '--porcelain=v1', '--untracked-files=normal'], 'Git status');
   const conflicts = await execute(root, ['ls-files', '--unmerged', '-z'], 'Conflict inspection');
   if (conflicts) throw new Error('Resolve Git conflicts before retrying the queued build.');

@@ -71,6 +71,12 @@ An identity is one repository's complete answer: signature, provider account (`a
 `prepareBuildCommit(directory, options)` runs `queued-build.js` inside the same
 repository index mutation queue as manual staging and committing. The message
 queue calls it only for its explicitly selected automatic commit policy.
+`options.repository` is the repository the project chose to commit in, when it
+has one: preparation then never initializes a repository and never accepts a
+containing one, so a choice that went missing fails instead of committing
+elsewhere. The index mutation queue is keyed on that repository, the same key
+every Git panel operation on it uses; keying on the dispatch directory instead
+would let two directories of one project mutate one repository's index at once.
 
 Git discovery recognizes a parent repository. It never initializes a nested
 repository when Git already resolves a containing repository. Failed discovery
@@ -99,7 +105,10 @@ already selected in the Git index, which must be explicitly staged by the
 user or the preceding agent. Staged additions, modifications, and deletions
 are supported; unstaged or untracked changes anywhere in the repository
 block preparation. A subdirectory project refuses pre-existing staged paths
-outside its scope. It never unstages unrelated work to make a commit.
+outside its scope. That scope is the project directory while the repository
+contains it; a repository the project chose in a subfolder does not contain the
+project directory, and the whole repository is then the scope. It never unstages
+unrelated work to make a commit.
 The helper blocks common sensitive filenames (including `.env`, key stores,
 private keys and credential paths) and obvious private-key/token signatures
 in staged diffs before contacting the model. Pattern checks cannot detect
@@ -127,7 +136,8 @@ working tree after committing and creates no empty commits when already clean.
 `queued-build.test.js` uses disposable repositories and a text-generation seam
 to cover initialization, ignored files, existing ignore rules, staged/unstaged
 changes and deletions, missing Git, interrupted operations, hook failures, model
-failure, changed index state, parent repositories, cancellation and symlink
+failure, changed index state, parent repositories, a chosen repository in a
+subfolder and one that has gone missing, cancellation and symlink
 refusal. It does not exercise a live OpenCode provider or native UI behavior.
 
 ### Branch Operations
