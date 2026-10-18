@@ -435,13 +435,26 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
   const activePlan = lane === 'plan' && Boolean(activity?.busy) && !waitingFor;
   const waitingLabel = waitingFor ? t(ANSWER_PRESENTATION[waitingFor].labelKey) : '';
   // A card being edited has a textarea inside it: taking the drag here would
-  // steal text selection, so the drag handle is off while the card is open.
+  // steal text selection, so the card is not grabbable while it is open.
   const sortable = useSortable({ id: card.id, disabled: !draggable || editing });
   const droppable = useDroppable({ id: card.id, disabled: !draggable });
   const setNodeRef = (node: HTMLElement | null) => { sortable.setNodeRef(node); droppable.setNodeRef(node); };
   const dragging = sortable.isDragging;
+  // The whole card is the grab surface: a press that moves drags it, a press
+  // and release opens it. The body is the drag handle, so the actions row keeps
+  // its pointer events to itself.
+  const openCard = () => {
+    onAcknowledge();
+    if (card.sessionId) { onOpenCard(); return; }
+    if (loading || error) return;
+    onStartEditing();
+  };
   return <article
     ref={setNodeRef}
+    {...(editing ? {} : sortable.attributes)}
+    {...(sortable.listeners ?? {})}
+    aria-label={editing ? undefined : t('workBoard.dragCard', { title })}
+    onClick={editing ? undefined : openCard}
     style={{ transform: CSS.Translate.toString(sortable.transform), transition: sortable.transition }}
     data-work-board-feedback={feedback ?? undefined}
     data-work-board-working={activePlan ? '' : undefined}
@@ -450,6 +463,7 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
     className={'group relative overflow-hidden rounded-md border bg-surface-elevated '
       + (dragging ? 'opacity-60 ' : '')
       + (activePlan ? '' : 'border-border ')
+      + (editing ? '' : 'cursor-grab select-none active:cursor-grabbing ')
       + (large ? 'px-2.5 py-2 ' : 'px-2.5 py-1.5 ')}>
     {activePlan && <span aria-hidden="true" className="oc-build-stripes oc-build-stripes-plan pointer-events-none absolute inset-0" />}
     <div className="relative">
@@ -459,23 +473,13 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
       {files.map(file => <div key={file.id} className="mt-2 flex items-center justify-between gap-2 text-xs"><span className="truncate">{file.filename}</span><Button size="xs" variant="ghost" disabled={busy} onClick={() => setFiles(files.filter(item => item.id !== file.id))} aria-label={t('workBoard.remove')}><Icon name="close" className="size-3" /></Button></div>)}
       <div className="mt-3 flex gap-2"><Button size="xs" disabled={busy || editVersion === null || (!text.trim() && !files.length)} onClick={() => { if (editVersion !== null) onSaveEdits(editVersion); }}>{t('workBoard.save')}</Button><Button size="xs" variant="ghost" disabled={busy} onClick={onCancelEdits}>{t('workBoard.cancel')}</Button></div>
     </> : <div className="flex min-w-0 items-center gap-1">
-      {/* The grip is the drag handle, and it is a button so the card still
-          carries keyboard-reachable drag semantics. */}
-      <button type="button" {...sortable.attributes} {...sortable.listeners} disabled={!draggable}
-        aria-label={t('workBoard.dragCard', { title })} title={t('workBoard.dragCard', { title })}
-        onClick={event => event.preventDefault()}
-        className={'flex h-5 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/60 touch-none select-none '
-          + (draggable ? 'cursor-grab hover:text-foreground active:cursor-grabbing' : 'opacity-30')}>
-        <Icon name="drag-move-2" className="size-3.5" />
-      </button>
       <WorkBoardCardMark card={card} waitingFor={waitingFor} />
-      <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title} onClick={() => {
-        onAcknowledge();
-        if (card.sessionId) { onOpenCard(); return; }
-        if (loading || error) return;
-        onStartEditing();
-      }}>{title}</button>
-      {actions}
+      <button type="button" className="min-w-0 flex-1 truncate text-start text-xs font-medium leading-5 hover:underline" title={title}>{title}</button>
+      {actions ? <div className="flex items-center gap-1"
+        onClick={event => event.stopPropagation()}
+        onMouseDown={event => event.stopPropagation()}
+        onTouchStart={event => event.stopPropagation()}
+      >{actions}</div> : null}
     </div>}
     {checking ? <p className="min-h-[1lh] text-xs leading-5 text-muted-foreground">{t('common.loading')}</p>
       : feedback ? <WorkBoardSessionFeedback feedback={feedback} />

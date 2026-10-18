@@ -604,7 +604,7 @@ test('returning from a chat opens the board on that session\'s project', async (
   }
 });
 
-test('cards carry a drag handle, the check moves one to Done, and queue rows drag too', async () => {
+test('cards drag from the whole card, the check moves one to Done, and queue rows drag too', async () => {
   const dom = new Window({ url: 'http://localhost' });
   const globals = domGlobals(dom);
   const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
@@ -656,8 +656,15 @@ test('cards carry a drag handle, the check moves one to Done, and queue rows dra
     // One lane per card category, and every card lane takes a drop while the
     // build queue does not.
     expect([...container.querySelectorAll('section[data-work-board-lane]')].map(section => section.getAttribute('data-work-board-lane'))).toEqual(['todo', 'plan', 'queue', 'build', 'done']);
-    const grip = container.querySelector<HTMLButtonElement>('button[aria-label="Drag Draft the release notes"]');
-    expect(grip).not.toBeNull();
+    const card = container.querySelector<HTMLElement>('article[aria-label="Drag Draft the release notes"]');
+    expect(card).not.toBeNull();
+    expect(card!.getAttribute('role')).toBe('button');
+    // A press and release on the card body opens it for editing.
+    await act(async () => { card!.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(container.querySelector('textarea')).not.toBeNull();
+    const cancelEdit = [...container.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === 'Cancel');
+    if (!cancelEdit) throw new Error('Missing cancel');
+    await act(async () => { cancelEdit.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
     const check = container.querySelector<HTMLButtonElement>('button[aria-label="Move Draft the release notes to Done"]');
     if (!check) throw new Error('Missing completion check');
     await act(async () => { check.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
