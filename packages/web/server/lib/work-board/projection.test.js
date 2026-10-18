@@ -331,6 +331,25 @@ describe('work board projection', () => {
     expect(snapshot.queue.active).toMatchObject({ content: 'running task', model: { providerID: 'anthropic', id: 'claude' } });
   });
 
+  it('names the sessions it shows, so a client without the session list can label them', async () => {
+    const cards = [baseCard({ id: 'linked', stage: 'plan', sessionId: 's-card' })];
+    const sessions = [
+      { id: 's-card', title: 'Card session', time: { updated: 5 } },
+      { id: 's-wait', title: 'Waiting build', time: { updated: 5 } },
+      { id: 's-untitled', time: { updated: 5 } },
+    ];
+    const snapshot = await makeProjection({ cards, sessions, queue: {
+      active: [],
+      queued: [
+        { id: 'i-wait', sessionId: 's-wait', directory: '/repo', content: 'waiting task', createdAt: 1, paused: false },
+        // A queue entry the session-list read did not cover carries no name.
+        { id: 'i-gone', sessionId: 's-gone', directory: '/repo', content: 'old task', createdAt: 1, paused: false },
+      ],
+      issues: [],
+    } }).snapshot('/repo');
+    expect(snapshot.sessionTitles).toEqual({ 's-card': 'Card session', 's-wait': 'Waiting build' });
+  });
+
   it('leaves a session delegated to a subagent-only agent off the board, saved card included', async () => {
     const cards = [
       baseCard({ id: 'mine', stage: 'plan', sessionId: 's-mine' }),

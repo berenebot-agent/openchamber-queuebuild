@@ -33,7 +33,7 @@ not classify sessions itself.
 The board renders `GET /api/work-board/snapshot` through `useWorkBoardSnapshot`
 (`hooks/useWorkBoardSnapshot.ts`). The snapshot carries each card's effective
 lane, each lane's order, live activity per session, the ask each session waits
-for, and the queue's own state
+for, the session's own name by id, and the queue's own state
 (rows, positions, running lease, forced builds, issue, enablement). The client
 therefore never:
 
@@ -41,6 +41,12 @@ therefore never:
 - classifies a session's lane from messages — the server owns the precedence
   (queue, then placement, then history);
 - infers a completion order — the server already ordered each lane.
+
+A card and queue row are labelled from the device's own session record first,
+then the snapshot's `sessionTitles`, then the id fallback. The snapshot entry is
+what a phone that never loaded the session list shows instead of `Session
+ses_…`; the local record stays first because session events keep it fresher than
+the snapshot interval.
 
 The hook re-reads on the server's `build-queue-updated` and
 `work-board-updated` events, on the tab becoming visible, and when the control

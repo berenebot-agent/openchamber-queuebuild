@@ -152,6 +152,11 @@ const snapshotSchema = z.object({
     updatedAt: z.number(), sessionId: z.string().optional(),
   })),
   activities: z.record(z.string(), z.object({ busy: z.boolean(), messages: z.array(activityMessageSchema) })),
+  // The session's own name by id, for the sessions this snapshot names. A
+  // client that has not loaded the session list itself still labels a queue row
+  // or a linked card from here. Optional so a cached client survives a server
+  // that predates the field.
+  sessionTitles: z.record(z.string(), z.string()).optional(),
   // The ask a session is waiting on, by session: a session busy because it waits
   // for the user's answer is not working, so the board must not paint it as such.
   // Separate from `activities` because an ask survives a failed history read.

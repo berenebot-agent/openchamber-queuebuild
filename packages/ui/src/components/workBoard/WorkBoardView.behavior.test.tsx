@@ -742,3 +742,64 @@ test('the board header opens its own Settings page and closes the board', async 
     }
   }
 });
+
+test('a queue row is named from the snapshot when the device has not loaded the session list', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = domGlobals(dom);
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projects = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  // The phone never synced the session list, so the only name for the waiting
+  // build is the one the snapshot carries.
+  const snapshot = makeSnapshot({
+    sessionTitles: { 's-wait': 'Allocated build name' },
+    queue: {
+      rows: [{ itemId: 'queued1', sessionId: 's-wait', directory: '/repo', content: 'Build it', paused: false, position: 0, model: null }],
+      order: ['queued1'],
+    },
+  });
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
+    if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
+    if (url.includes('/api/work-board/snapshot')) return Response.json(snapshot);
+    if (url.includes('/api/work-board')) return Response.json({ cards: [] });
+    return Response.json({});
+  });
+  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
+  useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
+    const queue = container.querySelector('section[aria-label="Build queue"]')!;
+    expect(queue.textContent).toContain('Allocated build name');
+    // The id fallback is gone from the row and its controls.
+    expect(queue.textContent).not.toContain('Session s-wait');
+    expect(queue.querySelector('button[title="Move Allocated build name up"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore();
+    useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});

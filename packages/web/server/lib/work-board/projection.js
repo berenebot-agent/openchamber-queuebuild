@@ -318,12 +318,22 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       order[lane] = [...arranged, ...unarranged].map(card => card.id);
     }
 
+    // The name OpenCode shows for each session this snapshot names, so a device
+    // that has not loaded the session list itself still labels a queue row or a
+    // linked card. A stored card's own `text` is its brief, not the session's
+    // name, so the titles travel by session id instead of riding the cards.
+    const sessionTitles = {};
+    for (const card of sessions.cards) {
+      if (card.sessionId && card.text) sessionTitles[card.sessionId] = card.text;
+    }
+
     return {
       directory,
       revision: now(),
       lanes,
       order,
       cards: decorated,
+      sessionTitles,
       placements,
       activities,
       waitingFor,

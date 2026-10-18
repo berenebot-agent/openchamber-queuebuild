@@ -6,6 +6,7 @@ type SnapshotInput = {
   queue?: Partial<WorkBoardSnapshot['queue']>;
   activities?: WorkBoardSnapshot['activities'];
   waitingFor?: WorkBoardSnapshot['waitingFor'];
+  sessionTitles?: WorkBoardSnapshot['sessionTitles'];
   unavailable?: string[];
 };
 
@@ -14,7 +15,7 @@ type SnapshotInput = {
  * board's derived state here (lane, order, status) instead of driving the
  * client's old history classifier, which no longer exists.
  */
-export function makeSnapshot({ directory = '/repo', cards = [], queue = {}, activities = {}, waitingFor = {}, unavailable = [] }: SnapshotInput = {}): WorkBoardSnapshot {
+export function makeSnapshot({ directory = '/repo', cards = [], queue = {}, activities = {}, waitingFor = {}, sessionTitles = {}, unavailable = [] }: SnapshotInput = {}): WorkBoardSnapshot {
   const lanes = Object.fromEntries(cards.map(card => [card.id, card.lane]));
   const order: WorkBoardSnapshot['order'] = { todo: [], plan: [], queue: [], build: [], done: [] };
   for (const card of cards) order[card.lane]?.push(card.id);
@@ -37,6 +38,7 @@ export function makeSnapshot({ directory = '/repo', cards = [], queue = {}, acti
     placements,
     activities,
     waitingFor,
+    sessionTitles,
     unavailable,
     inheritedAvailable: true,
     queue: {

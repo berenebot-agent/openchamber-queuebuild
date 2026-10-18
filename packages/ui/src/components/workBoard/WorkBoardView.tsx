@@ -769,10 +769,12 @@ export function WorkBoardView({ mobile = false, onLeave }: { mobile?: boolean; o
     [visibleProjectTabs, globalQueue, globalQueueError],
   );
   const activeBuild = queue?.active ?? undefined;
+  const snapshotTitles = snapshot?.sessionTitles;
   const sessionTitleFor = React.useCallback(
     (sessionId: string) => sessions.find(session => session.id === sessionId)?.title
+      || snapshotTitles?.[sessionId]
       || t('workBoard.sessionFallback', { id: sessionId.slice(0, 9) }),
-    [sessions, t],
+    [sessions, snapshotTitles, t],
   );
   const queueRows = React.useMemo(() => workBoardSnapshotRows(snapshot, sessionTitleFor), [snapshot, sessionTitleFor]);
   const queueOrder = React.useMemo(() => queue?.order ?? [], [queue]);
