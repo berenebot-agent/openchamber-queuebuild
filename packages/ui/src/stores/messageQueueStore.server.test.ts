@@ -516,6 +516,32 @@ describe("server-owned message queue", () => {
     await Promise.resolve()
     expect(calls[0]).toEqual({ method: "PUT", path: "/api/message-queue/sessions/session-1/order", body: { itemIds: ["q2", "q1"] }, directory: "/repo" })
   })
+
+  test("cancelBuild sends the cancellation and hands the build back for restore", async () => {
+    useMessageQueueStore.setState({ queuedMessages: { [key]: [{ id: "build-1", content: "planned task", text: "planned task", createdAt: 1, buildQueue: true, sendConfig: { providerID: "p", modelID: "m" } }] } })
+    respond = () => json({ revision: 15, session: session([]), item: serverItem("build-1", "planned task", { buildQueue: true }) })
+    const restored = await useMessageQueueStore.getState().cancelBuild(target, "build-1")
+
+    expect(calls[0]).toEqual({ method: "DELETE", path: "/api/message-queue/sessions/session-1/items/build-1", body: undefined, directory: "/repo" })
+    expect(restored?.content).toBe("planned task")
+    expect(useMessageQueueStore.getState().queuedMessages[key]).toBe(undefined)
+  })
+
+  test("cancelBuild returns null when the server no longer holds the item", async () => {
+    respond = () => json({ revision: 16, session: session([]) })
+    const restored = await useMessageQueueStore.getState().cancelBuild(target, "gone-1")
+    expect(restored).toBeNull()
+    expect(calls[0]?.method).toBe("DELETE")
+  })
+
+  test("a failed cancelBuild re-reads the server instead of guessing", async () => {
+    useMessageQueueStore.setState({ queuedMessages: { [key]: [{ id: "build-1", content: "planned task", text: "planned task", createdAt: 1, buildQueue: true, sendConfig: { providerID: "p", modelID: "m" } }] } })
+    respond = (call) => (call.method === "DELETE"
+      ? new Response(JSON.stringify({ error: "build is active or awaiting review" }), { status: 409 })
+      : json({ revision: 17, sessions: [session([])] }))
+    await expect(useMessageQueueStore.getState().cancelBuild(target, "build-1")).rejects.toThrow()
+    expect(useMessageQueueStore.getState().queuedMessages[key]).toBe(undefined)
+  })
 })
 
 // A space's queue lives in that space's own server, which numbers its own revisions: the UI sends

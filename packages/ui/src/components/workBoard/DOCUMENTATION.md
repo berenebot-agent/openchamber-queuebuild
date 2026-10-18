@@ -49,9 +49,10 @@ Every write goes to the server: placements (`placeWorkBoardCard`,
 `placeWorkBoardCards`), edits, removal, viewed acknowledgement, save-to-to-do,
 and the queue's own routes. A drag writes the board and nothing else: it never
 starts a turn, and it can neither put a card into nor take one out of the build
-queue. The queue column is the only queue-mutation surface: each row's own
+queue. The queue column is the queue's own management surface: each row's own
 controls, and a lane-level control that pauses or resumes every waiting build at
-once. There is no whole-queue pause on the server, so that control writes each
+once. (A session's `BuildQueueBanner` can also cancel its own waiting build; see
+`chat/composer/DOCUMENTATION.md`.) There is no whole-queue pause on the server, so that control writes each
 waiting item's own pause state (one refresh); a build queued after it still
 dispatches, and resuming clears rows paused one at a time. A queued row's pause
 control shows a pause glyph, and switches to a lit orange play glyph — kept

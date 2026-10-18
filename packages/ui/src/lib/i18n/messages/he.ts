@@ -41,6 +41,7 @@ export const dict = {
   'chat.buildQueue.paused': 'תור הבנייה של הפרויקט מושהה',
   'chat.buildQueue.running': 'בנייה פועלת',
   'chat.buildQueue.sessionCount': '{count} בניות מהצ׳אט הזה',
+  'chat.buildQueue.cancel': 'ביטול',
   'chat.buildQueue.openBoard': 'הצג ב-Work Board',
   'opencodeCompatibility.bundled': 'OpenCode מגיע יחד עם OpenChamber. יש לעדכן את OpenChamber כדי לקבל את OpenCode v2.',
   'opencodeCompatibility.title': 'נדרש OpenCode v2',

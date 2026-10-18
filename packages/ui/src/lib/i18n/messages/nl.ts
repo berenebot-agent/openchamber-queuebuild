@@ -41,6 +41,7 @@ export const dict = {
   'chat.buildQueue.paused': 'Buildwachtrij van project gepauzeerd',
   'chat.buildQueue.running': 'Build actief',
   'chat.buildQueue.sessionCount': '{count} builds vanuit deze chat',
+  'chat.buildQueue.cancel': 'Annuleren',
   'chat.buildQueue.openBoard': 'Bekijken op het Work Board',
   "opencodeCompatibility.bundled": "OpenCode is inbegrepen bij OpenChamber. Werk OpenChamber bij om OpenCode v2 te krijgen.",
   "opencodeCompatibility.title": "OpenCode v2 vereist",

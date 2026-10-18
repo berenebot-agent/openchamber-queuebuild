@@ -40,10 +40,14 @@ let queue: typeof snapshot;
 let root: Root;
 let container: HTMLDivElement;
 let fetchSpy: ReturnType<typeof spyOn>;
+let respond: (call: { url: string; method: string }) => Response | undefined = () => undefined;
 
 beforeEach(async () => {
   queue = { revision: 1, active: [], queued: [], issues: [], forced: [] };
-  fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json(queue));
+  respond = () => undefined;
+  fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => (
+    respond({ url: String(input), method: init?.method ?? 'GET' }) ?? Response.json(queue)
+  ));
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -55,10 +59,14 @@ afterEach(async () => {
   fetchSpy.mockRestore();
 });
 
-const render = async (props: { sessionId?: string | null; directory?: string | null } = {}) => {
+const render = async (props: { sessionId?: string | null; directory?: string | null; onMessageRestored?: (message: { content: string }) => void } = {}) => {
   await act(async () => root.render(
     <I18nProvider>
-      <BuildQueueBanner sessionId={props.sessionId ?? SESSION} directory={props.directory ?? DIRECTORY} />
+      <BuildQueueBanner
+        sessionId={props.sessionId ?? SESSION}
+        directory={props.directory ?? DIRECTORY}
+        onMessageRestored={props.onMessageRestored}
+      />
     </I18nProvider>,
   ));
 };
@@ -68,7 +76,7 @@ test('no indicator while this project holds no build', async () => {
   expect(container.textContent).toBe('');
 });
 
-test('shows the queued position and detail for this chat, with the board link as its only control', async () => {
+test('shows the queued position and detail for this chat, with cancel and the board link', async () => {
   queue = {
     revision: 1,
     active: [],
@@ -82,12 +90,40 @@ test('shows the queued position and detail for this chat, with the board link as
   await render();
   expect(container.textContent).toContain('#1 of 2');
   expect(container.textContent).toContain('2 builds from this chat');
-  // The Work Board is the one place a build queue is managed: the indicator
-  // shows state and opens it, and offers no cancel/restore of its own.
+  // A queued build can be pulled back out of the queue from its own chat; the
+  // board link stays for managing the rest of the project's queue.
   const buttons = [...container.querySelectorAll('button')];
-  expect(buttons).toHaveLength(1);
-  expect(buttons[0].textContent).toBe('View on Work Board');
-  expect(container.textContent).not.toContain('Cancel');
+  expect(buttons.map(button => button.textContent)).toEqual(['Cancel', 'View on Work Board']);
+});
+
+test('cancelling pulls the build out of the queue and restores the draft to the composer', async () => {
+  queue = {
+    revision: 1,
+    active: [],
+    queued: [{ id: 'a', sessionId: SESSION, directory: DIRECTORY, content: 'typed brief', createdAt: 1, order: 0, paused: false }],
+    issues: [],
+    forced: [],
+  };
+  const calls: Array<{ url: string; method: string }> = [];
+  respond = (call) => {
+    calls.push(call);
+    if (call.method !== 'DELETE') return undefined;
+    return Response.json({
+      revision: 2,
+      session: { sessionId: SESSION, directory: DIRECTORY, items: [], sendingId: null },
+      item: { id: 'a', createdAt: 1, content: 'typed brief', text: 'typed brief', attachments: [], sendConfig: { providerID: 'p', modelID: 'm' } },
+    });
+  };
+  const restored: Array<{ content: string }> = [];
+  await render({ onMessageRestored: message => restored.push(message) });
+
+  const cancel = [...container.querySelectorAll('button')].find(button => button.textContent === 'Cancel');
+  if (!cancel) throw new Error('expected a Cancel control');
+  await act(async () => cancel.click());
+
+  expect(calls.find(call => call.method === 'DELETE')?.url).toContain('/api/message-queue/sessions/ses_repo/items/a');
+  expect(restored).toHaveLength(1);
+  expect(restored[0]?.content).toBe('typed brief');
 });
 
 test('shows a review state for a build parked for review', async () => {

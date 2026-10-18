@@ -1665,6 +1665,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         void handleSubmitRef.current({ queuedOnly: true, queuedMessageId: messageId, delivery: 'steer' });
     }, []);
 
+    // A cancelled wait in the build queue comes back as a prompt for this
+    // session's own draft, appended after whatever is already typed.
+    const handleBuildDraftRestored = React.useCallback((queued: QueuedMessage) => {
+        if (!chatDraftIdentity) return;
+        const files = (queued.attachments ?? []).flatMap((attachment) => attachment.dataUrl
+            ? [{ url: attachment.dataUrl, mimeType: attachment.mimeType, filename: attachment.filename }]
+            : []);
+        useInputStore.getState().adoptPrompt(chatDraftIdentity, { text: queued.content, files });
+    }, [chatDraftIdentity]);
+
     const handleOpenAgentPanel = React.useCallback(() => {
         setMobileControlsPanel('agent');
     }, []);
@@ -4054,6 +4064,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         <BuildQueueBanner
             sessionId={currentSessionId}
             directory={currentSessionDirectoryForSync ?? currentDirectory ?? null}
+            onMessageRestored={handleBuildDraftRestored}
         />
     ) : null;
     const queueRow = !isBtwActive && !newSessionDraftOpen ? (

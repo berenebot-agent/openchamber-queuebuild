@@ -42,6 +42,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.buildQueue.paused': '專案建置佇列已暫停',
   'chat.buildQueue.running': '建置進行中',
   'chat.buildQueue.sessionCount': '此聊天中有 {count} 個建置',
+  'chat.buildQueue.cancel': '取消',
   'chat.buildQueue.openBoard': '在 Work Board 中檢視',
   "opencodeCompatibility.bundled": "OpenCode 隨 OpenChamber 一起提供。請更新 OpenChamber 以取得 OpenCode v2。",
   "opencodeCompatibility.title": "需要 OpenCode v2",

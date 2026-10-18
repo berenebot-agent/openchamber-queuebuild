@@ -218,6 +218,8 @@ const serverSessionResponseSchema = z.object({
 
 const serverTakeResponseSchema = serverSessionResponseSchema.extend({ item: serverItemSchema });
 const serverTakeAllResponseSchema = serverSessionResponseSchema.extend({ items: z.array(serverItemSchema) });
+/** A cancellation hands the removed item back so the composer can restore it. */
+const serverCancelResponseSchema = serverSessionResponseSchema.extend({ item: serverItemSchema.optional() });
 
 type ServerQueueSession = z.infer<typeof serverSessionSchema>;
 type ServerQueueItem = z.infer<typeof serverItemSchema>;
@@ -403,6 +405,12 @@ interface MessageQueueActions {
     addToQueue: (target: MessageQueueTarget, message: QueuedMessageInput) => Promise<void>;
     removeFromQueue: (target: MessageQueueTarget, messageId: string) => void;
     reorderQueue: (target: MessageQueueTarget, fromId: string, toId: string) => void;
+    /**
+     * Cancels a queued build and returns it in full, attachments and context
+     * included, so the composer can restore what the user typed. Null when the
+     * item was already gone.
+     */
+    cancelBuild: (target: MessageQueueTarget, messageId: string) => Promise<QueuedMessage | null>;
     /** Removes the message and returns it in full, attachments included. */
     popToInput: (target: MessageQueueTarget, messageId: string) => Promise<QueuedMessage | null>;
     /**
@@ -670,6 +678,25 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         set((state) => removeMessageLocally(state, key, messageId));
                         if (isServerOwnedMessageQueue()) {
                             void serverMutation(target, `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}`, jsonInit('DELETE'));
+                        }
+                    },
+
+                    cancelBuild: async (target, messageId) => {
+                        const key = getMessageQueueKey(target);
+                        set((state) => removeMessageLocally(state, key, messageId));
+                        // The build queue is server-owned; VS Code never creates these items.
+                        if (!isServerOwnedMessageQueue()) return null;
+                        try {
+                            const result = await requestJson(
+                                serverCancelResponseSchema,
+                                `${sessionPath(target.sessionId)}/items/${encodeURIComponent(messageId)}`,
+                                toOwner(target, jsonInit('DELETE')),
+                            );
+                            applyServerSession(result.session, result.revision, target.runtimeKey, queueOwnerOf(target.directory));
+                            return result.item ? toQueuedMessage(result.item) : null;
+                        } catch (error) {
+                            await refreshSession(target);
+                            throw error;
                         }
                     },
 

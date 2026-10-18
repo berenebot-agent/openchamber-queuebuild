@@ -165,9 +165,11 @@ message queue. Neither path sets a client-owned Build routing flag or reads
 browser queue preferences. The server validates submission context and owns
 special-mode and steering decisions. VS Code-only delivery stays local.
 
-`BuildQueueBanner`, the compact indicator above the session queue, links to the
-session's project on the Work Board. Build queue mutations live on the board;
-there is no RHS Build Queue pane. The unrelated per-session message queue
+`BuildQueueBanner`, the compact indicator above the session queue, shows this
+session's queued build and can cancel it, handing its prompt back to the
+session's draft (appended, never replacing it), and otherwise opens the
+session's project on the Work Board. The rest of the queue is managed on the
+board; there is no RHS Build Queue pane. The unrelated per-session message queue
 keeps its own edit, send and removal controls.
 
 `BackgroundShellsStrip` lists the commands that went to the background (not the ones

@@ -42,6 +42,7 @@ export const dict: Record<I18nKey, string> = {
   'chat.buildQueue.paused': '프로젝트 빌드 대기열 일시 중지됨',
   'chat.buildQueue.running': '빌드 실행 중',
   'chat.buildQueue.sessionCount': '이 채팅에서 {count}개 빌드',
+  'chat.buildQueue.cancel': '취소',
   'chat.buildQueue.openBoard': 'Work Board에서 보기',
   "opencodeCompatibility.bundled": "OpenCode는 OpenChamber에 포함되어 있습니다. OpenCode v2를 사용하려면 OpenChamber를 업데이트하세요.",
   "opencodeCompatibility.title": "OpenCode v2가 필요합니다",

@@ -41,6 +41,7 @@ export const dict = {
   'chat.buildQueue.paused': 'Proje derleme kuyruğu duraklatıldı',
   'chat.buildQueue.running': 'Derleme sürüyor',
   'chat.buildQueue.sessionCount': 'Bu sohbetten {count} derleme',
+  'chat.buildQueue.cancel': 'İptal',
   'chat.buildQueue.openBoard': 'Work Board\'da görüntüle',
   "opencodeCompatibility.bundled": "OpenCode, OpenChamber ile birlikte gelir. OpenCode v2 için OpenChamber’ı güncelleyin.",
   "opencodeCompatibility.title": "OpenCode v2 gerekli",
