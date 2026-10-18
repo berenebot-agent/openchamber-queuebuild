@@ -22,7 +22,7 @@ type PlacementTarget = { id: string; updatedAt: number; text: string; sessionId?
 type PlacementLane = 'todo' | 'plan' | 'build' | 'done';
 type PlacementWrite = { lane: PlacementLane; expectedUpdatedAt?: number; before?: string | null }
   | { directory: string; lane: PlacementLane; targets: PlacementTarget[] };
-type QueueSettingsWrite = { directory: string; enabled: boolean };
+type QueueSettingsWrite = { directory: string; enabled: boolean | null };
 
 export class WorkBoardRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -176,11 +176,17 @@ export async function fetchWorkBoardSnapshot(directory: string, includeOlder = f
 }
 
 /**
- * Set the project's queue enablement. Default enabled: a project with no saved
- * setting queues Build prompts, and only an explicit off turns it off. The
- * saved value comes back so the board can settle its optimistic switch.
+ * Set the project's queue enablement: `true` or `false` is the project's own
+ * choice, `null` clears it so the project follows the instance default. The
+ * effective value comes back so the board can settle its optimistic switch.
  */
-export async function updateQueueSettings(directory: string, enabled: boolean): Promise<boolean> {
+export async function updateQueueSettings(directory: string, enabled: boolean | null): Promise<boolean> {
   const body = z.object({ enabled: z.boolean() }).parse(await request('/api/build-queue/settings', 'PUT', { directory, enabled }));
   return body.enabled;
+}
+
+/** The project's effective enablement and the choice it stores, if any. */
+export async function fetchQueueSettings(directory: string): Promise<{ enabled: boolean; override: boolean | null }> {
+  return z.object({ enabled: z.boolean(), override: z.boolean().nullable() })
+    .parse(await request(`/api/build-queue/settings?directory=${encodeURIComponent(directory)}`));
 }

@@ -84,9 +84,12 @@ to resolve it. A plain forced build stays display-only.
 ## Project queue toggle
 
 The board owns the project's queue enablement (`Queue on` / `Queue off`), read
-from and written to `GET`/`PUT /api/build-queue/settings`. The toggle is
-optimistic and reverts on a failed write. Default is enabled. The Git policy
-selector is not here: it lives in Settings → Work board.
+from and written to `GET`/`PUT /api/build-queue/settings`. The toggle writes the
+project's own choice, and is optimistic and reverts on a failed write. A project
+that never chose follows the instance default set on the Work board settings
+page; the Projects page shows that same choice as Follow default / On / Off, so
+the two surfaces write one value. The Git policy selector is not here: it lives
+in Settings → Work board.
 
 ## Mobile presentation
 

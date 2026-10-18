@@ -37,19 +37,24 @@ JSON bodies enabled in `opencode/core-routes.js`; stopped by
 
 The queue is a property of the **project**, stored in its own config file
 (`packages/web/server/lib/projects/project-config.js`, key
-`buildQueueEnabled`). Only an explicit off is written; a project that never
-chose has no key and reads as enabled. The whole checkout shares one setting,
-so every worktree of a project answers the same way while each worktree keeps
-its own lane and lease. The directory a request names cannot change the answer:
+`buildQueueEnabled`). The key holds the project's own choice as `true` or
+`false`; a project that never chose has no key and follows the instance default
+(`buildQueueDefaultEnabled`, on unless set otherwise). Writing `null` clears the
+choice and returns the project to the default. The whole checkout shares one
+setting, so every worktree of a project answers the same way while each worktree
+keeps its own lane and lease. The directory a request names cannot change the answer:
 the server resolves it to its canonical project first, so a prompt cannot opt
 itself out of its session's queue by asking with another directory.
 
-`GET /api/build-queue/settings?directory=…` answers `{ enabled }`;
+`GET /api/build-queue/settings?directory=…` answers `{ enabled, override }`,
+where `enabled` is what the queue does and `override` is the project's own
+choice or `null` when it follows the default;
 `PUT /api/build-queue/settings` with `{ directory, enabled }` saves it and
 answers `{ enabled }`. A directory the server cannot place in a project is 400.
 Turning the queue off is refused with 409 while a build is running, being
 prepared, being dispatched, or waiting for that project — those builds would
-otherwise be stranded.
+otherwise be stranded. Clearing to the default is refused the same way when the
+instance default is off.
 
 ## Admission
 
@@ -520,8 +525,8 @@ allowlists.
 | Route | Purpose |
 |---|---|
 | `GET /api/message-queue` | Full snapshot `{ revision, sessions[] }` |
-| `GET /api/build-queue/settings?directory=` | `{ enabled }` for the project that directory belongs to |
-| `PUT /api/build-queue/settings` | `{ directory, enabled }` → `{ enabled }`; 409 while that project's builds are running or waiting |
+| `GET /api/build-queue/settings?directory=` | `{ enabled, override }` for the project that directory belongs to |
+| `PUT /api/build-queue/settings` | `{ directory, enabled }` → `{ enabled }`; `enabled: null` clears the project's choice; 409 while that project's builds are running or waiting |
 | `POST .../sessions/:id/items` | Append `{ directory, item }`; returns `{ revision, session, itemId }` and arms a dispatch (the session may already be idle) |
 | `DELETE .../sessions/:id/items/:itemId` | Remove; `409` while that item is in flight. Returns `{ revision, session, item? }` — the removed item's full payload — so the composer can restore a cancelled build instead of losing the prompt |
 | `POST .../sessions/:id/items/:itemId/take` | Remove and return the full item (payloads included); `404`/`409` |

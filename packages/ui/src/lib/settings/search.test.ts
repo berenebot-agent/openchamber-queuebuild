@@ -174,4 +174,15 @@ describe('settings search', () => {
     });
     expect(results.some((result) => result.id === 'integrations.guests')).toBe(false);
   });
+
+  test('finds the queue policy, the instance default, and the per-project choice', () => {
+    for (const query of ['build queue', 'queue policy', 'commit staged']) {
+      const results = buildSettingsSearchResults({ query, runtimeCtx, t, getPageTitle: (page) => page });
+      expect(results.find((result) => result.id === 'work-board.policy')?.page).toBe('work-board');
+    }
+    const defaults = buildSettingsSearchResults({ query: 'default queue', runtimeCtx, t, getPageTitle: (page) => page });
+    expect(defaults.find((result) => result.id === 'work-board.default-enabled')?.page).toBe('work-board');
+    const project = buildSettingsSearchResults({ query: 'follow default', runtimeCtx, t, getPageTitle: (page) => page });
+    expect(project.find((result) => result.id === 'projects.build-queue')?.page).toBe('projects');
+  });
 });

@@ -981,18 +981,29 @@ describe('project-config loop reconciliation', () => {
 });
 
 describe('project-config build queue enablement', () => {
-  it('reads null until the project chooses, and only stores an explicit off', async () => {
+  it('reads null until the project chooses, stores the choice, and clears it back to the default', async () => {
     const { runtime, tempRoot, cleanup } = await createRuntime();
     try {
       expect(await runtime.readBuildQueueEnabled('project-test')).toBeNull();
       await runtime.setBuildQueueEnabled('project-test', false);
       expect(await runtime.readBuildQueueEnabled('project-test')).toBe(false);
+      // An explicit on is a real choice, kept as true so it outlives a change
+      // to the instance default.
       await runtime.setBuildQueueEnabled('project-test', true);
-      // Back on default: the key is removed, not stored as true.
+      expect(await runtime.readBuildQueueEnabled('project-test')).toBe(true);
+      // Null clears the choice: the project follows the instance default again.
+      await runtime.setBuildQueueEnabled('project-test', null);
       expect(await runtime.readBuildQueueEnabled('project-test')).toBeNull();
       const raw = JSON.parse(await readFile(path.join(tempRoot, 'project-test.json'), 'utf8'));
       expect('buildQueueEnabled' in raw).toBe(false);
       expect(raw.version).toBe(1);
+    } finally { await cleanup(); }
+  });
+
+  it('refuses a value that is not true, false, or null', async () => {
+    const { runtime, cleanup } = await createRuntime();
+    try {
+      await expect(runtime.setBuildQueueEnabled('project-test', 'yes')).rejects.toThrow(TypeError);
     } finally { await cleanup(); }
   });
 

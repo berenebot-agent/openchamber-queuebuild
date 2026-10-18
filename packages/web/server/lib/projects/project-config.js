@@ -993,9 +993,11 @@ export const createProjectConfigRuntime = (deps) => {
    * otherwise a prompt could opt itself out of the session's own queue by
    * asking with a different directory.
    *
-   * Only `false` is stored. A project that never chose is absent from the file,
-   * which reads as enabled on a server that can enforce the queue; the key is
-   * written as `false` only when the user turns it off explicitly.
+   * A project that never chose is absent from the file and follows the
+   * instance default (`buildQueueDefaultEnabled`, on unless set otherwise).
+   * An explicit choice is stored as `true` or `false`, so the project keeps it
+   * whichever way the default later moves; `null` clears it back to the
+   * default.
    */
   const readBuildQueueEnabled = async (projectID) => {
     const raw = await readRawProjectConfigFromDisk(projectID);
@@ -1003,12 +1005,15 @@ export const createProjectConfigRuntime = (deps) => {
   };
 
   const setBuildQueueEnabled = async (projectID, enabled) => withProjectWriteLock(projectID, async () => {
+    if (enabled !== true && enabled !== false && enabled !== null) {
+      throw new TypeError('build queue enablement must be true, false, or null');
+    }
     const existing = await readRawProjectConfigFromDisk(projectID);
     const next = { ...existing, version: PROJECT_CONFIG_VERSION };
-    if (enabled === true) delete next.buildQueueEnabled;
-    else next.buildQueueEnabled = false;
+    if (enabled === null) delete next.buildQueueEnabled;
+    else next.buildQueueEnabled = enabled;
     await writeRawProjectConfigToDisk(projectID, next);
-    return enabled === true;
+    return enabled;
   });
 
   /**

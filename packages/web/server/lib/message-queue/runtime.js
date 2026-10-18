@@ -901,6 +901,15 @@ export function createMessageQueueRuntime({
       return 'pause';
     }
   };
+  // The enablement a project follows until it chooses. Missing settings read as
+  // on, so an unreadable settings file never turns a project's queue off.
+  const buildQueueDefaultEnabled = () => {
+    try {
+      return readMergedSettingsSync({ fs, path, settingsFilePath })?.buildQueueDefaultEnabled !== false;
+    } catch {
+      return true;
+    }
+  };
   const inspectGit = async (directory) => {
     try {
       const { stdout } = await runGit('git', ['-C', directory, 'status', '--porcelain=v1', '--untracked-files=normal'], { timeout: 12000, maxBuffer: 1024 * 1024 });
@@ -2214,6 +2223,8 @@ export function createMessageQueueRuntime({
    * the stored value could not be read. `null` is not "off": the settings
    * endpoint answers it as enabled, while an execution-starting admission
    * treats it as a possible bypass and refuses (see the admission guard).
+   *
+   * A project that never chose follows the instance default, which is on.
    */
   const queueEnabledStateFor = async (identity) => {
     const projectId = asNonEmptyString(asRecord(identity)?.projectId);
@@ -2222,7 +2233,7 @@ export function createMessageQueueRuntime({
     if (!projectConfigRuntime || !projectId) return true;
     try {
       const stored = await projectConfigRuntime.readBuildQueueEnabled(projectId);
-      return stored !== false;
+      return stored === null ? buildQueueDefaultEnabled() : stored;
     } catch {
       return null;
     }
@@ -2232,12 +2243,16 @@ export function createMessageQueueRuntime({
 
   const readQueueSettings = async (identityInput) => {
     const identity = await projectIdentityOf(identityInput);
-    if (!asNonEmptyString(identity?.projectId)) throw httpError('A project directory is required', 400);
-    return { enabled: await queueEnabledFor(identity) };
+    const projectId = asNonEmptyString(identity?.projectId);
+    if (!projectId) throw httpError('A project directory is required', 400);
+    // `enabled` is what the queue does; `override` is whether this project
+    // chose for itself, so the settings page can show "Follow default".
+    const stored = projectConfigRuntime ? await projectConfigRuntime.readBuildQueueEnabled(projectId).catch(() => null) : null;
+    return { enabled: stored === null ? buildQueueDefaultEnabled() : stored, override: stored };
   };
 
   const writeQueueSettings = async (identityInput, enabled) => withAdmission(async () => {
-    if (enabled !== true && enabled !== false) throw new TypeError('enabled must be a boolean');
+    if (enabled !== true && enabled !== false && enabled !== null) throw new TypeError('enabled must be a boolean or null');
     const identity = await projectIdentityOf(identityInput);
     const projectId = asNonEmptyString(identity?.projectId);
     if (!projectId) throw httpError('A project directory is required', 400);
@@ -2245,7 +2260,8 @@ export function createMessageQueueRuntime({
     // Turning the queue off while work is in flight would strand the build that
     // is running and the builds waiting behind it; both must be finished or
     // cancelled first, so the user is told rather than silently losing them.
-    if (enabled === false) {
+    // Clearing back to the default counts when that default is off.
+    if (enabled === false || (enabled === null && !buildQueueDefaultEnabled())) {
       const directory = asNonEmptyString(identity.directory);
       const holding = directory && activeBuilds.has(directory)
         ? 'A build is running for this project.'
@@ -2260,7 +2276,7 @@ export function createMessageQueueRuntime({
       }
     }
     await projectConfigRuntime.setBuildQueueEnabled(projectId, enabled);
-    return { enabled };
+    return { enabled: enabled === null ? buildQueueDefaultEnabled() : enabled };
   });
 
   /** The admission path the prompt route uses, serialized with the setting. */

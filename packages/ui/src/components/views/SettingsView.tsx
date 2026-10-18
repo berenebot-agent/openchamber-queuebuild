@@ -731,6 +731,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       case 'chat':
       case 'shortcuts':
       case 'sessions':
+      case 'work-board':
       case 'notifications':
       case 'voice':
       case 'tunnel':

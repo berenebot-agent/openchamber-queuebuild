@@ -342,6 +342,11 @@ export const createSettingsHelpers = (dependencies) => {
     if (candidate.buildQueueGitPolicy === null || ['continue', 'commit', 'pause'].includes(candidate.buildQueueGitPolicy)) {
       result.buildQueueGitPolicy = candidate.buildQueueGitPolicy;
     }
+    // The enablement a project follows until it chooses for itself. The
+    // message-queue runtime reads it when a project has no stored choice.
+    if (candidate.buildQueueDefaultEnabled === true || candidate.buildQueueDefaultEnabled === false) {
+      result.buildQueueDefaultEnabled = candidate.buildQueueDefaultEnabled;
+    }
     if (typeof candidate.desktopUiPassword === 'string') {
       result.desktopUiPassword = candidate.desktopUiPassword.trim();
     }

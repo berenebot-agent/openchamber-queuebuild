@@ -4,12 +4,14 @@ One directory per Settings page. `shared/` holds the page chrome and controls
 every page is built from; see `.agents/skills/settings-ui-patterns/SKILL.md` for
 which primitive to reach for.
 
-The Work board page includes `openchamber/BuildQueueSettings.tsx`, the
-instance-wide Git policy for project Build queues. It preserves the legacy
-clean-Git fallback and never opts existing users into automatic commits.
-`openchamber/WorkBoardViewSettings.tsx` adds the board's own Include older
-sessions choice, scoped by the page's project selector. Queue enablement and
-job controls remain on the Work Board. VS Code-only hides this page.
+`openchamber/BuildQueueSettings.tsx` holds the instance-wide Git policy for
+project Build queues and preserves the legacy clean-Git fallback, and
+`openchamber/BuildQueueDefaultsSettings.tsx` holds the queue enablement a project
+follows until it chooses its own. `openchamber/WorkBoardViewSettings.tsx` adds
+the board's own Include older sessions choice, scoped by the page's project
+selector. The per-project queue choice lives on the Projects page
+(`projects/ProjectBuildQueueRow.tsx`) as Follow default / On / Off. Queue job
+controls remain on the Work Board. VS Code-only hides this page.
 
 ## Autosave on the OpenCode configuration pages
 

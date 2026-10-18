@@ -1130,6 +1130,8 @@ interface UIStore {
   /** Project build queue Git gate (fork feature). On: a queued build waits for a clean working tree. */
   buildQueueRequireCleanGit: boolean;
   buildQueueGitPolicy: 'continue' | 'commit' | 'pause' | null;
+  /** The enablement a project follows until it chooses its own queue on or off. */
+  buildQueueDefaultEnabled: boolean;
   /** Full-text message search (server index). Opt-in: off keeps every part of it idle. */
   messageSearchEnabled: boolean;
   /** Also index the agent's reasoning. Opt-in: it can make the index much bigger. */
@@ -1408,6 +1410,7 @@ interface UIStore {
   setAgentWebToolEnabled: (value: boolean) => void;
   setBuildQueueRequireCleanGit: (value: boolean) => void;
   setBuildQueueGitPolicy: (value: 'continue' | 'commit' | 'pause' | null) => void;
+  setBuildQueueDefaultEnabled: (value: boolean) => void;
   setMessageSearchEnabled: (value: boolean) => void;
   setMessageSearchReasoningEnabled: (value: boolean) => void;
   setBrowserProvider: (value: string) => void;
@@ -1639,6 +1642,7 @@ export const useUIStore = create<UIStore>()(
         agentWebToolEnabled: true,
         buildQueueRequireCleanGit: true,
         buildQueueGitPolicy: null,
+        buildQueueDefaultEnabled: true,
         messageSearchEnabled: false,
         messageSearchReasoningEnabled: false,
         browserProvider: 'builtin',
@@ -3245,6 +3249,9 @@ export const useUIStore = create<UIStore>()(
         setBuildQueueGitPolicy: (value) => {
           set({ buildQueueGitPolicy: value });
         },
+        setBuildQueueDefaultEnabled: (value) => {
+          set({ buildQueueDefaultEnabled: value });
+        },
         setMessageSearchEnabled: (value) => {
           set({ messageSearchEnabled: value });
         },
@@ -3780,6 +3787,7 @@ export const useUIStore = create<UIStore>()(
           agentWebToolEnabled: state.agentWebToolEnabled,
           buildQueueRequireCleanGit: state.buildQueueRequireCleanGit,
           buildQueueGitPolicy: state.buildQueueGitPolicy,
+          buildQueueDefaultEnabled: state.buildQueueDefaultEnabled,
           messageSearchEnabled: state.messageSearchEnabled,
           messageSearchReasoningEnabled: state.messageSearchReasoningEnabled,
           browserProvider: state.browserProvider,

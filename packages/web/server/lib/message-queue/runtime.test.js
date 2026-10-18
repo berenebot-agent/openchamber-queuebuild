@@ -2251,7 +2251,7 @@ describe('queue settings', () => {
     return {
       state,
       readBuildQueueEnabled: async () => state.enabled,
-      setBuildQueueEnabled: async (_projectId, value) => { state.written.push(value); state.enabled = value === false ? false : true; return state.enabled; },
+      setBuildQueueEnabled: async (_projectId, value) => { state.written.push(value); state.enabled = value; return state.enabled; },
       readProjectSetup: async () => ({}),
       updateProjectSetup: async () => ({}),
       resolveProjectConfigPath: () => '/tmp/none.json',
@@ -2266,12 +2266,15 @@ describe('queue settings', () => {
   it('answers enabled by default, and off only after an explicit off', async () => {
     const projectConfigRuntime = settingsRuntime();
     const { runtime } = createRuntime({ projectConfigRuntime, resolveProjectIdentity: identityOf });
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null });
     await runtime.writeQueueSettings({ directory: DIRECTORY }, false);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: false });
     await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true });
-    expect(projectConfigRuntime.state.written).toEqual([false, true]);
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true });
+    // Null clears the project's choice; it follows the instance default again.
+    await runtime.writeQueueSettings({ directory: DIRECTORY }, null);
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null });
+    expect(projectConfigRuntime.state.written).toEqual([false, true, null]);
     runtime.stop();
     await runtime.flush();
   });
@@ -2292,7 +2295,20 @@ describe('queue settings', () => {
 
   it('answers enabled when the setting cannot be stored at all', async () => {
     const { runtime } = createRuntime({ resolveProjectIdentity: identityOf });
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('a project that never chose follows the instance default', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueDefaultEnabled: false }));
+    const { runtime } = createRuntime({ settingsFilePath, projectConfigRuntime: settingsRuntime(), resolveProjectIdentity: identityOf });
+    // No stored choice, so the project reads the default, which is off here.
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: null });
+    // An explicit on beats the default and is kept as the project's own choice.
+    await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true });
     runtime.stop();
     await runtime.flush();
   });

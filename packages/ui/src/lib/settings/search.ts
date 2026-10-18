@@ -52,6 +52,22 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    id: 'work-board.default-enabled',
+    page: 'work-board',
+    titleKey: 'settings.openchamber.buildQueue.defaults.enabled',
+    descriptionKey: 'settings.openchamber.buildQueue.defaults.info',
+    keywords: ['default', 'queue', 'build', 'enable', 'projects', 'new'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'projects.build-queue',
+    page: 'projects',
+    titleKey: 'workBoard.queueEnabledLabel',
+    descriptionKey: 'settings.projects.page.queue.followInfo',
+    keywords: ['queue', 'build', 'enable', 'project', 'follow default', 'override'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'chat.activity-default',
     page: 'chat',
     titleKey: 'settings.openchamber.visual.section.activityDefault',

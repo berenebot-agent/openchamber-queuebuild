@@ -4,6 +4,7 @@ import { SessionRetentionSettings } from './SessionRetentionSettings';
 import { MergedWorktreeCleanupSettings } from './MergedWorktreeCleanupSettings';
 import { SessionWorkSettings } from './SessionWorkSettings';
 import { BuildQueueSettings } from './BuildQueueSettings';
+import { BuildQueueDefaultsSettings } from './BuildQueueDefaultsSettings';
 import { WorkBoardViewSettings } from './WorkBoardViewSettings';
 import { PasskeySettings } from './PasskeySettings';
 import { AppLinkSecuritySettings } from './AppLinkSecuritySettings';
@@ -184,11 +185,13 @@ const SessionsSectionContent: React.FC<{ runtimeEndpointEpoch: number }> = ({ ru
     );
 };
 
-// Work board section: the project's Build queue policy, then the board's own display.
+// Work board section: the instance-wide queue behaviour, the enablement new
+// projects follow, then the board's own display.
 const WorkBoardSectionContent: React.FC = () => {
     return (
         <>
             <BuildQueueSettings />
+            <BuildQueueDefaultsSettings />
             <WorkBoardViewSettings />
         </>
     );
