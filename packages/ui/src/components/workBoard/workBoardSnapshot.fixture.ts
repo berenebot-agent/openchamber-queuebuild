@@ -42,7 +42,7 @@ export function makeSnapshot({ directory = '/repo', cards = [], queue = {}, acti
     unavailable,
     inheritedAvailable: true,
     queue: {
-      known: true, enabled: true, rows: [], order: [], active: null, forced: [], issue: null, preparation: null, commit: null,
+      known: true, paused: false, enabled: true, rows: [], order: [], active: null, forced: [], issue: null, preparation: null, commit: null,
       ...queue,
     },
   };

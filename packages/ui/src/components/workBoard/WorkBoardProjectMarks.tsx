@@ -20,7 +20,9 @@ function WorkBoardTabBuildBadge({ badge, label }: { badge: WorkBoardBuildBadge; 
       ? t('workBoard.headerPausedGit', { project: label })
       : badge.paused === 'review'
         ? t('workBoard.headerPausedReview', { project: label })
-        : t('workBoard.headerBuilds', { project: label, count: badge.count });
+        : badge.paused === 'manual'
+          ? t('chat.buildQueue.paused')
+          : t('workBoard.headerBuilds', { project: label, count: badge.count });
   if (badge.error) {
     return <span
       className="me-1 inline-flex shrink-0 items-center justify-center"

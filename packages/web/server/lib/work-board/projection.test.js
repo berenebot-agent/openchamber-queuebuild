@@ -60,6 +60,19 @@ describe('work board session listing', () => {
 });
 
 describe('work board projection', () => {
+  it('projects queue pause independently of item pauses, scoped to its directory', async () => {
+    const projection = makeProjection({ queue: {
+      pausedDirectories: ['/repo/'], active: [], issues: [],
+      queued: [{ id: 'i1', sessionId: 's1', directory: '/repo', content: 'Keep my prompt', paused: false }],
+    } });
+    const snapshot = await projection.snapshot('/repo');
+    expect(snapshot.queue.paused).toBe(true);
+    expect(snapshot.queue.rows[0]).toMatchObject({ content: 'Keep my prompt', paused: false });
+    expect((await projection.snapshot('/other')).queue.paused).toBe(false);
+    expect((await makeProjection({ queue: { queued: [{ id: 'i2', sessionId: 's2', directory: '/repo', content: 'Wait', paused: true }] } }).snapshot('/repo')).queue.paused).toBe(false);
+    expect((await makeProjection().snapshot('/repo')).queue).toMatchObject({ paused: false, known: false });
+  });
+
   it('derives each lane from placement, history and the queue', async () => {
     const cards = [
       baseCard({ id: 'todo', stage: 'todo', updatedAt: 5 }),

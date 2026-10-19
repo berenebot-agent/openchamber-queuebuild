@@ -102,6 +102,7 @@ test('a paused project reads differently from a queue that could not be read', a
       badges={new Map<string, WorkBoardBuildBadge>([
         ['alpha', { count: 1, error: false, paused: 'review' }],
         ['beta', { count: 2, error: false, paused: 'git' }],
+        ['gamma', { count: 0, error: false, paused: 'manual' }],
       ])}
       asks={new Map()}
       onSelect={() => {}}
@@ -121,8 +122,10 @@ test('a paused project reads differently from a queue that could not be read', a
     expect(git?.getAttribute('aria-label')).toBe('Beta: build queue is held by Git');
     // A waiting project still counts its builds, so the tab says how much waits.
     expect(tabFor('Beta')!.querySelector('[data-work-board-build="running"]')).toBeNull();
-    // A project with no queue work and no pause keeps no badge.
-    expect(tabFor('Gamma')!.querySelector('[data-work-board-build]')).toBeNull();
+    // A manual queue pause stays visible even with no waiting builds.
+    const manual = tabFor('Gamma')!.querySelector('[data-work-board-build="paused-manual"]');
+    expect(manual?.getAttribute('aria-label')).toBe('Project build queue paused');
+    expect(manual?.querySelector('svg')).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
     await dom.happyDOM.close();

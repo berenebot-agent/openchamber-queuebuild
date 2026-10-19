@@ -335,6 +335,31 @@ skipped when selecting the next runnable build. A paused head still holds its
 own session queue; other sessions' unpaused builds may proceed. Resuming arms
 dispatch without changing the item's order. Active or already-started builds
 cannot be paused.
+
+The queue itself can be paused per directory through
+`PUT /api/build-queue/pause` with `{ directory, paused: boolean }`. The runtime
+stores `pausedDirectories` in `message-queue.json`, even for an empty queue, and
+publishes it in `GET /api/build-queue`. Older files without the field start with
+no whole-queue pauses; existing individual item pauses stay unchanged. A malformed
+pause field refuses loading and writing rather than allowing work to start.
+Directory keys use the board's existing slash normalization, so a trailing slash
+cannot make the displayed pause disagree with dispatch.
+
+This hold is independent of `item.buildPaused`. New Build submissions are still
+accepted and merged normally, retaining their prompts, attachments and order.
+Dispatch excludes every waiting build in the paused directory, even after an
+individual resume. Resuming the queue preserves individual pauses and wakes the
+directory only after the resume is persisted. A failed write answers 503 and
+keeps dispatch paused in memory. Queue-only changes broadcast
+`openchamber:build-queue.updated`, so every client's header follows the server.
+
+Dispatch rechecks this hold after asynchronous Git preparation and at the final
+activity check before marking the send in flight. Pausing during automatic
+commit preparation cancels further preparation through `isCurrent`, without
+requiring Retry preparation on resume. Git changes already made remain on disk.
+An in-flight send or running build continues. Ordinary session messages and
+confirmed Force dispatches retain their existing behavior. Other directories,
+including sibling worktrees, have independent pause states.
 When the head of a session's queue is a managed build, admission additionally
 requires:
 
@@ -578,11 +603,12 @@ allowlists.
 | `POST .../sessions/:id/take` | Remove and return every item not in flight, in order |
 | `PUT .../sessions/:id/order` | `{ itemIds }` must be a complete permutation |
 | `PUT /api/build-queue/sessions/:id/items/:itemId/pause` | `{ paused: boolean }`; pending managed builds only |
+| `PUT /api/build-queue/pause` | `{ directory, paused: boolean }`; persists the directory's whole-queue hold without changing individual pauses |
 | `POST /api/build-queue/force` | `{ directory, sessionId, itemId }`; start a waiting build now, outside the lease and Git policy, and remove it from the queue |
 | `DELETE .../sessions/:id` | Clear; the in-flight item and every managed Build item stay (the project queue owns those; use `/api/build-queue` to cancel one) |
 | `PUT .../sessions/:id/hold` | `{ held, ttlMs? }` |
 
-Every mutation broadcasts `openchamber:message-queue.updated` with
+Every session queue mutation broadcasts `openchamber:message-queue.updated` with
 `{ revision, session }` to all connected clients (SSE and WS), so several
 devices on one server see one queue. SSE uses the shared control stream at
 `/api/openchamber/events`; `/api/global/event` carries no OpenChamber events.

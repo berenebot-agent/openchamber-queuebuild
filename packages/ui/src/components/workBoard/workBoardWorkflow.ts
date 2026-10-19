@@ -34,6 +34,7 @@ export type WorkBoardActivity = {
 export type WorkBoardQueueWrite =
   | { directory: string; ids: string[] }
   | { paused: boolean }
+  | { directory: string; paused: boolean }
   | { directory: string; sessionId: string; itemId: string }
   | { directory: string; itemId?: string; action: 'skip' | 'retry' };
 
@@ -243,7 +244,7 @@ export function workBoardReordered(ids: readonly string[], index: number, delta:
 export type WorkBoardBuildBadge = {
   count: number;
   error: boolean;
-  paused?: 'review' | 'git';
+  paused?: 'review' | 'git' | 'manual';
 };
 
 export const workBoardDirectoryKey = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -265,6 +266,7 @@ export function workBoardBuildBadges(
     active: readonly { directory: string; needsReview?: boolean }[];
     queued: readonly { directory: string }[];
     issues?: readonly { directory: string; issue: string }[];
+    pausedDirectories?: readonly string[];
   } | null,
   queueError: boolean,
 ): Map<string, WorkBoardBuildBadge> {
@@ -286,13 +288,17 @@ export function workBoardBuildBadges(
   }
   // A lease awaiting review is a waiting project, and it outranks a Git hold
   // when both apply: the review is the thing only the user can clear.
-  const paused = new Map<string, 'review' | 'git'>();
+  const paused = new Map<string, 'review' | 'git' | 'manual'>();
   for (const lease of queue.active) {
     if (lease.needsReview) paused.set(workBoardDirectoryKey(lease.directory), 'review');
   }
   for (const issue of queue.issues ?? []) {
     const key = workBoardDirectoryKey(issue.directory);
     if (!paused.has(key)) paused.set(key, 'git');
+  }
+  for (const directory of queue.pausedDirectories ?? []) {
+    const key = workBoardDirectoryKey(directory);
+    if (!paused.has(key)) paused.set(key, 'manual');
   }
   for (const project of projects) {
     const key = workBoardDirectoryKey(project.path);

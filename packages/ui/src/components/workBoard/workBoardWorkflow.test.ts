@@ -12,7 +12,7 @@ const idle: WorkBoardActivityMessage = { id: 'idle', sessionID: 'session1', role
 const makeProjectionWithRows = (rows: WorkBoardSnapshot['queue']['rows']): WorkBoardSnapshot => ({
   directory: '/repo', revision: 1, lanes: {}, order: { todo: [], plan: [], queue: [], build: [], done: [] },
   cards: [], placements: {}, activities: {}, waitingFor: {}, unavailable: [], inheritedAvailable: true,
-  queue: { known: true, enabled: true, rows, order: rows.map(row => row.itemId), active: null, forced: [], issue: null, preparation: null, commit: null },
+  queue: { known: true, paused: false, enabled: true, rows, order: rows.map(row => row.itemId), active: null, forced: [], issue: null, preparation: null, commit: null },
 });
 
 describe('build queue column', () => {
@@ -75,7 +75,7 @@ describe('reading the server projection', () => {
     placements: { card1: { lane: 'plan', completedAt: 0, updatedAt: 1 }, card2: { lane: 'queue', completedAt: 0, updatedAt: 1 } },
     activities: {}, waitingFor: {}, unavailable: [], inheritedAvailable: true,
     queue: {
-      known: true, enabled: true,
+      known: true, paused: false, enabled: true,
       rows: [{ itemId: 'i1', sessionId: 'session1', directory: '/repo', content: 'wait', paused: false, position: 0, model: null }],
       order: ['i1'],
       active: { sessionId: 'session2', itemId: 'i2', startedAt: 1, needsReview: true, retryAvailable: false, content: 'run', model: null },
@@ -135,6 +135,14 @@ describe('project build badges', () => {
       expect(badges.get('b')).toEqual({ count: 0, error: true });
     }
   });
+  test('a manual queue pause stays visible on an empty project without affecting other directories', () => {
+    const badges = workBoardBuildBadges([{ id: 'a', path: '/repo' }, { id: 'b', path: '/other' }], {
+      active: [], queued: [], pausedDirectories: ['/repo/'],
+    }, false);
+    expect(badges.get('a')).toEqual({ count: 0, error: false, paused: 'manual' });
+    expect(badges.has('b')).toBe(false);
+  });
+
   test('a parked lease or a Git hold is a paused tab, not a failed read', () => {
     const projects = [{ id: 'a', path: '/repo' }, { id: 'b', path: '/other' }, { id: 'c', path: '/third' }];
     const badges = workBoardBuildBadges(projects, {

@@ -129,6 +129,7 @@ function queueForDirectory(queue, directory) {
   const forced = (queue?.forced ?? []).filter(item => matches(item.directory));
   const issue = (queue?.issues ?? []).find(item => matches(item.directory))?.issue;
   return {
+    paused: (queue?.pausedDirectories ?? []).some(matches),
     rows: queued.map((item, position) => ({
       itemId: item.id, sessionId: item.sessionId, directory: item.directory,
       content: item.content, paused: Boolean(item.paused), position,
@@ -368,7 +369,7 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       inheritedAvailable: sessions.available,
       queue: queueState
         ? { ...queueState, enabled, known: true }
-        : { rows: [], order: [], active: null, forced: [], issue: null, preparation: null, commit: null, enabled, known: false },
+        : { paused: false, rows: [], order: [], active: null, forced: [], issue: null, preparation: null, commit: null, enabled, known: false },
     };
   };
 

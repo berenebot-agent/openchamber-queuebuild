@@ -11,7 +11,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds in the queue', 'workBoard.headerQueueError': '{project}: build queue status unavailable', 'workBoard.queuedModel': 'Model: {model}',
     'workBoard.editConflictTitle': 'This card changed', 'workBoard.editConflictDescription': 'Someone else changed this card while you were editing. Choose the version to keep.', 'workBoard.useSavedVersion': 'Use saved version', 'workBoard.keepMyEdits': 'Overwrite with my edits', 'workBoard.editConflictBriefRemoved': 'This saved brief was removed. Save a new to-do from the composer to replace it.', 'workBoard.force': 'Force {title}', 'workBoard.outsideQueue': 'Outside queue',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Pause all queued builds', 'workBoard.resumeAll': 'Resume all queued builds',
+    'workBoard.pauseAll': 'Pause build queue', 'workBoard.resumeAll': 'Resume build queue',
     'workBoard.repository.label': 'Git repository', 'workBoard.repository.info': 'The repository the build queue checks before each build. Pick one when the repository is in a subfolder.', 'workBoard.repository.projectFolder': 'Project folder', 'workBoard.repository.choose': 'Choose a repository', 'workBoard.repository.scanning': 'Looking for Git repositories…', 'workBoard.repository.scanFailed': 'Could not look for Git repositories.', 'workBoard.repository.none': 'No Git repository found in this folder.', 'workBoard.repository.missing': 'The chosen repository is no longer under this project folder. Choose another one.',
   },
   de: {
@@ -25,7 +25,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} Builds in der Warteschlange', 'workBoard.headerQueueError': '{project}: Status der Build-Warteschlange nicht verfügbar', 'workBoard.queuedModel': 'Modell: {model}',
     'workBoard.editConflictTitle': 'Diese Karte wurde geändert', 'workBoard.editConflictDescription': 'Jemand anderes hat die Karte während deiner Bearbeitung geändert. Wähle, welche Version bleiben soll.', 'workBoard.useSavedVersion': 'Gespeicherte Version verwenden', 'workBoard.keepMyEdits': 'Mit meinen Änderungen überschreiben', 'workBoard.editConflictBriefRemoved': 'Dieser gespeicherte Aufgabenentwurf wurde entfernt. Speichere im Eingabefeld eine neue Aufgabe.', 'workBoard.force': '{title} erzwingen', 'workBoard.outsideQueue': 'Außerhalb der Warteschlange',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Alle wartenden Builds pausieren', 'workBoard.resumeAll': 'Alle wartenden Builds fortsetzen',
+    'workBoard.pauseAll': 'Build-Warteschlange pausieren', 'workBoard.resumeAll': 'Build-Warteschlange fortsetzen',
     'workBoard.repository.label': 'Git-Repository', 'workBoard.repository.info': 'Das Repository, das die Build-Warteschlange vor jedem Build prüft. Wähle eines, wenn das Repository in einem Unterordner liegt.', 'workBoard.repository.projectFolder': 'Projektordner', 'workBoard.repository.choose': 'Repository wählen', 'workBoard.repository.scanning': 'Git-Repositories werden gesucht…', 'workBoard.repository.scanFailed': 'Git-Repositories konnten nicht gesucht werden.', 'workBoard.repository.none': 'In diesem Ordner wurde kein Git-Repository gefunden.', 'workBoard.repository.missing': 'Das gewählte Repository liegt nicht mehr in diesem Projektordner. Wähle ein anderes.',
 
   },
@@ -40,7 +40,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project} : {count} builds en file d’attente', 'workBoard.headerQueueError': '{project} : état de la file de build indisponible', 'workBoard.queuedModel': 'Modèle : {model}',
     'workBoard.editConflictTitle': 'Cette carte a changé', 'workBoard.editConflictDescription': 'Quelqu’un a modifié cette carte pendant votre édition. Choisissez la version à conserver.', 'workBoard.useSavedVersion': 'Utiliser la version enregistrée', 'workBoard.keepMyEdits': 'Remplacer par mes modifications', 'workBoard.editConflictBriefRemoved': 'Cette consigne enregistrée a été supprimée. Enregistrez une nouvelle tâche depuis le champ de saisie.', 'workBoard.force': 'Forcer {title}', 'workBoard.outsideQueue': 'Hors file',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Mettre en pause tous les builds en attente', 'workBoard.resumeAll': 'Reprendre tous les builds en attente',
+    'workBoard.pauseAll': 'Mettre la file de build en pause', 'workBoard.resumeAll': 'Reprendre la file de build',
     'workBoard.repository.label': 'Dépôt Git', 'workBoard.repository.info': 'Le dépôt que la file de build vérifie avant chaque build. Choisissez-en un lorsque le dépôt se trouve dans un sous-dossier.', 'workBoard.repository.projectFolder': 'Dossier du projet', 'workBoard.repository.choose': 'Choisir un dépôt', 'workBoard.repository.scanning': 'Recherche des dépôts Git…', 'workBoard.repository.scanFailed': 'Impossible de rechercher les dépôts Git.', 'workBoard.repository.none': 'Aucun dépôt Git trouvé dans ce dossier.', 'workBoard.repository.missing': 'Le dépôt choisi n’est plus dans ce dossier de projet. Choisissez-en un autre.',
 
   },
@@ -55,7 +55,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds in de wachtrij', 'workBoard.headerQueueError': '{project}: status van de buildwachtrij niet beschikbaar', 'workBoard.queuedModel': 'Model: {model}',
     'workBoard.editConflictTitle': 'Deze kaart is gewijzigd', 'workBoard.editConflictDescription': 'Iemand anders heeft deze kaart gewijzigd terwijl je eraan werkte. Kies welke versie je wilt bewaren.', 'workBoard.useSavedVersion': 'Opgeslagen versie gebruiken', 'workBoard.keepMyEdits': 'Overschrijven met mijn wijzigingen', 'workBoard.editConflictBriefRemoved': 'Deze opgeslagen opdracht is verwijderd. Sla een nieuwe taak op vanuit het invoerveld.', 'workBoard.force': '{title} forceren', 'workBoard.outsideQueue': 'Buiten de wachtrij',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Alle wachtende builds pauzeren', 'workBoard.resumeAll': 'Alle wachtende builds hervatten',
+    'workBoard.pauseAll': 'Buildwachtrij pauzeren', 'workBoard.resumeAll': 'Buildwachtrij hervatten',
     'workBoard.repository.label': 'Git-repository', 'workBoard.repository.info': 'De repository die de buildwachtrij voor elke build controleert. Kies er een als de repository in een submap staat.', 'workBoard.repository.projectFolder': 'Projectmap', 'workBoard.repository.choose': 'Repository kiezen', 'workBoard.repository.scanning': 'Git-repositories zoeken…', 'workBoard.repository.scanFailed': 'Git-repositories konden niet worden gezocht.', 'workBoard.repository.none': 'Geen Git-repository gevonden in deze map.', 'workBoard.repository.missing': 'De gekozen repository staat niet meer in deze projectmap. Kies een andere.',
 
   },
@@ -70,7 +70,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds en la cola', 'workBoard.headerQueueError': '{project}: estado de la cola de build no disponible', 'workBoard.queuedModel': 'Modelo: {model}',
     'workBoard.editConflictTitle': 'Esta tarjeta ha cambiado', 'workBoard.editConflictDescription': 'Alguien cambió esta tarjeta mientras la editabas. Elige qué versión conservar.', 'workBoard.useSavedVersion': 'Usar la versión guardada', 'workBoard.keepMyEdits': 'Sobrescribir con mis cambios', 'workBoard.editConflictBriefRemoved': 'Se eliminó esta instrucción guardada. Guarda una nueva tarea desde el compositor.', 'workBoard.force': 'Forzar {title}', 'workBoard.outsideQueue': 'Fuera de la cola',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Pausar todas las compilaciones en cola', 'workBoard.resumeAll': 'Reanudar todas las compilaciones en cola',
+    'workBoard.pauseAll': 'Pausar la cola de compilación', 'workBoard.resumeAll': 'Reanudar la cola de compilación',
     'workBoard.repository.label': 'Repositorio Git', 'workBoard.repository.info': 'El repositorio que la cola de build comprueba antes de cada build. Elige uno cuando el repositorio esté en una subcarpeta.', 'workBoard.repository.projectFolder': 'Carpeta del proyecto', 'workBoard.repository.choose': 'Elegir un repositorio', 'workBoard.repository.scanning': 'Buscando repositorios Git…', 'workBoard.repository.scanFailed': 'No se pudieron buscar repositorios Git.', 'workBoard.repository.none': 'No se encontró ningún repositorio Git en esta carpeta.', 'workBoard.repository.missing': 'El repositorio elegido ya no está en esta carpeta del proyecto. Elige otro.',
 
   },
@@ -85,7 +85,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: キュー内のビルド {count} 件', 'workBoard.headerQueueError': '{project}: ビルドキューの状態を確認できません', 'workBoard.queuedModel': 'モデル: {model}',
     'workBoard.editConflictTitle': 'カードが変更されました', 'workBoard.editConflictDescription': '編集中に別のユーザーがこのカードを変更しました。残すバージョンを選んでください。', 'workBoard.useSavedVersion': '保存済みのバージョンを使う', 'workBoard.keepMyEdits': '自分の編集内容で上書き', 'workBoard.editConflictBriefRemoved': 'この保存済みの概要は削除されました。入力欄から新しいタスクを保存してください。', 'workBoard.force': '{title} を強制実行', 'workBoard.outsideQueue': 'キュー外',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': '待機中のビルドをすべて一時停止', 'workBoard.resumeAll': '待機中のビルドをすべて再開',
+    'workBoard.pauseAll': 'ビルドキューを一時停止', 'workBoard.resumeAll': 'ビルドキューを再開',
     'workBoard.repository.label': 'Git リポジトリ', 'workBoard.repository.info': 'ビルドキューが各ビルドの前に確認するリポジトリです。リポジトリがサブフォルダーにある場合は選択してください。', 'workBoard.repository.projectFolder': 'プロジェクトフォルダー', 'workBoard.repository.choose': 'リポジトリを選択', 'workBoard.repository.scanning': 'Git リポジトリを検索中…', 'workBoard.repository.scanFailed': 'Git リポジトリを検索できませんでした。', 'workBoard.repository.none': 'このフォルダーに Git リポジトリが見つかりません。', 'workBoard.repository.missing': '選択したリポジトリはこのプロジェクトフォルダー内にありません。別のものを選択してください。',
 
   },
@@ -100,7 +100,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: 대기열에 빌드 {count}개', 'workBoard.headerQueueError': '{project}: 빌드 대기열 상태를 사용할 수 없습니다', 'workBoard.queuedModel': '모델: {model}',
     'workBoard.editConflictTitle': '카드가 변경되었습니다', 'workBoard.editConflictDescription': '편집하는 동안 다른 사람이 이 카드를 변경했습니다. 유지할 버전을 선택하세요.', 'workBoard.useSavedVersion': '저장된 버전 사용', 'workBoard.keepMyEdits': '내 편집 내용으로 덮어쓰기', 'workBoard.editConflictBriefRemoved': '이 저장된 요약이 삭제되었습니다. 입력기에서 새 할 일을 저장하세요.', 'workBoard.force': '{title} 강제 실행', 'workBoard.outsideQueue': '대기열 외부',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': '대기 중인 빌드 모두 일시 중지', 'workBoard.resumeAll': '대기 중인 빌드 모두 재개',
+    'workBoard.pauseAll': '빌드 대기열 일시 중지', 'workBoard.resumeAll': '빌드 대기열 재개',
     'workBoard.repository.label': 'Git 저장소', 'workBoard.repository.info': '빌드 대기열이 각 빌드 전에 확인하는 저장소입니다. 저장소가 하위 폴더에 있으면 하나를 선택하세요.', 'workBoard.repository.projectFolder': '프로젝트 폴더', 'workBoard.repository.choose': '저장소 선택', 'workBoard.repository.scanning': 'Git 저장소를 찾는 중…', 'workBoard.repository.scanFailed': 'Git 저장소를 찾지 못했습니다.', 'workBoard.repository.none': '이 폴더에서 Git 저장소를 찾을 수 없습니다.', 'workBoard.repository.missing': '선택한 저장소가 더 이상 이 프로젝트 폴더에 없습니다. 다른 저장소를 선택하세요.',
 
   },
@@ -115,7 +115,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} kompilacji w kolejce', 'workBoard.headerQueueError': '{project}: status kolejki kompilacji niedostępny', 'workBoard.queuedModel': 'Model: {model}',
     'workBoard.editConflictTitle': 'Ta karta została zmieniona', 'workBoard.editConflictDescription': 'Ktoś zmienił tę kartę podczas Twojej edycji. Wybierz wersję, którą chcesz zachować.', 'workBoard.useSavedVersion': 'Użyj zapisanej wersji', 'workBoard.keepMyEdits': 'Zastąp moimi zmianami', 'workBoard.editConflictBriefRemoved': 'Ten zapisany opis został usunięty. Zapisz nowe zadanie w polu wiadomości.', 'workBoard.force': 'Wymuś {title}', 'workBoard.outsideQueue': 'Poza kolejką',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Wstrzymaj wszystkie oczekujące kompilacje', 'workBoard.resumeAll': 'Wznów wszystkie oczekujące kompilacje',
+    'workBoard.pauseAll': 'Wstrzymaj kolejkę kompilacji', 'workBoard.resumeAll': 'Wznów kolejkę kompilacji',
     'workBoard.repository.label': 'Repozytorium Git', 'workBoard.repository.info': 'Repozytorium, które kolejka kompilacji sprawdza przed każdą kompilacją. Wybierz jedno, jeśli repozytorium znajduje się w podfolderze.', 'workBoard.repository.projectFolder': 'Folder projektu', 'workBoard.repository.choose': 'Wybierz repozytorium', 'workBoard.repository.scanning': 'Wyszukiwanie repozytoriów Git…', 'workBoard.repository.scanFailed': 'Nie udało się wyszukać repozytoriów Git.', 'workBoard.repository.none': 'W tym folderze nie znaleziono repozytorium Git.', 'workBoard.repository.missing': 'Wybrane repozytorium nie znajduje się już w tym folderze projektu. Wybierz inne.',
 
   },
@@ -130,7 +130,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} builds na fila', 'workBoard.headerQueueError': '{project}: status da fila de build indisponível', 'workBoard.queuedModel': 'Modelo: {model}',
     'workBoard.editConflictTitle': 'Este cartão foi alterado', 'workBoard.editConflictDescription': 'Outra pessoa alterou este cartão enquanto você o editava. Escolha qual versão manter.', 'workBoard.useSavedVersion': 'Usar versão salva', 'workBoard.keepMyEdits': 'Substituir pelas minhas alterações', 'workBoard.editConflictBriefRemoved': 'Estas instruções salvas foram removidas. Salve uma nova tarefa no compositor.', 'workBoard.force': 'Forçar {title}', 'workBoard.outsideQueue': 'Fora da fila',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Pausar todos os builds na fila', 'workBoard.resumeAll': 'Retomar todos os builds na fila',
+    'workBoard.pauseAll': 'Pausar fila de builds', 'workBoard.resumeAll': 'Retomar fila de builds',
     'workBoard.repository.label': 'Repositório Git', 'workBoard.repository.info': 'O repositório que a fila de builds verifica antes de cada build. Escolha um quando o repositório estiver em uma subpasta.', 'workBoard.repository.projectFolder': 'Pasta do projeto', 'workBoard.repository.choose': 'Escolher um repositório', 'workBoard.repository.scanning': 'Procurando repositórios Git…', 'workBoard.repository.scanFailed': 'Não foi possível procurar repositórios Git.', 'workBoard.repository.none': 'Nenhum repositório Git encontrado nesta pasta.', 'workBoard.repository.missing': 'O repositório escolhido não está mais nesta pasta do projeto. Escolha outro.',
 
   },
@@ -146,7 +146,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} збірок у черзі', 'workBoard.headerQueueError': '{project}: статус черги збірок недоступний', 'workBoard.queuedModel': 'Модель: {model}',
     'workBoard.editConflictTitle': 'Картку змінено', 'workBoard.editConflictDescription': 'Хтось змінив цю картку, поки ви її редагували. Виберіть, яку версію залишити.', 'workBoard.useSavedVersion': 'Використати збережену версію', 'workBoard.keepMyEdits': 'Замінити моїми змінами', 'workBoard.editConflictBriefRemoved': 'Цей збережений опис видалено. Збережіть нове завдання в полі введення.', 'workBoard.force': 'Примусово зібрати {title}', 'workBoard.outsideQueue': 'Поза чергою',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Призупинити всі збірки в черзі', 'workBoard.resumeAll': 'Продовжити всі збірки в черзі',
+    'workBoard.pauseAll': 'Призупинити чергу збірок', 'workBoard.resumeAll': 'Продовжити чергу збірок',
     'workBoard.repository.label': 'Репозиторій Git', 'workBoard.repository.info': 'Репозиторій, який черга збірок перевіряє перед кожною збіркою. Виберіть один, якщо репозиторій розташований у підпапці.', 'workBoard.repository.projectFolder': 'Тека проєкту', 'workBoard.repository.choose': 'Виберіть репозиторій', 'workBoard.repository.scanning': 'Пошук репозиторіїв Git…', 'workBoard.repository.scanFailed': 'Не вдалося знайти репозиторії Git.', 'workBoard.repository.none': 'У цій теці не знайдено жодного репозиторію Git.', 'workBoard.repository.missing': 'Вибраний репозиторій більше не знаходиться в цій теці проєкту. Виберіть інший.',
 
   },
@@ -161,7 +161,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}：队列中有 {count} 个构建', 'workBoard.headerQueueError': '{project}：构建队列状态不可用', 'workBoard.queuedModel': '模型：{model}',
     'workBoard.editConflictTitle': '卡片已更改', 'workBoard.editConflictDescription': '你编辑期间，其他人更改了这张卡片。请选择要保留的版本。', 'workBoard.useSavedVersion': '使用已保存的版本', 'workBoard.keepMyEdits': '用我的更改覆盖', 'workBoard.editConflictBriefRemoved': '此已保存的任务说明已被移除。请在输入框中保存新的待办。', 'workBoard.force': '强制构建 {title}', 'workBoard.outsideQueue': '队列之外',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': '暂停所有排队中的构建', 'workBoard.resumeAll': '恢复所有排队中的构建',
+    'workBoard.pauseAll': '暂停构建队列', 'workBoard.resumeAll': '恢复构建队列',
     'workBoard.repository.label': 'Git 仓库', 'workBoard.repository.info': '构建队列在每次构建前检查的仓库。如果仓库位于子文件夹中，请选择一个。', 'workBoard.repository.projectFolder': '项目文件夹', 'workBoard.repository.choose': '选择仓库', 'workBoard.repository.scanning': '正在查找 Git 仓库…', 'workBoard.repository.scanFailed': '无法查找 Git 仓库。', 'workBoard.repository.none': '此文件夹中未找到 Git 仓库。', 'workBoard.repository.missing': '所选仓库已不在该项目文件夹中。请选择另一个。',
 
   },
@@ -176,7 +176,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}：佇列中有 {count} 個建置', 'workBoard.headerQueueError': '{project}：建置佇列狀態無法使用', 'workBoard.queuedModel': '模型：{model}',
     'workBoard.editConflictTitle': '卡片已變更', 'workBoard.editConflictDescription': '你編輯期間，其他人變更了這張卡片。請選擇要保留的版本。', 'workBoard.useSavedVersion': '使用已儲存的版本', 'workBoard.keepMyEdits': '以我的變更覆蓋', 'workBoard.editConflictBriefRemoved': '此已儲存的任務說明已被移除。請在輸入框中儲存新的待辦。', 'workBoard.force': '強制建置 {title}', 'workBoard.outsideQueue': '佇列之外',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': '暫停所有佇列中的建置', 'workBoard.resumeAll': '繼續所有佇列中的建置',
+    'workBoard.pauseAll': '暫停建置佇列', 'workBoard.resumeAll': '繼續建置佇列',
     'workBoard.repository.label': 'Git 儲存庫', 'workBoard.repository.info': '建置佇列在每次建置前檢查的儲存庫。如果儲存庫位於子資料夾中，請選擇一個。', 'workBoard.repository.projectFolder': '專案資料夾', 'workBoard.repository.choose': '選擇儲存庫', 'workBoard.repository.scanning': '正在尋找 Git 儲存庫…', 'workBoard.repository.scanFailed': '無法尋找 Git 儲存庫。', 'workBoard.repository.none': '此資料夾中找不到 Git 儲存庫。', 'workBoard.repository.missing': '所選儲存庫已不在這個專案資料夾中。請選擇另一個。',
 
   },
@@ -191,7 +191,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: kuyrukta {count} derleme', 'workBoard.headerQueueError': '{project}: derleme kuyruğu durumu kullanılamıyor', 'workBoard.queuedModel': 'Model: {model}',
     'workBoard.editConflictTitle': 'Kart değiştirildi', 'workBoard.editConflictDescription': 'Siz düzenlerken başka biri bu kartı değiştirdi. Hangi sürümün kalacağını seçin.', 'workBoard.useSavedVersion': 'Kaydedilen sürümü kullan', 'workBoard.keepMyEdits': 'Değişikliklerimle üzerine yaz', 'workBoard.editConflictBriefRemoved': 'Bu kayıtlı görev açıklaması kaldırıldı. Düzenleyiciden yeni bir görev kaydedin.', 'workBoard.force': '{title} derlemesini zorla', 'workBoard.outsideQueue': 'Kuyruk dışı',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'Kuyruktaki tüm derlemeleri duraklat', 'workBoard.resumeAll': 'Kuyruktaki tüm derlemeleri sürdür',
+    'workBoard.pauseAll': 'Derleme kuyruğunu duraklat', 'workBoard.resumeAll': 'Derleme kuyruğunu sürdür',
     'workBoard.repository.label': 'Git deposu', 'workBoard.repository.info': 'Derleme kuyruğunun her derlemeden önce kontrol ettiği depo. Depo bir alt klasördeyse birini seçin.', 'workBoard.repository.projectFolder': 'Proje klasörü', 'workBoard.repository.choose': 'Depo seçin', 'workBoard.repository.scanning': 'Git depoları aranıyor…', 'workBoard.repository.scanFailed': 'Git depoları aranamadı.', 'workBoard.repository.none': 'Bu klasörde Git deposu bulunamadı.', 'workBoard.repository.missing': 'Seçilen depo artık bu proje klasöründe değil. Başka bir tane seçin.',
 
   },
@@ -206,7 +206,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} عمليات بناء في قائمة الانتظار', 'workBoard.headerQueueError': '{project}: حالة قائمة انتظار البناء غير متاحة', 'workBoard.queuedModel': 'الطراز: {model}',
     'workBoard.editConflictTitle': 'تغيّرت هذه البطاقة', 'workBoard.editConflictDescription': 'غيّر شخص آخر هذه البطاقة أثناء تعديلك لها. اختر النسخة التي تريد الاحتفاظ بها.', 'workBoard.useSavedVersion': 'استخدام النسخة المحفوظة', 'workBoard.keepMyEdits': 'استبدالها بتعديلاتي', 'workBoard.editConflictBriefRemoved': 'تمت إزالة هذا الموجز المحفوظ. احفظ مهمة جديدة من محرر الرسائل.', 'workBoard.force': 'فرض {title}', 'workBoard.outsideQueue': 'خارج قائمة الانتظار',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'إيقاف كل عمليات البناء في قائمة الانتظار مؤقتًا', 'workBoard.resumeAll': 'استئناف كل عمليات البناء في قائمة الانتظار',
+    'workBoard.pauseAll': 'إيقاف قائمة انتظار البناء مؤقتًا', 'workBoard.resumeAll': 'استئناف قائمة انتظار البناء',
     'workBoard.repository.label': 'مستودع Git', 'workBoard.repository.info': 'المستودع الذي تتحقق منه قائمة البناء قبل كل عملية بناء. اختر واحدًا إذا كان المستودع في مجلد فرعي.', 'workBoard.repository.projectFolder': 'مجلد المشروع', 'workBoard.repository.choose': 'اختر مستودعًا', 'workBoard.repository.scanning': 'جارٍ البحث عن مستودعات Git…', 'workBoard.repository.scanFailed': 'تعذر البحث عن مستودعات Git.', 'workBoard.repository.none': 'لم يتم العثور على أي مستودع Git في هذا المجلد.', 'workBoard.repository.missing': 'المستودع المختار لم يعد داخل مجلد المشروع هذا. اختر مستودعًا آخر.',
 
   },
@@ -221,7 +221,7 @@ export const workBoardI18n = {
     'workBoard.headerBuilds': '{project}: {count} בניות בתור', 'workBoard.headerQueueError': '{project}: מצב תור הבנייה אינו זמין', 'workBoard.queuedModel': 'מודל: {model}',
     'workBoard.editConflictTitle': 'הכרטיס השתנה', 'workBoard.editConflictDescription': 'מישהו אחר שינה את הכרטיס בזמן העריכה. בחרו איזו גרסה לשמור.', 'workBoard.useSavedVersion': 'שימוש בגרסה השמורה', 'workBoard.keepMyEdits': 'החלפה בעריכות שלי', 'workBoard.editConflictBriefRemoved': 'התיאור השמור הזה הוסר. שמרו משימה חדשה מהמלחין.', 'workBoard.force': 'כפה {title}', 'workBoard.outsideQueue': 'מחוץ לתור',
     'workBoard.queueOn': 'Queue on', 'workBoard.queueOff': 'Queue off', 'workBoard.queueEnabledLabel': 'Queue Build prompts for this project', 'workBoard.forcedUnconfirmed': 'The prompt was not confirmed. Check the session before continuing.',
-    'workBoard.pauseAll': 'השהיית כל הבניות בתור', 'workBoard.resumeAll': 'המשך כל הבניות בתור',
+    'workBoard.pauseAll': 'השהיית תור הבנייה', 'workBoard.resumeAll': 'המשך תור הבנייה',
     'workBoard.repository.label': 'מאגר Git', 'workBoard.repository.info': 'המאגר שתור הבנייה בודק לפני כל בנייה. בחרו אחד כשהמאגר נמצא בתיקייה משנה.', 'workBoard.repository.projectFolder': 'תיקיית הפרויקט', 'workBoard.repository.choose': 'בחרו מאגר', 'workBoard.repository.scanning': 'מחפש מאגרי Git…', 'workBoard.repository.scanFailed': 'לא ניתן היה לחפש מאגרי Git.', 'workBoard.repository.none': 'לא נמצא מאגר Git בתיקייה הזו.', 'workBoard.repository.missing': 'המאגר שנבחר כבר אינו בתיקיית הפרויקט הזו. בחרו מאגר אחר.',
 
   },

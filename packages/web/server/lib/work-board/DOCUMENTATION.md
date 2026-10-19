@@ -92,3 +92,8 @@ count follows rendered rows, including entries without board cards.
 An adopted build owns no queued item: the raw build snapshot omits `itemId`,
 and the board projection sends `queue.active.itemId: null`. Both UI readers
 accept this state; it offers no item-specific recovery controls.
+
+`queue.paused` projects the directory's membership in the build snapshot's
+`pausedDirectories`. It is independent of waiting rows' `paused` values, which
+remain individual entry pauses. A failed queue read returns `known: false` and
+disables the UI pause control; it cannot establish that the queue is running.

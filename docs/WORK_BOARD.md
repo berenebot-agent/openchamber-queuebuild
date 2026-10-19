@@ -45,6 +45,15 @@ no card for, so it never shows a shorter queue than the project actually has.
 Rows act on the queue's own order, so a move keeps the builds the board cannot
 see. A queued build with no board card has no card action: it is queue work.
 
+The pause button in the Build queue column header pauses that directory's whole
+queue, including new Build entries submitted afterwards. Prompts and attachments
+stay queued in order. The running build continues. The button also works with an
+empty queue, and its state is shared across clients and survives server restart.
+Pausing every row individually does not pause the queue. Resuming the queue
+preserves individual row pauses; resuming a row cannot bypass a paused queue.
+Worktree queues keep their own pause state. Force still starts a build outside
+the queue after confirmation.
+
 Cards come in two sizes, and the size says which state the card is in, not which
 lane it sits in. A card that is being worked, waiting to be worked, or asking for
 the user takes the larger box; everything else stays compact. So the running

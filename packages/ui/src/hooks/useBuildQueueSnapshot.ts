@@ -33,6 +33,7 @@ const buildQueueForcedSchema = z.object({
 
 const buildQueueSnapshotSchema = z.object({
   revision: z.number(),
+  pausedDirectories: z.array(z.string()).default([]),
   active: z.array(buildQueueLeaseSchema),
   queued: z.array(buildQueueEntrySchema),
   issues: z.array(z.object({ directory: z.string(), issue: z.string() })),

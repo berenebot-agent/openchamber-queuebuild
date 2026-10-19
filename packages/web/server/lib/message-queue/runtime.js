@@ -392,10 +392,14 @@ export function createMessageQueueRuntime({
 
   // --- persistence ---------------------------------------------------------
 
+  const pausedDirectories = new Set();
+  const resumingDirectories = new Set();
+
   const serialize = () => ({
     version: QUEUE_FILE_VERSION,
     revision,
     nextBuildOrder,
+    pausedDirectories: [...pausedDirectories],
     // An adopted lease tracks a turn the queue does not own and holds no queued
     // item; a restart re-detects that live build, so writing it here would only
     // park a lane whose turn is already over.
@@ -426,6 +430,10 @@ export function createMessageQueueRuntime({
       return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, nextBuildOrder: 1 };
     }
     const stored = asRecord(parsed) ?? {};
+    const paused = stored.pausedDirectories === undefined ? [] : stored.pausedDirectories;
+    if (!Array.isArray(paused) || paused.some(directory => !directoryKey(directory))) {
+      throw new TypeError('Invalid persisted build queue pause state');
+    }
     const sessions = {};
     for (const [sessionId, value] of Object.entries(asRecord(stored.sessions) ?? {})) {
       const entry = asRecord(value);
@@ -435,13 +443,14 @@ export function createMessageQueueRuntime({
       if (!directory || items.length === 0) continue;
       sessions[sessionId] = { directory, items };
     }
-    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1 };
+    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey) };
   };
 
   const load = () => {
     if (!loadPromise) {
       loadPromise = readFile()
         .then((stored) => {
+          for (const directory of stored.pausedDirectories ?? []) pausedDirectories.add(directory);
           for (const [sessionId, entry] of Object.entries(stored.sessions)) queues.set(sessionId, entry);
           revision = Math.max(revision, stored.revision);
           for (const [directory, value] of Object.entries(stored.activeBuilds)) {
@@ -561,9 +570,11 @@ export function createMessageQueueRuntime({
   // holds no place in the project's runnable order, so another build can start.
   const reservedForItem = (sessionId, itemId) => forceReservations.get(sessionId)?.itemId === itemId;
   const runnableBuilds = (directory) => pendingBuilds(directory)
-    .filter(entry => !entry.item.buildPaused && !reservedForItem(entry.sessionId, entry.item.id));
+    .filter(entry => !pausedDirectories.has(directoryKey(entry.directory)) && !resumingDirectories.has(directoryKey(entry.directory))
+      && !entry.item.buildPaused && !reservedForItem(entry.sessionId, entry.item.id));
   const buildSnapshot = () => ({
     revision,
+    pausedDirectories: [...pausedDirectories],
     preparation: Array.from(preparingBuilds, ([directory, value]) => ({ directory, phase: value.phase })),
     commits: Array.from(buildCommits, ([directory, value]) => ({ directory, ...value })),
     active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease, retryAvailable: queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId) === true })),
@@ -978,10 +989,11 @@ export function createMessageQueueRuntime({
     return live ? asNonEmptyString(live.id) : null;
   };
   const wakeProject = (directory) => {
+    const key = directoryKey(directory);
     for (const [sessionId, queue] of queues) {
       // A build item needs the lane; an ordinary item may be sitting behind a
       // freeze that is being lifted now, so both kinds are armed.
-      if (queue.directory === directory && queue.items.length > 0) armDispatch(sessionId);
+      if (directoryKey(queue.directory) === key && queue.items.length > 0) armDispatch(sessionId);
     }
     // Every build-lane mutation ends here, and the work board reads this
     // snapshot. Announcing it here is what makes a queued or
@@ -1491,6 +1503,30 @@ export function createMessageQueueRuntime({
     return buildSnapshot();
   };
 
+  const setQueuePaused = (directoryInput, paused) => withAdmission(async () => {
+    const directory = directoryKey(directoryInput);
+    if (!directory || (paused !== true && paused !== false)) throw new TypeError('directory and paused state required');
+    await load();
+    if (paused) pausedDirectories.add(directory);
+    else {
+      resumingDirectories.add(directory);
+      pausedDirectories.delete(directory);
+    }
+    revision += 1;
+    await persist();
+    if (persistenceError) {
+      // A failed resume must never release work behind an undurable pause state.
+      pausedDirectories.add(directory);
+      resumingDirectories.delete(directory);
+      broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
+      throw httpError('Cannot persist the build queue pause. Check server storage before retrying.', 503);
+    }
+    resumingDirectories.delete(directory);
+    if (paused) broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
+    else wakeProject(directory);
+    return buildSnapshot();
+  });
+
   // --- dispatch loop -------------------------------------------------------
 
   // Parking blocks dispatch during asynchronous idle and storage checks.
@@ -1573,7 +1609,7 @@ export function createMessageQueueRuntime({
     }
 
     const head = queue.items[0];
-    if (isBuildItem(head) && (head.buildPaused || reservedForItem(sessionId, head.id))) return;
+    if (isBuildItem(head) && (pausedDirectories.has(directoryKey(queue.directory)) || head.buildPaused || reservedForItem(sessionId, head.id))) return;
     const failure = failures.get(sessionId);
     if (failure && failure.itemId !== head.id) failures.delete(sessionId);
     else if (failure && failure.nextAttemptAt > now()) {
@@ -1659,6 +1695,7 @@ export function createMessageQueueRuntime({
           return;
         }
         const repository = await queueRepositoryFor(current.directory);
+        if (runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
         const preparation = { itemId: item.id, phase: 'initializing' };
         preparingBuilds.set(current.directory, preparation);
         setBuildProblem(current.directory, null);
@@ -1694,6 +1731,7 @@ export function createMessageQueueRuntime({
             return;
           }
         } catch (error) {
+          if (pausedDirectories.has(directoryKey(current.directory)) || resumingDirectories.has(directoryKey(current.directory))) return;
           preparationFailures.set(current.directory, item.id);
           setBuildProblem(current.directory, error.message || 'Automatic commit preparation failed. Retry from the Work Board.');
           armDispatch(sessionId, buildRecheckMs);
@@ -2440,6 +2478,7 @@ export function createMessageQueueRuntime({
     buildSnapshot,
     reorderBuilds,
     setBuildPaused,
+    setQueuePaused,
     resolveBuild,
     forceDispatch,
     sessionSnapshot,
@@ -2479,6 +2518,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.get('/api/build-queue', async (_req, res) => {
     try { await runtime.load(); res.json(runtime.buildSnapshot()); }
     catch (error) { respondError(res, error, 'Failed to load build queue'); }
+  });
+  app.put('/api/build-queue/pause', async (req, res) => {
+    try { res.json(await runtime.setQueuePaused(req.body?.directory, req.body?.paused)); }
+    catch (error) { respondError(res, error, 'Failed to pause build queue'); }
   });
   // The project's queue enablement. `{ directory }` is the only input on the
   // read, and the answer is `{ enabled }`; a directory the server cannot place

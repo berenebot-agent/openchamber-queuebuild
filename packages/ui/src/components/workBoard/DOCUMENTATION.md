@@ -51,7 +51,7 @@ The board renders `GET /api/work-board/snapshot` through `useWorkBoardSnapshot`
 (`hooks/useWorkBoardSnapshot.ts`). The snapshot carries each card's effective
 lane, each lane's order, live activity per session, the ask each session waits
 for, the session's own name by id, and the queue's own state
-(rows, positions, running lease, forced builds, issue, enablement). The client
+(rows, positions, running lease, forced builds, issue, enablement, queue pause). The client
 therefore never:
 
 - polls a history timer — the server derives live activity and history once;
@@ -77,13 +77,19 @@ Every write goes to the server: placements (`placeWorkBoardCard`,
 and the queue's own routes. A drag writes the board and nothing else: it never
 starts a turn, and it can neither put a card into nor take one out of the build
 queue. The queue column is the queue's own management surface: each row's own
-controls, and a lane-level control that pauses or resumes every waiting build at
-once. (A session's `BuildQueueBanner` can also cancel its own waiting build; see
-`chat/composer/DOCUMENTATION.md`.) There is no whole-queue pause on the server, so that control writes each
-waiting item's own pause state (one refresh); a build queued after it still
-dispatches, and resuming clears rows paused one at a time. A queued row's pause
+controls, and a lane-level control that writes `PUT /api/build-queue/pause` with
+`{ directory, paused }`. The header reads `queue.paused` from the projection,
+independently of row pause states, and stays available when the queue is empty.
+The server holds existing and newly admitted Build entries until the queue is
+resumed. Rows show Paused during the queue hold, while their own controls keep
+editing their individual pause state. Resuming the queue preserves those
+individual pauses. A session's `BuildQueueBanner` can also cancel its own waiting
+build; see `chat/composer/DOCUMENTATION.md`. A queued row's pause
 control shows a pause glyph, and switches to a lit orange play glyph — kept
 visible without hovering — while its item is paused.
+Project tab and mobile picker marks include queues manually paused by the user,
+including empty paused queues. Review and Git problems retain their more specific
+marks when present.
 
 Cancelling a waiting build keeps its prompt. The cancel route answers with the
 removed item, and the board hands its text and file references to that session's

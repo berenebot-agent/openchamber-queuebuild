@@ -1,8 +1,10 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import express from 'express';
+import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createMessageQueueRuntime, parseQueuedItemInput } from './runtime.js';
+import { createMessageQueueRuntime, parseQueuedItemInput, registerMessageQueueRoutes } from './runtime.js';
 import { admitPrompt, createAdmissionFacts } from './admission.js';
 import { createProjectIdFromPath } from '../projects/project-id.js';
 
@@ -1296,6 +1298,7 @@ describe('project-wide build queue', () => {
     expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
     expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
     // The second build waits behind the lease and must not run yet.
+    await runtime.setQueuePaused(DIRECTORY, true);
     const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
     await settle(30);
     expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
@@ -1307,6 +1310,7 @@ describe('project-wide build queue', () => {
     expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
     expect(runtime.buildSnapshot().queued).toHaveLength(0);
     expect(runtime.buildSnapshot().forced.map(entry => entry.sessionId)).toEqual([SECOND]);
+    expect(runtime.buildSnapshot().pausedDirectories).toEqual([DIRECTORY]);
     // The card still names the build's message and submitted model after the
     // item leaves the queue.
     expect(runtime.buildSnapshot().forced[0].content).toBe('second');
@@ -1778,6 +1782,199 @@ describe('project-wide build queue', () => {
     expect(second.runtime.buildSnapshot().queued.map(entry => entry.id)).toEqual(order);
     second.runtime.stop();
     await second.runtime.flush();
+  });
+
+  it('holds new admissions and merged prompts during queue pause without losing their order or payloads', async () => {
+    const { runtime, openCode, broadcasts } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 200 });
+    try {
+      await runtime.setQueuePaused(DIRECTORY + '/', true);
+      await runtime.admitSubmission({ sessionId: SESSION, directory: DIRECTORY, item: item({ messageId: 'msg_paused_1', content: 'First prompt', text: 'First prompt' }) });
+      const firstId = runtime.buildSnapshot().queued[0].id;
+      await runtime.admitSubmission({ sessionId: SECOND, directory: DIRECTORY, item: item({ messageId: 'msg_paused_2', content: 'Second prompt', text: 'Second prompt' }) });
+      await runtime.admitSubmission({ sessionId: SESSION, directory: DIRECTORY, item: item({ messageId: 'msg_paused_3', content: 'More context', text: 'More context' }) });
+      await runtime.setBuildPaused(SESSION, firstId, true);
+      await runtime.setBuildPaused(SESSION, firstId, false);
+      await settle(60);
+      expect(promptCalls(openCode)).toEqual([]);
+      expect(runtime.buildSnapshot().queued.map(entry => [entry.sessionId, entry.content])).toEqual([
+        [SESSION, 'First prompt\n\nMore context'], [SECOND, 'Second prompt'],
+      ]);
+      expect(runtime.buildSnapshot().queued[0].id).toBe(firstId);
+      expect(runtime.buildSnapshot().pausedDirectories).toEqual([DIRECTORY]);
+      expect(broadcasts.some(event => event.type === 'openchamber:build-queue.updated' && event.properties.directory === DIRECTORY)).toBe(true);
+      await runtime.setQueuePaused(DIRECTORY + '/', false);
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['First prompt\n\nMore context']);
+      expect(runtime.buildSnapshot().queued.map(entry => entry.sessionId)).toEqual([SECOND]);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('persists an empty queue pause across restart and preserves individual pauses on queue resume', async () => {
+    const first = createRuntime({ checkBuildGit: async () => null });
+    await first.runtime.setQueuePaused(DIRECTORY, true);
+    first.runtime.stop();
+    await first.runtime.flush();
+    const { runtime, openCode } = createRuntime({ dataDir: first.dataDir, checkBuildGit: async () => null, buildMonitorDelayMs: 200 });
+    try {
+      await runtime.load();
+      expect(runtime.buildSnapshot().pausedDirectories).toEqual([DIRECTORY]);
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true, text: 'Stay paused' }));
+      const firstId = runtime.buildSnapshot().queued[0].id;
+      await runtime.setBuildPaused(SESSION, firstId, true);
+      await runtime.enqueue(SECOND, DIRECTORY, item({ buildQueue: true, text: 'Run after resume' }));
+      await settle(40);
+      expect(promptCalls(openCode)).toEqual([]);
+      await runtime.setQueuePaused(DIRECTORY, false);
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['Run after resume']);
+      expect(runtime.buildSnapshot().queued).toMatchObject([{ id: firstId, paused: true }]);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('keeps queue pause separate from individual pauses and from other directories and ordinary messages', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    try {
+      openCode.state.active[SESSION] = { type: 'running' };
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await runtime.setBuildPaused(SESSION, runtime.buildSnapshot().queued[0].id, true);
+      expect(runtime.buildSnapshot().pausedDirectories).toEqual([]);
+      await runtime.setQueuePaused(DIRECTORY, true);
+      await runtime.enqueue(SECOND, '/other', item({ buildQueue: true, text: 'Other directory' }));
+      await runtime.enqueue('ses_ordinary', DIRECTORY, item({ text: 'Ordinary message' }));
+      await settle(60);
+      expect(promptCalls(openCode).map(call => call.body.text).sort()).toEqual(['Ordinary message', 'Other directory']);
+      expect(runtime.buildSnapshot().queued.map(entry => entry.sessionId)).toEqual([SESSION]);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('stops dispatch when the queue is paused during Git checks', async () => {
+    let finishCheck;
+    const checking = new Promise(resolve => { finishCheck = resolve; });
+    let started;
+    const startedCheck = new Promise(resolve => { started = resolve; });
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => { started(); await checking; return null; } });
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await startedCheck;
+      await runtime.setQueuePaused(DIRECTORY, true);
+      finishCheck();
+      await settle(40);
+      expect(promptCalls(openCode)).toEqual([]);
+      expect(runtime.buildSnapshot().active).toEqual([]);
+      expect(runtime.buildSnapshot().queued).toHaveLength(1);
+      await runtime.setQueuePaused(DIRECTORY, false);
+      await settle(60);
+      expect(promptCalls(openCode)).toHaveLength(1);
+    } finally { finishCheck(); runtime.stop(); await runtime.flush(); }
+  });
+
+  it('releases an unsent lease when pause arrives during the final activity check', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    const fetchImpl = openCode.fetchImpl.getMockImplementation();
+    let pauseTriggered = false;
+    openCode.fetchImpl.mockImplementation(async (url, init) => {
+      if (!pauseTriggered && new URL(url).pathname === '/api/session/active'
+        && runtime.buildSnapshot().active.some(lease => lease.phase === 'dispatching')) {
+        pauseTriggered = true;
+        await runtime.setQueuePaused(DIRECTORY, true);
+      }
+      return fetchImpl(url, init);
+    });
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await settle(60);
+      expect(pauseTriggered).toBe(true);
+      expect(promptCalls(openCode)).toEqual([]);
+      expect(openCode.state.switched).toEqual([]);
+      expect(runtime.buildSnapshot().active).toEqual([]);
+      expect(runtime.buildSnapshot().queued).toHaveLength(1);
+      await runtime.setQueuePaused(DIRECTORY, false);
+      await settle(60);
+      expect(promptCalls(openCode)).toHaveLength(1);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('cancels commit preparation on pause without requiring a retry on resume', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'commit' }));
+    let finishPreparation;
+    const preparing = new Promise(resolve => { finishPreparation = resolve; });
+    let started;
+    const startedPreparation = new Promise(resolve => { started = resolve; });
+    const prepareBuildCommit = vi.fn(async (_directory, { isCurrent }) => {
+      started();
+      await preparing;
+      if (!isCurrent()) throw new Error('Preparation cancelled');
+      return null;
+    });
+    const { runtime, openCode } = createRuntime({ settingsFilePath, prepareBuildCommit });
+    try {
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await startedPreparation;
+      await runtime.setQueuePaused(DIRECTORY, true);
+      finishPreparation();
+      await settle(40);
+      expect(promptCalls(openCode)).toEqual([]);
+      expect(runtime.buildSnapshot().issues).toEqual([]);
+      expect(runtime.buildSnapshot().preparation).toEqual([]);
+      await runtime.setQueuePaused(DIRECTORY, false);
+      await settle(60);
+      expect(promptCalls(openCode)).toHaveLength(1);
+      expect(prepareBuildCommit).toHaveBeenCalledTimes(2);
+    } finally { finishPreparation(); runtime.stop(); await runtime.flush(); }
+  });
+
+  it('refuses a failed resume write and keeps dispatch paused', async () => {
+    const { runtime, openCode, dataDir } = createRuntime({ checkBuildGit: async () => null });
+    const rename = fs.promises.rename;
+    let renameSpy;
+    try {
+      await runtime.setQueuePaused(DIRECTORY, true);
+      await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+      await runtime.flush();
+      // Make atomic replacement fail without changing the stored pause.
+      const file = path.join(dataDir, 'message-queue.json');
+      fs.renameSync(file, file + '.saved');
+      fs.mkdirSync(file);
+      renameSpy = vi.spyOn(fs.promises, 'rename').mockImplementation(async (...args) => {
+        await settle(100);
+        return rename(...args);
+      });
+      const failedResume = expect(runtime.setQueuePaused(DIRECTORY, false)).rejects.toMatchObject({ status: 503 });
+      await runtime.setBuildPaused(SESSION, runtime.buildSnapshot().queued[0].id, false);
+      await settle(40);
+      expect(promptCalls(openCode)).toEqual([]);
+      await failedResume;
+      expect(runtime.buildSnapshot().pausedDirectories).toEqual([DIRECTORY]);
+    } finally { renameSpy?.mockRestore(); runtime.stop(); await runtime.flush(); }
+  });
+
+  it.each([null, 'paused', ['/repo', 42]])('refuses malformed persisted queue pause state %j without overwriting it', async pausedDirectories => {
+    const dataDir = makeDataDir();
+    const file = path.join(dataDir, 'message-queue.json');
+    const stored = JSON.stringify({ sessions: {}, pausedDirectories });
+    fs.writeFileSync(file, stored);
+    const { runtime } = createRuntime({ dataDir });
+    try {
+      await expect(runtime.load()).rejects.toThrow('Invalid persisted build queue pause state');
+      await expect(runtime.setQueuePaused(DIRECTORY, false)).rejects.toThrow();
+      expect(fs.readFileSync(file, 'utf8')).toBe(stored);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('routes a queue pause and validates its body', async () => {
+    const { runtime } = createRuntime();
+    const app = express();
+    app.use(express.json());
+    registerMessageQueueRoutes(app, runtime);
+    try {
+      const paused = await request(app).put('/api/build-queue/pause').send({ directory: DIRECTORY, paused: true }).expect(200);
+      expect(paused.body.pausedDirectories).toEqual([DIRECTORY]);
+      await request(app).put('/api/build-queue/pause').send({ directory: DIRECTORY, paused: 'yes' }).expect(400);
+      await request(app).put('/api/build-queue/pause').send({ paused: true }).expect(400);
+      const resumed = await request(app).put('/api/build-queue/pause').send({ directory: DIRECTORY, paused: false }).expect(200);
+      expect(resumed.body.pausedDirectories).toEqual([]);
+    } finally { runtime.stop(); await runtime.flush(); }
   });
 
   it('skips a paused build for other sessions and resumes it in its original order', async () => {
