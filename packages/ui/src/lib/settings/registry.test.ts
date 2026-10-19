@@ -145,6 +145,42 @@ describe('settings registry', () => {
     expect(missing).toEqual([]);
   });
 
+  test('shares the board project tabs with the instance as a profile setting', () => {
+    expect(LOCAL_DEVICE_KEYS).not.toContain('workBoardProjectTabsByRuntime');
+    expect(AUTO_SAVE_KEYS).toContain('workBoardProjectTabsByRuntime');
+    expect(MIRRORED_KEYS).toContain('workBoardProjectTabsByRuntime');
+    expect(SETTINGS_REGISTRY.workBoardProjectTabsByRuntime.scope).toBe('profile');
+
+    // The same normalization the store applies: trim, dedupe, and an active id
+    // that names one of the tabs.
+    expect(parseSettingsDocument({
+      workBoardProjectTabsByRuntime: {
+        ' runtime-a ': { projectIds: ['alpha', 'alpha', ' ', 'beta'], activeProjectId: 'removed' },
+        'runtime-b': { projectIds: [], activeProjectId: null },
+        'runtime-c': 'not-a-tab-state',
+      },
+    })).toEqual({
+      workBoardProjectTabsByRuntime: {
+        'runtime-a': { projectIds: ['alpha', 'beta'], activeProjectId: 'alpha' },
+        'runtime-b': { projectIds: [], activeProjectId: null },
+      },
+    });
+    for (const value of [[], 'x', 3]) {
+      expect(parseSettingsDocument({ workBoardProjectTabsByRuntime: value })).toEqual({});
+    }
+
+    applySettingsToStores({
+      workBoardProjectTabsByRuntime: { 'runtime-a': { projectIds: ['alpha'], activeProjectId: 'alpha' } },
+    });
+    expect(useUIStore.getState().workBoardProjectTabsByRuntime).toEqual({
+      'runtime-a': { projectIds: ['alpha'], activeProjectId: 'alpha' },
+    });
+    expect(readAutoSaveSnapshot().workBoardProjectTabsByRuntime).toEqual({
+      'runtime-a': { projectIds: ['alpha'], activeProjectId: 'alpha' },
+    });
+    useUIStore.setState({ workBoardProjectTabsByRuntime: {} });
+  });
+
   test('per-surface storage is a profile-only marker', () => {
     for (const key of SETTINGS_KEYS) {
       if (SETTINGS_REGISTRY[key].perSurface) {

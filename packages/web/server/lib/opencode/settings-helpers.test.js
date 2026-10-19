@@ -44,6 +44,30 @@ describe('build queue Git policy settings', () => {
   });
 });
 
+describe('work board tab settings', () => {
+  it('keeps the shape of the board tabs and drops anything malformed', () => {
+    const helpers = createTestHelpers();
+    expect(helpers.sanitizeSettingsUpdate({
+      workBoardProjectTabsByRuntime: {
+        ' url:http://localhost:3000 ': { projectIds: [' p ', 'p', '', 7], activeProjectId: ' p ' },
+        'url:http://other': { projectIds: [], activeProjectId: 'gone' },
+        '': { projectIds: ['p'], activeProjectId: 'p' },
+        'url:broken': 'not-an-object',
+        'url:broken2': { projectIds: 'p', activeProjectId: 3 },
+      },
+    })).toEqual({
+      workBoardProjectTabsByRuntime: {
+        'url:http://localhost:3000': { projectIds: ['p'], activeProjectId: 'p' },
+        'url:http://other': { projectIds: [], activeProjectId: 'gone' },
+        'url:broken2': { projectIds: [], activeProjectId: null },
+      },
+    });
+    for (const value of [null, [], 'x', 3]) {
+      expect(helpers.sanitizeSettingsUpdate({ workBoardProjectTabsByRuntime: value })).toEqual({});
+    }
+  });
+});
+
 const createTestHelpersWithRealSanitizers = () => {
   const runtime = createSettingsNormalizationRuntime({
     os: { homedir: () => '/home/testuser' },
@@ -848,6 +872,7 @@ describe('settings registry gate', () => {
     desktopLanAccessEnabled: true, desktopKeepAwakeEnabled: true, desktopMinimizeToTrayEnabled: true, desktopMacMenuBarEnabled: true, desktopLinuxNativeFrame: true, sidebarShowChatsSection: false, sidebarShowWorkSection: false, sidebarShowPinnedSection: true, sidebarDetailedZoneRows: true,
     desktopUiPassword: 'secret', githubClientId: 'client', githubScopes: 'repo', gitlabClientId: 'gitlab-client', skillCatalogs: [{ id: 'c', label: 'C', source: 'https://x' }],
     defaultGitIdentityId: 'global', permissionAutoAccept: { sessions: { s: true }, revision: 1 }, permissionDefaultMode: 'safety', messageSearchEnabled: true, messageSearchReasoningEnabled: true, buildQueueRequireCleanGit: true, buildQueueGitPolicy: 'commit', buildQueueDefaultEnabled: false, workBoardSessionDays: 30,
+    workBoardProjectTabsByRuntime: { 'url:http://localhost:3000': { projectIds: ['p'], activeProjectId: 'p' } },
     agentControlToolEnabled: true, agentWebToolEnabled: true, browserProvider: 'builtin', agentMemoryToolEnabled: true, agentKnowledgeToolEnabled: true, agentNotifyToolEnabled: true, agentRenderToolEnabled: true, agentToolsCodeMode: true, isolatedSpacesEnabled: true, isolatedSpacesIdleStop: { enabled: true, hours: 4 }, isolatedSpacesSshHost: 'me@box.local:2222', openCodeUpdateToastDismissedVersion: '1.0.0',
     autoDeleteEnabled: true, autoDeleteAfterDays: 30, sessionRetentionOnlyArchived: false, sessionRetentionAction: 'archive', mergedWorktreeCleanupEnabled: true, terminalShell: 'zsh', terminalLoginShells: ['zsh'],
     openInAppId: 'vscode', dictationEnabled: true, sttProvider: 'local', sttServerUrl: 'http://localhost:8001/v1', sttModel: 'm', sttLocalModel: 'm', sttLanguage: 'en',

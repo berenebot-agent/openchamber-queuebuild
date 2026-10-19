@@ -41,7 +41,7 @@ import { sanitizeWorkStatusSectionOrder, type WorkStatusPanelSectionId } from '@
 export type PendingDiffScope = 'working' | 'staged' | 'turn' | 'branch' | 'commit' | 'pr';
 export type { ContextPanelMode };
 
-type WorkBoardProjectTabState = {
+export type WorkBoardProjectTabState = {
   projectIds: string[];
   activeProjectId: string | null;
 };

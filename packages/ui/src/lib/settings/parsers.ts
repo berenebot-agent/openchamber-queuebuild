@@ -15,6 +15,7 @@ import type { ProjectEntry } from '@/lib/api/types';
 import { isCustomProviderIcon, type CustomProviderIcon } from '@/lib/customProviderIcons';
 import { createProjectIdFromPath } from '@/lib/projectId';
 import { normalizePath } from '@/lib/pathNormalization';
+import type { WorkBoardProjectTabState } from '@/stores/useUIStore';
 
 /**
  * `raw` is the whole untrusted document, for the few legacy keys whose value
@@ -137,6 +138,46 @@ export const parseCustomProviderIcons: SettingsParser<Record<string, CustomProvi
   }
   return result;
 };
+
+// Caps keep a malformed payload from putting an unbounded record on disk; the
+// server's settings sanitizer enforces the same two numbers.
+const MAX_WORK_BOARD_TAB_RUNTIMES = 20;
+const MAX_WORK_BOARD_PROJECT_TABS = 200;
+
+const workBoardProjectTabSchema = z.object({
+  projectIds: z.array(z.unknown()).catch([]),
+  activeProjectId: z.unknown(),
+});
+
+/**
+ * The Work Board's open project tabs, keyed by runtime. The same
+ * normalization the store applies in `setWorkBoardProjectTabs`: ids are
+ * trimmed and deduped, and the active id must name one of the tabs.
+ */
+export const parseWorkBoardProjectTabs = fromSchema(
+  looseObject.transform((record) => {
+    const result: Record<string, WorkBoardProjectTabState> = {};
+    for (const [key, entry] of Object.entries(record)) {
+      if (Object.keys(result).length >= MAX_WORK_BOARD_TAB_RUNTIMES) break;
+      const runtimeKey = key.trim();
+      if (!runtimeKey) continue;
+      const parsed = workBoardProjectTabSchema.safeParse(entry);
+      if (!parsed.success) continue;
+      const projectIds = Array.from(new Set(parsed.data.projectIds.flatMap((id) => {
+        const trimmedId = nonEmptyTrimmed.safeParse(id);
+        return trimmedId.success ? [trimmedId.data] : [];
+      }))).slice(0, MAX_WORK_BOARD_PROJECT_TABS);
+      const requestedActive = nonEmptyTrimmed.safeParse(parsed.data.activeProjectId);
+      result[runtimeKey] = {
+        projectIds,
+        activeProjectId: requestedActive.success && projectIds.includes(requestedActive.data)
+          ? requestedActive.data
+          : projectIds[0] ?? null,
+      };
+    }
+    return result;
+  }),
+);
 
 const modelRefSchema = z.object({
   providerID: nonEmptyTrimmed,

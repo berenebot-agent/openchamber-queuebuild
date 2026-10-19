@@ -14,7 +14,9 @@ about the flag changes. Card contents live
 in the server work-board module; `lib/workBoardApi.ts` parses their HTTP contract.
 Project tabs and their selected project are persisted per runtime. Closing a tab
 only removes it from that runtime's tab list, and dragging one tab onto another
-reorders that list while leaving the selected project unchanged.
+reorders that list while leaving the selected project unchanged. The tab lists
+are the `workBoardProjectTabsByRuntime` profile setting, so every client of the
+instance opens the same board; `workBoardProjectId` below stays on the device.
 UI state version 27 replaces the per-board `workBoardOlderSessions` record with
 `workBoardSessionDays`, one synced window in days (`0` shows every session) that
 every client of the instance shares. The old record is dropped on migration and

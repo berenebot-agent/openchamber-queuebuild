@@ -60,6 +60,42 @@ const sanitizeCustomProviderIcons = (value) => {
   return result;
 };
 
+// The Work Board's open project tabs, keyed by runtime. Shape only: the client
+// owns which project ids are valid; this keeps a malformed payload off the
+// disk. The caps mirror the registry parser's.
+const WORK_BOARD_TAB_RUNTIMES_MAX = 20;
+const WORK_BOARD_PROJECT_TABS_MAX = 200;
+const workBoardProjectIdSchema = z.string().trim().min(1).max(128);
+const workBoardProjectTabSchema = z.object({
+  projectIds: z.array(z.unknown()).catch([]),
+  activeProjectId: z.unknown(),
+});
+
+/** Runtime key -> the board's open tabs; anything that is not a tab state is dropped. */
+const sanitizeWorkBoardProjectTabs = (value) => {
+  const record = z.record(z.string(), z.unknown()).safeParse(value);
+  if (!record.success) return undefined;
+  const result = {};
+  for (const [runtimeKey, entry] of Object.entries(record.data)) {
+    if (Object.keys(result).length >= WORK_BOARD_TAB_RUNTIMES_MAX) break;
+    const key = runtimeKey.trim();
+    const tab = workBoardProjectTabSchema.safeParse(entry);
+    if (!key || !tab.success) continue;
+    const projectIds = [];
+    for (const id of tab.data.projectIds) {
+      if (projectIds.length >= WORK_BOARD_PROJECT_TABS_MAX) break;
+      const projectId = workBoardProjectIdSchema.safeParse(id);
+      if (projectId.success && !projectIds.includes(projectId.data)) projectIds.push(projectId.data);
+    }
+    const activeProjectId = workBoardProjectIdSchema.safeParse(tab.data.activeProjectId);
+    result[key] = {
+      projectIds,
+      activeProjectId: activeProjectId.success ? activeProjectId.data : null,
+    };
+  }
+  return result;
+};
+
 export const createSettingsHelpers = (dependencies) => {
   const {
     normalizePathForPersistence,
@@ -350,6 +386,11 @@ export const createSettingsHelpers = (dependencies) => {
     // How far back the board lists sessions, in days; `0` means every session.
     if (Number.isInteger(candidate.workBoardSessionDays) && candidate.workBoardSessionDays >= 0 && candidate.workBoardSessionDays <= 3650) {
       result.workBoardSessionDays = candidate.workBoardSessionDays;
+    }
+    // The board's open project tabs, keyed by runtime.
+    const workBoardProjectTabs = sanitizeWorkBoardProjectTabs(candidate.workBoardProjectTabsByRuntime);
+    if (workBoardProjectTabs && Object.keys(workBoardProjectTabs).length > 0) {
+      result.workBoardProjectTabsByRuntime = workBoardProjectTabs;
     }
     if (typeof candidate.desktopUiPassword === 'string') {
       result.desktopUiPassword = candidate.desktopUiPassword.trim();

@@ -188,6 +188,14 @@
         "mobile"
       ]
     },
+    "workBoardProjectTabsByRuntime": {
+      "scope": "profile",
+      "surfaces": [
+        "web",
+        "desktop",
+        "mobile"
+      ]
+    },
     "browserProvider": {
       "scope": "instance"
     },
@@ -885,10 +893,6 @@
       "local": true
     },
     "projectContextSidebarWidth": {
-      "scope": "device",
-      "local": true
-    },
-    "workBoardProjectTabsByRuntime": {
       "scope": "device",
       "local": true
     },

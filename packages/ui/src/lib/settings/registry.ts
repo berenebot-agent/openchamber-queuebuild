@@ -73,6 +73,7 @@ import {
   parseTrimmedString,
   parseTrimmedStringUpTo,
   parseUsageModelGroups,
+  parseWorkBoardProjectTabs,
   type ManagedRemoteTunnelPreset,
   type ModelRef,
   type NotificationTemplates,
@@ -319,6 +320,14 @@ export const SETTINGS_REGISTRY = {
     surfaces: ['web', 'desktop', 'mobile'],
     parse: parseIntegerInRange(0, 3650),
     ui: uiStore('workBoardSessionDays', (v) => useUIStore.getState().setWorkBoardSessionDays(v)),
+  }),
+  // The board's open project tabs and which one is active, keyed by runtime;
+  // a profile setting, so every client of the instance opens the same board.
+  workBoardProjectTabsByRuntime: field({
+    scope: 'profile',
+    surfaces: ['web', 'desktop', 'mobile'],
+    parse: parseWorkBoardProjectTabs,
+    ui: uiStore('workBoardProjectTabsByRuntime', setUi('workBoardProjectTabsByRuntime')),
   }),
   // `builtin` or an installed extension id; the server falls back to `builtin` when that extension cannot serve.
   browserProvider: field({ scope: 'instance', parse: parseNonEmptyString, ui: uiStore('browserProvider', (v) => useUIStore.getState().setBrowserProvider(v)) }),
@@ -688,9 +697,8 @@ export const LOCAL_DEVICE_KEYS = [
   'alwaysShowScrollbars',
   'agentMemoryViewedAt',
   'projectContextSidebarWidth',
-  // Work Board view preferences that stay on this device: which tabs it had
-  // open and the last project it looked at.
-  'workBoardProjectTabsByRuntime',
+  // The Work Board's last visited project stays on this device; the board's
+  // open tabs are `workBoardProjectTabsByRuntime`, a profile setting.
   'workBoardProjectId',
 ] as const;
 

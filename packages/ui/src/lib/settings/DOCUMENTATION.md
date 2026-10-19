@@ -34,7 +34,8 @@ explicit selection. The control lives in OpenChamber Settings, and a project can
 override it in its own config (see `projects/DOCUMENTATION.md`), which is not a
 registry key. `workBoardSessionDays` is a profile example: one window (days, `0`
 for all) shared by every client and read from the store by the board's snapshot
-request.
+request; `workBoardProjectTabsByRuntime` is the other, the board's open project
+tabs keyed by runtime, so every client of the instance opens the same board.
 
 1. Add one entry to `SETTINGS_REGISTRY` with `scope`, a parser from `parsers.ts`, and a `ui` binding when a store holds the live value. Use an existing setter so its side effects run.
 2. Run `bun run settings-registry:generate` and commit both JSON snapshots.
