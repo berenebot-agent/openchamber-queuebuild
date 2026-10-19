@@ -484,9 +484,9 @@ const sendPushToAllUiSessions = (...args) => pushRuntime.sendPushToAllUiSessions
 // client reports it became visible, reset the native push badge set — the same
 // moment the device zeroes its icon badge on becomeActive, keeping them in sync.
 let clearPendingPushBadge = () => {};
-const updateUiVisibility = (token, visible, platform) => {
+const updateUiVisibility = (token, visible, platform, clientId, endpoint) => {
   if (visible === true) clearPendingPushBadge();
-  return pushRuntime.updateUiVisibility(token, visible, platform);
+  return pushRuntime.updateUiVisibility(token, visible, platform, clientId, endpoint);
 };
 const isAnyUiVisible = (...args) => pushRuntime.isAnyUiVisible(...args);
 const isAnyInteractiveClientVisible = (...args) => pushRuntime.isAnyInteractiveClientVisible(...args);

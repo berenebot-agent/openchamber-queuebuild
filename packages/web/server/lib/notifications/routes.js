@@ -203,7 +203,10 @@ export const registerNotificationRoutes = (app, dependencies) => {
 
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const platform = typeof body.platform === 'string' ? body.platform : undefined;
-    updateUiVisibility(uiToken, body.visible === true, platform);
+    const clientId = typeof body.clientId === 'string' && body.clientId.length > 0 && body.clientId.length <= 128
+      ? body.clientId : undefined;
+    const endpoint = typeof body.endpoint === 'string' && body.endpoint.length <= 4096 ? body.endpoint : undefined;
+    updateUiVisibility(uiToken, body.visible === true, platform, clientId, endpoint);
     return res.json({ ok: true });
   });
 

@@ -54,7 +54,7 @@ This module provides notification message preparation utilities for the web serv
   - an MCP elicitation form (session id `global`, owned by no session) notifies without a session: no session title lookup, and the deep link opens the app
   - template resolution and fallback behavior
   - native notification fanout and web push payload fanout
-  - push suppression while any fresh UI visibility heartbeat reports a focused client
+  - web push routing according to the notification mode and subscription-scoped foreground presence; native APNs keeps its existing interactive-client gate
   - chats of isolated spaces: `maybeSendPushForTrigger(payload, { spaceId })` reads such a chat's record (title, parent, goal), its last reply and its running subagents inside the space, through `spaceFetchFor(spaceId)`, a `fetch` over the spaces dispatcher (`../spaces/space-fetch.js`), and never asks the host's OpenCode or the host's permission policy about it, since neither knows the chat. What comes back is the space's text, shown as it is shown in the sidebar. A space that cannot be asked gives the generic text, as a host chat whose reads fail does. The host's auto-accept is not consulted for a space's permission request, so such a request notifies after the debounce unless its reply arrives first.
 
 ### Push runtime API (push-runtime.js)
@@ -66,9 +66,63 @@ This module provides notification message preparation utilities for the web serv
   - `addOrUpdatePushSubscription(uiSessionToken, subscription, userAgent)`
   - `removePushSubscription(uiSessionToken, endpoint)`
   - `sendPushToAllUiSessions(payload, options?)`
-  - `updateUiVisibility(token, visible)`
+  - `updateUiVisibility(token, visible, platform?, clientId?, endpoint?)`
   - `isAnyUiVisible()`
   - `isUiVisible(token)`
+
+### PWA delivery and presence
+
+The browser visibility beacon carries a per-page `clientId`. The web adapter adds
+the existing `PushSubscription.endpoint`, without creating a new subscription.
+The server keeps presence in memory under the hashed authenticated UI session
+and page id. Tabs cannot overwrite another tab's state. Only a matching session
+and endpoint can mark a subscription as foregrounded. Presence expires after
+30 seconds without a heartbeat; foreground pages send a heartbeat every 20
+seconds and report pagehide, focus, blur, and visibility changes immediately.
+Native Capacitor clients continue using their native app lifecycle.
+
+A foreground subscription receives no web push. Its page owns foreground
+notification delivery: `hidden-only` suppresses it, while `always` displays it
+through the existing local notification path. Background and closed PWAs use
+web push. In `hidden-only` mode a visible interactive desktop/web client also
+suppresses phone push, preserving the existing cross-device policy. In `always`
+mode background subscriptions still receive push while a desktop is visible.
+Mobile browsers report `ios` or `android` for this policy without changing the
+runtime platform used elsewhere. Legacy beacons remain accepted, but cannot
+identify a foreground subscription until the page loads the updated client.
+Subscription file version, endpoint deduplication, VAPID keys, and native APNs
+delivery remain unchanged.
+
+`packages/web/src/sw.ts` displays every received push, even when a page becomes
+visible after routing. Malformed or missing payloads use an OpenChamber title,
+existing PWA icons, and a content-free fallback body. Valid fields survive
+malformed neighboring fields. An explicitly empty body stays empty for privacy
+redaction. The worker never uses visibility or deduplication to discard a push;
+Chromium can replace an undisplayed push with a generic browser notification.
+Display failures reject the event's lifetime promise instead of reporting
+success. Browser permission and OS notification policies still control whether
+a notification can actually appear.
+
+Notification clicks validate same-origin HTTP(S) targets, fall back to the
+session id, and navigate/focus an existing window or open a new one. Browser
+notifications use `/pwa-192.png` and `/favicon-32.png` by default; the OS may
+still show browser attribution or override notification icons.
+
+### Deployment and installed PWA updates
+
+Keep the existing service worker URL and scope. Production registration uses
+`autoUpdate`, and the worker calls `skipWaiting()` on install and `clients.claim()`
+on activation. `/sw.js` already has `Cache-Control: no-store`. Existing installed
+PWAs and VAPID subscriptions need no reinstall, permission reset, or
+resubscription. Open or reload the PWA after deployment to load the updated page
+and let the browser check for the new worker. An old page can keep sending
+legacy beacons until it reloads, even after the new worker activates.
+
+HTTPS deployments behind Nginx Proxy Manager use the same origin and routes.
+The proxy must preserve worker cache headers and must not cache `/sw.js` as an
+immutable JavaScript asset. No proxy/authentication changes are needed for this
+fix. If a mobile browser suspends before delivering its hidden beacon, the last
+foreground report can suppress push until the existing 30-second TTL expires.
 
 ### APNs runtime API (apns-runtime.js)
 - `createApnsRuntime(dependencies)`: creates runtime for native iOS APNs push and device-token state. Dependencies: `fsPromises`, `path`, `crypto`, `http2`, `APNS_TOKENS_FILE_PATH`, `readSettingsFromDiskMigrated`, `writeSettingsToDisk` (persists the auto-generated relay signing keypair).
@@ -151,6 +205,7 @@ The `settings` parameter for `prepareNotificationLastMessage` supports `maxLastM
 ### Testing
 - Run `bun run type-check`, `bun run lint`, and `bun run build` before finalizing changes.
 - Unit tests should cover truncation behavior and edge cases (empty strings, invalid inputs).
+- Focused PWA regressions run from `packages/web` with `bun run test src/sw.test.js src/api/push.test.js src/push-visibility.test.js src/api/notifications.test.ts server/lib/notifications server/lib/opencode/static-routes-runtime.test.js`. These cover received-push display, malformed payloads, clicks, per-page presence, per-subscription routing, notification modes, privacy redaction, native push, and worker cache headers.
 
 ## Browser event delivery
 

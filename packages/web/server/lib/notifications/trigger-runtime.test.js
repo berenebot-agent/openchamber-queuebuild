@@ -43,6 +43,50 @@ const stepEnded = (sessionID, id) => ({
 
 const turnEnded = (sessionID) => ({ type: 'session.idle', properties: { sessionID } });
 
+describe('notification mode reaches web push routing', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it.each(['always', 'hidden-only'])('preserves content and routing for every trigger in %s mode', async (notificationMode) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: {} })));
+    const sendPushToAllUiSessions = vi.fn(async () => {});
+    const runtime = createNotificationTriggerRuntime({
+      readSettingsFromDisk: async () => ({ nativeNotificationsEnabled: true, notificationMode }),
+      prepareNotificationLastMessage: async ({ message }) => message,
+      buildTemplateVariables: async () => ({ session_name: 'Session' }),
+      extractLastMessageText: () => 'Task detail',
+      fetchLastAssistantMessageText: async () => 'Task detail',
+      resolveNotificationTemplate: () => '',
+      shouldApplyResolvedTemplateMessage: () => false,
+      emitDesktopNotification: () => true,
+      broadcastUiNotification: () => {},
+      sendPushToAllUiSessions,
+      sendApnsToAllUiSessions: async () => {},
+      isAnyInteractiveClientVisible: () => false,
+      buildOpenCodeUrl: (path) => `http://opencode.test${path}`,
+      getOpenCodeAuthHeaders: () => ({}),
+    });
+    await runtime.maybeSendPushForTrigger(turnEnded('ses_1'));
+    await runtime.maybeSendPushForTrigger({ type: 'session.error', properties: { sessionID: 'ses_1', error: { message: 'Failed' } } });
+    await runtime.maybeSendPushForTrigger({ type: 'form.created', properties: { sessionID: 'ses_1', form: { title: 'Choose', fields: [{ description: 'Which option?' }] } } });
+    await runtime.maybeSendPushForTrigger({ type: 'permission.asked', properties: { sessionID: 'ses_1', id: 'per_1', action: 'read', resources: ['/file'] } });
+    await vi.advanceTimersByTimeAsync(600);
+    await runtime.sendGoalSettlePush({ sessionId: 'ses_1', status: 'complete', title: 'Goal complete', body: 'Finished' });
+    expect(sendPushToAllUiSessions).toHaveBeenCalledTimes(5);
+    expect(sendPushToAllUiSessions.mock.calls.map(([payload]) => payload.data.type)).toEqual(['ready', 'error', 'question', 'permission', 'goal_complete']);
+    for (const [payload, options] of sendPushToAllUiSessions.mock.calls) {
+      expect(payload.title).toBeTruthy();
+      expect(payload.body).toBeTruthy();
+      expect(payload.tag).toBeTruthy();
+      expect(payload.data.url).toBe('/?session=ses_1');
+      expect(options).toEqual({ requireNoSse: notificationMode !== 'always' });
+    }
+  });
+});
+
 describe('ready notification on v2 step events', () => {
   it('announces the turn end with the agent and model of its last step', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});

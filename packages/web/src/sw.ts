@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import * as z from 'zod/mini';
+
 // NOTE: keep the Workbox injection point so vite-plugin-pwa can build.
 // We intentionally do not use Workbox runtime helpers here: iOS Safari can be
 // fragile with more complex SW bundles. For push notifications we only need a
@@ -11,17 +13,28 @@ declare const self: ServiceWorkerGlobalScope & {
 
 const __precacheManifest = self.__WB_MANIFEST;
 
-type PushPayload = {
-  title?: string;
-  body?: string;
-  tag?: string;
-  data?: {
-    url?: string;
-    sessionId?: string;
-    type?: string;
-  };
-  icon?: string;
-  badge?: string;
+// Push data crosses a browser boundary. Decode each field independently so one
+// bad field cannot discard the rest of a notification.
+const stringField = z.catch(z.optional(z.string()), undefined);
+const notificationData = z.catch(z.object({ url: stringField, sessionId: stringField, type: stringField }), {});
+const pushPayload = z.catch(z.object({
+  title: stringField,
+  body: stringField,
+  tag: stringField,
+  icon: stringField,
+  badge: stringField,
+  data: notificationData,
+}), { data: {} });
+
+const sessionTarget = (data: z.infer<typeof notificationData>): string => {
+  const fallback = data.sessionId?.trim() ? `/?session=${encodeURIComponent(data.sessionId.trim())}` : '/';
+  try {
+    const target = new URL(data.url?.trim() || fallback, self.location.origin);
+    if (target.origin === self.location.origin && ['https:', 'http:'].includes(target.protocol)) return target.href;
+  } catch {
+    // A malformed URL still opens the session when its id is available.
+  }
+  return new URL(fallback, self.location.origin).href;
 };
 
 self.addEventListener('install', (event) => {
@@ -34,21 +47,16 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('push', (event) => {
   event.waitUntil((async () => {
-    const payload = (event.data?.json() ?? null) as PushPayload | null;
-    if (!payload) {
-      return;
+    let payload = z.parse(pushPayload, undefined);
+    try {
+      payload = z.parse(pushPayload, event.data?.json());
+    } catch {
+      // Chromium requires user-visible delivery even for an unreadable push.
     }
-
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const hasVisibleClient = clients.some((client) => client.visibilityState === 'visible' || client.focused);
-    if (hasVisibleClient) {
-      return;
-    }
-
-    const title = payload.title || 'OpenChamber';
-    const body = payload.body ?? '';
-    const icon = payload.icon ?? '/apple-touch-icon-180x180.png';
-    const badge = payload.badge ?? '/favicon-32.png';
+    const title = payload.title?.trim() || 'OpenChamber';
+    const body = payload.body ?? 'Open OpenChamber to view the update.';
+    const icon = payload.icon?.trim() || '/pwa-192.png';
+    const badge = payload.badge?.trim() || '/favicon-32.png';
 
     await self.registration.showNotification(title, {
       body,
@@ -63,18 +71,12 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  // SAFETY: notification data is only ever written by our own showNotification
-  // and push payloads as { url, sessionId }; both fields are re-validated as
-  // trimmed strings below before use.
-  const data = (event.notification.data ?? null) as { url?: string; sessionId?: string } | null;
-  const rawUrl = typeof data?.url === 'string' ? data.url.trim() : '';
-  const rawSessionId = typeof data?.sessionId === 'string' ? data.sessionId.trim() : '';
-  const url = rawUrl || (rawSessionId ? `/?session=${encodeURIComponent(rawSessionId)}` : '/');
+  const data = z.parse(notificationData, event.notification.data);
 
   event.waitUntil((async () => {
     // Prefer focusing an already-open window (e.g. the installed PWA) and
     // navigating it to the target, instead of always spawning a new window.
-    const target = new URL(url, self.location.origin).href;
+    const target = sessionTarget(data);
     const windowClients = await self.clients.matchAll({
       type: 'window',
       includeUncontrolled: true,
@@ -85,11 +87,9 @@ self.addEventListener('notificationclick', (event) => {
         if ('navigate' in client) {
           await client.navigate(target);
         }
+        if ('focus' in client) return await client.focus();
       } catch {
-        // navigate() can reject for uncontrolled clients; fall back to focus.
-      }
-      if ('focus' in client) {
-        return client.focus();
+        // A closed or uncontrolled window must not prevent opening the session.
       }
     }
 

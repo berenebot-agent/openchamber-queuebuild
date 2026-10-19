@@ -48,3 +48,12 @@ export const getClientPlatform = (): ClientPlatform => {
   if (isDesktopShell()) return 'desktop';
   return 'web';
 };
+
+/** Browser mobile PWAs are push recipients too, without a Capacitor platform. */
+export const getPushClientPlatform = (): ClientPlatform => {
+  const platform = getClientPlatform();
+  if (platform !== 'web') return platform;
+  if (/Android/i.test(navigator.userAgent)) return 'android';
+  if (/iPhone|iPod/i.test(navigator.userAgent) || isIPadDevice()) return 'ios';
+  return platform;
+};

@@ -191,6 +191,8 @@ describe('web notifications API', () => {
     expect(showNotification).toHaveBeenCalledWith('Ready', expect.objectContaining({
       body: 'Done',
       tag: 'ready-ses_123',
+      icon: '/pwa-192.png',
+      badge: '/favicon-32.png',
       data: { url: '/?session=ses_123', sessionId: 'ses_123' },
     }));
     expect(created).toHaveLength(0);

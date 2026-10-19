@@ -137,8 +137,9 @@ export const createNotificationTriggerRuntime = (deps) => {
   };
 
   // Fan a notification out to every delivery channel: browser web-push (full templated
-  // payload) and native iOS APNs (generic model-based text). Both share the dedup tag and
-  // `requireNoSse` focus gate; a failure in one channel must not block the other.
+  // payload) and native iOS APNs (generic model-based text). Both share the dedup
+  // tag; a failure in one channel must not block the other. Web push routing
+  // follows the notification mode, while native APNs keeps its presence policy.
   // Web push leaves through the browser vendor's push service. It is
   // encrypted, but enterprise mode keeps conversation content off every
   // channel it does not control: the scenario title and the deep link only.
@@ -586,7 +587,7 @@ export const createNotificationTriggerRuntime = (deps) => {
               type: 'ready',
             },
           },
-          { requireNoSse: true },
+          { requireNoSse: settings.notificationMode !== 'always' },
         );
       }
 
@@ -659,7 +660,7 @@ export const createNotificationTriggerRuntime = (deps) => {
               type: 'error',
             },
           },
-          { requireNoSse: true },
+          { requireNoSse: settings.notificationMode !== 'always' },
         );
       }
 
@@ -747,7 +748,7 @@ export const createNotificationTriggerRuntime = (deps) => {
               type: 'question',
             },
           },
-          { requireNoSse: true },
+          { requireNoSse: settings.notificationMode !== 'always' },
         );
       }, PUSH_QUESTION_DEBOUNCE_MS);
 
@@ -884,7 +885,7 @@ export const createNotificationTriggerRuntime = (deps) => {
               type: 'permission',
             },
           },
-          { requireNoSse: true },
+          { requireNoSse: settings.notificationMode !== 'always' },
         );
       }, PUSH_PERMISSION_DEBOUNCE_MS);
 
@@ -896,6 +897,7 @@ export const createNotificationTriggerRuntime = (deps) => {
   // full text; APNs with the generic per-type title and the session name as
   // body, so the relay never sees content).
   const sendGoalSettlePush = async ({ sessionId, directory, status, title, body }) => {
+    const settings = await readSettingsFromDisk();
     let sessionName = '';
     try {
       const base = buildOpenCodeUrl(`/api/session/${encodeURIComponent(sessionId)}`, '');
@@ -926,7 +928,7 @@ export const createNotificationTriggerRuntime = (deps) => {
           type,
         },
       },
-      { requireNoSse: true },
+      { requireNoSse: settings.notificationMode !== 'always' },
     );
   };
 

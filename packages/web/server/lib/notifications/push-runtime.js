@@ -30,10 +30,11 @@ export const createPushRuntime = (deps) => {
 
   const uiVisibilityByToken = new Map();
   const pruneUiVisibility = (now = Date.now()) => {
-    for (const [token, state] of uiVisibilityByToken) {
-      if (!state || now - state.updatedAt > UI_VISIBILITY_TTL_MS) {
-        uiVisibilityByToken.delete(token);
+    for (const [token, clients] of uiVisibilityByToken) {
+      for (const [clientId, state] of clients) {
+        if (now - state.updatedAt > UI_VISIBILITY_TTL_MS) clients.delete(clientId);
       }
+      if (clients.size === 0) uiVisibilityByToken.delete(token);
     }
   };
 
@@ -159,7 +160,7 @@ export const createPushRuntime = (deps) => {
         createdAt: now,
         lastSeenAt: now,
         userAgent: typeof userAgent === 'string' && userAgent.length > 0 ? userAgent : undefined,
-        // Platform lets the sender route mobile PWA push through the same presence gate as APNs.
+        // Retained for compatibility with existing subscription records.
         platform:
           typeof platform === 'string' && platform
             ? platform
@@ -243,12 +244,19 @@ export const createPushRuntime = (deps) => {
     const store = await readPushSubscriptionsFromDisk();
     const sessions = store.subscriptionsBySession || {};
     const subscriptionsByEndpoint = new Map();
+    const foregroundEndpoints = new Set();
+    pruneUiVisibility();
 
-    for (const record of Object.values(sessions)) {
+    for (const [sessionKey, record] of Object.entries(sessions)) {
       const subscriptions = normalizePushSubscriptions(record);
       if (subscriptions.length === 0) continue;
 
       for (const sub of subscriptions) {
+        // Only presence from the subscription's authenticated session can suppress it.
+        const clients = uiVisibilityByToken.get(sessionKey);
+        if (clients && Array.from(clients.values()).some((state) => state.visible && state.endpoint === sub.endpoint)) {
+          foregroundEndpoints.add(sub.endpoint);
+        }
         if (!subscriptionsByEndpoint.has(sub.endpoint)) {
           subscriptionsByEndpoint.set(sub.endpoint, sub);
         }
@@ -256,13 +264,12 @@ export const createPushRuntime = (deps) => {
     }
 
     await Promise.all(Array.from(subscriptionsByEndpoint.values()).map(async (sub) => {
+      // Foreground pages own local delivery, including in `always` mode.
+      if (foregroundEndpoints.has(sub.endpoint)) return;
       if (requireNoSse) {
-        // Mobile PWA subscriptions follow the same presence model as native push: suppress only
-        // when an interactive (desktop/web) client is visible. The phone PWA's own foreground is
-        // handled in the service worker (focused-client check), so it won't double-notify.
-        // Non-mobile (desktop/web) subscriptions keep the existing any-visible gate.
-        const suppressed = isMobilePlatform(sub.platform) ? isAnyInteractiveClientVisible() : isAnyUiVisible();
-        if (suppressed) return;
+        // Preserve desktop-to-phone suppression without treating a visible phone
+        // as proof that every other subscription is foregrounded.
+        if (isAnyInteractiveClientVisible()) return;
       }
       await sendPushToSubscription(sub, payload);
     }));
@@ -274,22 +281,26 @@ export const createPushRuntime = (deps) => {
   const MOBILE_PLATFORMS = new Set(['ios', 'android']);
   const isMobilePlatform = (platform) => typeof platform === 'string' && MOBILE_PLATFORMS.has(platform);
 
-  const updateUiVisibility = (token, visible, platform) => {
+  const updateUiVisibility = (token, visible, platform, clientId = 'legacy', endpoint) => {
     if (!token) return;
     const now = Date.now();
     const nextVisible = Boolean(visible);
-    const existing = uiVisibilityByToken.get(token);
+    pruneUiVisibility(now);
+    const sessionKey = sessionKeyFor(token);
+    const clients = uiVisibilityByToken.get(sessionKey) ?? new Map();
+    const existing = clients.get(clientId);
     // Keep the last known platform if this beacon didn't carry one (e.g. a heartbeat).
     const nextPlatform = typeof platform === 'string' && platform ? platform : existing?.platform;
-    uiVisibilityByToken.set(token, { visible: nextVisible, updatedAt: now, platform: nextPlatform });
+    clients.set(clientId, { visible: nextVisible, updatedAt: now, platform: nextPlatform, endpoint });
+    uiVisibilityByToken.set(sessionKey, clients);
   };
 
   const isAnyUiVisible = () => {
     const now = Date.now();
     pruneUiVisibility(now);
-    for (const state of uiVisibilityByToken.values()) {
-      if (state.visible === true && now - state.updatedAt <= UI_VISIBILITY_TTL_MS) {
-        return true;
+    for (const clients of uiVisibilityByToken.values()) {
+      for (const state of clients.values()) {
+        if (state.visible === true) return true;
       }
     }
     return false;
@@ -302,13 +313,9 @@ export const createPushRuntime = (deps) => {
   const isAnyInteractiveClientVisible = () => {
     const now = Date.now();
     pruneUiVisibility(now);
-    for (const state of uiVisibilityByToken.values()) {
-      if (
-        state.visible === true &&
-        now - state.updatedAt <= UI_VISIBILITY_TTL_MS &&
-        !isMobilePlatform(state.platform)
-      ) {
-        return true;
+    for (const clients of uiVisibilityByToken.values()) {
+      for (const state of clients.values()) {
+        if (state.visible === true && !isMobilePlatform(state.platform)) return true;
       }
     }
     return false;
@@ -317,8 +324,8 @@ export const createPushRuntime = (deps) => {
   const isUiVisible = (token) => {
     const now = Date.now();
     pruneUiVisibility(now);
-    const state = uiVisibilityByToken.get(token);
-    return state?.visible === true && now - state.updatedAt <= UI_VISIBILITY_TTL_MS;
+    const clients = uiVisibilityByToken.get(sessionKeyFor(token));
+    return clients ? Array.from(clients.values()).some((state) => state.visible === true) : false;
   };
 
   const resolveVapidSubject = async () => {

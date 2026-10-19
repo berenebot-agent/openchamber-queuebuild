@@ -1,6 +1,6 @@
 import React from 'react';
 import { isWebRuntime } from '@/lib/desktop';
-import { getClientPlatform, isCapacitorApp } from '@/lib/platform';
+import { getPushClientPlatform, isCapacitorApp } from '@/lib/platform';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 
 const HEARTBEAT_MS = 20000;
@@ -10,7 +10,7 @@ const resolveVisibilityState = (): 'visible' | 'hidden' => {
   return document.visibilityState === 'visible' && document.hasFocus() ? 'visible' : 'hidden';
 };
 
-const sendVisibility = (visible: boolean) => {
+const sendVisibility = (visible: boolean, clientId: string) => {
   if (!isWebRuntime() && !isCapacitorApp()) {
     return;
   }
@@ -20,9 +20,7 @@ const sendVisibility = (visible: boolean) => {
     return;
   }
 
-  // platform lets the server distinguish mobile (push recipients) from interactive surfaces
-  // (desktop/web/vscode) so it can suppress phone push only while an interactive client is visible.
-  void apis.push.setVisibility({ visible, platform: getClientPlatform() });
+  void apis.push.setVisibility({ visible, platform: getPushClientPlatform(), clientId });
 };
 
 export const usePushVisibilityBeacon = (options?: { enabled?: boolean }) => {
@@ -31,18 +29,17 @@ export const usePushVisibilityBeacon = (options?: { enabled?: boolean }) => {
     if (!enabled || (!isWebRuntime() && !isCapacitorApp()) || typeof window === 'undefined') {
       return;
     }
+    const clientId = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
     // Native (Capacitor): drive visibility AUTHORITATIVELY from App.appStateChange. The
     // web signals (document.visibilityState / hasFocus) are unreliable in a WKWebView —
-    // hasFocus() often returns false while the app is active — which made the app report
-    // "hidden" while foregrounded and leaked push notifications. The server's focus gate
-    // suppresses push whenever a UI client is visible, so getting this right is what
-    // guarantees "no push while the app is active".
+    // hasFocus() often returns false while the app is active. Native APNs keeps
+    // its own foreground presentation policy; these beacons also reset its badge.
     if (isCapacitorApp()) {
       let active = true;
       let disposed = false;
       let removeListener: (() => void) | null = null;
-      const reportActive = () => sendVisibility(active);
+      const reportActive = () => sendVisibility(active, clientId);
 
       void import('@capacitor/app')
         .then(async ({ App }) => {
@@ -64,7 +61,7 @@ export const usePushVisibilityBeacon = (options?: { enabled?: boolean }) => {
 
       // Heartbeat so the server's visibility TTL never expires while the app is active.
       const interval = window.setInterval(() => {
-        if (active) sendVisibility(true);
+        if (active) sendVisibility(true, clientId);
       }, HEARTBEAT_MS);
 
       return () => {
@@ -80,17 +77,17 @@ export const usePushVisibilityBeacon = (options?: { enabled?: boolean }) => {
     }
 
     const report = () => {
-      sendVisibility(resolveVisibilityState() === 'visible');
+      sendVisibility(resolveVisibilityState() === 'visible', clientId);
     };
 
     const reportVisibleOnly = () => {
       if (resolveVisibilityState() === 'visible') {
-        sendVisibility(true);
+        sendVisibility(true, clientId);
       }
     };
 
     const reportPageHidden = () => {
-      sendVisibility(false);
+      sendVisibility(false, clientId);
     };
 
     report();
@@ -102,14 +99,17 @@ export const usePushVisibilityBeacon = (options?: { enabled?: boolean }) => {
     window.addEventListener('pageshow', report);
     window.addEventListener('focus', report);
     window.addEventListener('blur', report);
+    window.addEventListener('openchamber:push-subscription-changed', report);
 
     return () => {
       window.clearInterval(interval);
+      sendVisibility(false, clientId);
       document.removeEventListener('visibilitychange', report);
       window.removeEventListener('pagehide', reportPageHidden);
       window.removeEventListener('pageshow', report);
       window.removeEventListener('focus', report);
       window.removeEventListener('blur', report);
+      window.removeEventListener('openchamber:push-subscription-changed', report);
     };
   }, [enabled]);
 };

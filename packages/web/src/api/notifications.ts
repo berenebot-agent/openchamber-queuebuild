@@ -42,6 +42,8 @@ const withNotificationTarget = (
   const options: NotificationOptionsWithTarget = {
     body: payload?.body,
     tag: payload?.tag,
+    icon: '/pwa-192.png',
+    badge: '/favicon-32.png',
   };
   if (target) {
     options.data = target;

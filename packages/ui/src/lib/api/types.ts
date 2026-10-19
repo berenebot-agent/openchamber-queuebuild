@@ -1458,7 +1458,7 @@ export interface PushAPI {
   getVapidPublicKey(): Promise<{ publicKey: string } | null>;
   subscribe(payload: PushSubscribePayload): Promise<{ ok: true } | null>;
   unsubscribe(payload: PushUnsubscribePayload): Promise<{ ok: true } | null>;
-  setVisibility(payload: { visible: boolean; platform?: string }): Promise<{ ok: true } | null>;
+  setVisibility(payload: { visible: boolean; platform?: string; clientId?: string }): Promise<{ ok: true } | null>;
   /** Register a native iOS APNs device token (Capacitor mobile app only). */
   registerApnsToken(payload: ApnsTokenPayload): Promise<{ ok: true } | null>;
   unregisterApnsToken(payload: ApnsTokenPayload): Promise<{ ok: true } | null>;
