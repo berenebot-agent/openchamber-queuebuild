@@ -36,7 +36,7 @@ import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectI
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
-import { WorkBoardCardMenu } from './WorkBoardCardMenu';
+import { WorkBoardCardMenu, WorkBoardCardContextMenu, type WorkBoardCardMenuProps } from './WorkBoardCardMenu';
 import { readMobileWorkBoardLane, rememberMobileWorkBoardLane } from './workBoardMobileLane';
 import { readRecentWorkBoardProjects, rememberWorkBoardProjectAccess } from './workBoardRecentProjects';
 import { WorkBoardMobileProjectPicker } from './WorkBoardMobileProjectPicker';
@@ -410,7 +410,7 @@ function WorkBoardLaneColumn({ lane, droppable, count, mobile, children }: {
  * and reorders it inside one, and dropping another card on it is how a place in
  * the middle of a lane is named.
  */
-function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnknown, needsReview, title, large, mobile, draggable, loading, error, actions, onOpenCard, onAcknowledge }: {
+function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnknown, needsReview, title, large, mobile, draggable, loading, error, menu, actions, onOpenCard, onAcknowledge }: {
   card: WorkBoardCard;
   lane: WorkBoardLane;
   activity: WorkBoardActivity | undefined;
@@ -424,6 +424,8 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
   draggable: boolean;
   loading: boolean;
   error: string;
+  /** The card's entries, shared by its three-dot menu and its right-click menu. */
+  menu: WorkBoardCardMenuProps;
   actions?: React.ReactNode;
   onOpenCard: () => void;
   onAcknowledge: () => void;
@@ -450,21 +452,27 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
     if (loading || error) return;
     onOpenCard();
   };
-  return <article
-    ref={setNodeRef}
-    {...(sortable.attributes)}
-    {...(sortable.listeners ?? {})}
-    aria-label={t('workBoard.dragCard', { title })}
-    onClick={openCard}
-    style={{ transform: CSS.Translate.toString(sortable.transform), transition: sortable.transition }}
-    data-work-board-feedback={feedback ?? undefined}
-    data-work-board-working={activePlan ? '' : undefined}
-    data-work-board-waiting={waitingFor ?? undefined}
-    data-work-board-dragging={dragging ? '' : undefined}
-    className={'group relative overflow-hidden rounded-md border bg-surface-elevated cursor-grab select-none active:cursor-grabbing '
-      + (dragging ? 'opacity-60 ' : '')
-      + (activePlan ? '' : 'border-border ')
-      + (large ? 'px-2.5 py-2 ' : 'px-2.5 py-1.5 ')}>
+  // A phone has no right click, and a long press there belongs to dragging, so
+  // its card keeps the touch-sized three-dot menu alone.
+  const contextMenu = mobile ? { ...menu, disabled: true } : menu;
+  return <WorkBoardCardContextMenu
+    menu={contextMenu}
+    trigger={<article
+      ref={setNodeRef}
+      {...(sortable.attributes)}
+      {...(sortable.listeners ?? {})}
+      aria-label={t('workBoard.dragCard', { title })}
+      onClick={openCard}
+      style={{ transform: CSS.Translate.toString(sortable.transform), transition: sortable.transition }}
+      data-work-board-feedback={feedback ?? undefined}
+      data-work-board-working={activePlan ? '' : undefined}
+      data-work-board-waiting={waitingFor ?? undefined}
+      data-work-board-dragging={dragging ? '' : undefined}
+      className={'group relative overflow-hidden rounded-md border bg-surface-elevated cursor-grab select-none active:cursor-grabbing '
+        + (dragging ? 'opacity-60 ' : '')
+        + (activePlan ? '' : 'border-border ')
+        + (large ? 'px-2.5 py-2 ' : 'px-2.5 py-1.5 ')}
+    />}>
     {activePlan && <span aria-hidden="true" className="oc-build-stripes oc-build-stripes-plan pointer-events-none absolute inset-0" />}
     <div className="relative">
     <div className="flex min-w-0 items-center gap-1">
@@ -486,7 +494,7 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
       : activePlan && !mobile ? <p aria-hidden="true" className="min-h-[1lh] text-xs leading-5" />
       : null}
     </div>
-  </article>;
+  </WorkBoardCardContextMenu>;
 }
 
 export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange, pickerOpen, onPickerOpenChange }: {
@@ -1289,6 +1297,23 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
               // A card with nothing to report, and an unstarted To-do with no
               // session to report on, stays compact.
               const large = (lane === 'plan' && hasRunningTurn) || lane !== 'todo' || Boolean(card.sessionId);
+              const menuProps: WorkBoardCardMenuProps = {
+                sessionId: card.sessionId ?? null,
+                directory: card.directory,
+                title,
+                disabled: busy || loading || Boolean(error),
+                onStartPlan: card.sessionId ? null : () => promote(card),
+                onReturnToTodo: canReturnToTodo ? () => void mutate(async () => {
+                  const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
+                  await saveSessionToTodo(card.sessionId!, card.directory, actualDirectory, card.text, []);
+                }) : null,
+                onRemove: canRemove ? () => void mutate(async () => {
+                  await deleteWorkBoardCard(card.id);
+                }) : null,
+                onRemoveTodo: card.stage === 'todo' && !card.briefRemoved ? () => void mutate(async () => {
+                  await updateWorkBoardCard(card.id, { removeBrief: true, expectedUpdatedAt: card.updatedAt });
+                }) : null,
+              };
               return <WorkBoardCard
                 key={card.id}
                 card={card}
@@ -1304,6 +1329,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
                 draggable={!loading && !error && !busy}
                 loading={loading}
                 error={error}
+                menu={menuProps}
                 onOpenCard={() => openCardFor(card)}
                 onAcknowledge={() => acknowledge(card)}
                 actions={<>
@@ -1325,23 +1351,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:text-[var(--status-success-text)] hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                     <Icon name="check" className="size-3.5" />
                   </button>}
-                  <WorkBoardCardMenu
-                    sessionId={card.sessionId ?? null}
-                    directory={card.directory}
-                    title={title}
-                    disabled={busy || loading || Boolean(error)}
-                    onStartPlan={card.sessionId ? null : () => promote(card)}
-                    onReturnToTodo={canReturnToTodo ? () => void mutate(async () => {
-                      const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
-                      await saveSessionToTodo(card.sessionId!, card.directory, actualDirectory, card.text, []);
-                    }) : null}
-                    onRemove={canRemove ? () => void mutate(async () => {
-                      await deleteWorkBoardCard(card.id);
-                    }) : null}
-                    onRemoveTodo={card.stage === 'todo' && !card.briefRemoved ? () => void mutate(async () => {
-                      await updateWorkBoardCard(card.id, { removeBrief: true, expectedUpdatedAt: card.updatedAt });
-                    }) : null}
-                  />
+                  <WorkBoardCardMenu {...menuProps} />
                 </>}
               />;
             })}

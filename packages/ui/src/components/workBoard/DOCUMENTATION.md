@@ -10,10 +10,13 @@ not classify sessions itself.
   its session, queue rows, the project queue toggle, and the recovery dialogs.
   Its `mobile` prop renders the same board as a one-lane phone view for the
   mobile shells.
-- `WorkBoardCardMenu.tsx` — a card's own three-dot menu: the board's entries
-  (start Plan, back to To-do, remove the saved to-do, remove the card) and, for a
-  card linked to a session, the session actions a sidebar row offers. Pin is not
-  among them: a card already carries its own place on the board.
+- `WorkBoardCardMenu.tsx` — a card's own menu, in its two forms: the three-dot
+  menu in the card's actions row, and the same entries on the card's own
+  right-click menu (a phone has neither right click nor a free long press, so it
+  keeps the three-dot menu). The entries are the board's own (start Plan, back
+  to To-do, remove the saved to-do, remove the card) and, for a card linked to a
+  session, the session actions a sidebar row offers. Pin is not among them: a
+  card already carries its own place on the board.
 - `workBoardMobileLane.ts` — the last lane the phone showed, remembered per
   client and connected server.
 - `workBoardRecentProjects.ts` — the work board projects this device opened,

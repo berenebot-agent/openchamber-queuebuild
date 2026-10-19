@@ -13,8 +13,8 @@ const domGlobals = (dom: Window) => ({
   window: dom, document: dom.document, navigator: dom.navigator,
   Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
   HTMLInputElement: dom.HTMLInputElement, HTMLButtonElement: dom.HTMLButtonElement,
-  MutationObserver: dom.MutationObserver,
-  Event: dom.Event, KeyboardEvent: dom.KeyboardEvent, PointerEvent: dom.PointerEvent,
+  MutationObserver: dom.MutationObserver, DOMRect: dom.DOMRect, ResizeObserver: dom.ResizeObserver,
+  Event: dom.Event, MouseEvent: dom.MouseEvent, KeyboardEvent: dom.KeyboardEvent, PointerEvent: dom.PointerEvent,
   getComputedStyle: dom.getComputedStyle.bind(dom),
   requestAnimationFrame: dom.requestAnimationFrame.bind(dom), cancelAnimationFrame: dom.cancelAnimationFrame.bind(dom),
   IS_REACT_ACT_ENVIRONMENT: true,
@@ -131,6 +131,86 @@ test('a card linked to a session carries the session menu, and rename writes the
     expect(writes).toHaveLength(1);
     expect(writes[0].body).toContain('Renamed from the board');
     expect(writes[0].path).toBe('/api/session/session1');
+  } finally {
+    if (root) await act(async () => root!.unmount());
+    fetchSpy.mockRestore();
+    useGlobalSessionsStore.setState(sessions);
+    opencodeClient.reconnectToRuntimeBaseUrl();
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
+test('right-clicking a card opens the same menu its three-dot trigger shows', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = domGlobals(dom);
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  const { createRoot } = await import('react-dom/client');
+  opencodeClient.reconnectToRuntimeBaseUrl();
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), 'http://localhost');
+    if (url.pathname.endsWith('/event')) return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
+    if (url.pathname.endsWith('/session/session1')) return Response.json({ data: { ...sessionRecord('Card title'), location: { directory: '/repo' } } });
+    if (url.pathname.endsWith('/location')) return Response.json({ directory: '/repo', project: { id: 'project', directory: '/repo', canonical: '/repo' } });
+    return Response.json({ data: [] });
+  });
+  const sdk = OpenCode.make({ baseUrl: 'http://localhost', fetch: (input, init) => globalThis.fetch(input, init) });
+  const { WorkBoardCardContextMenu } = await import('./WorkBoardCardMenu');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const { SyncProvider } = await import('@/sync/sync-context');
+  const sessions = useGlobalSessionsStore.getState();
+  useGlobalSessionsStore.setState({ activeSessions: [], archivedSessions: [], status: 'ready', entityById: new Map() });
+  useGlobalSessionsStore.getState().upsertSession(sessionRecord('Card title'));
+  const boardCalls: string[] = [];
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  let root: Root | undefined;
+  const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(item => item.textContent).filter(Boolean);
+  const clickItem = async (label: string) => {
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === label);
+    if (!item) throw new Error(`Missing menu item: ${label}`);
+    await act(async () => { item.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
+  };
+  const openMenu = async () => {
+    const trigger = container.querySelector<HTMLElement>('[data-testid="card"]');
+    if (!trigger) throw new Error('Missing card element');
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 12, clientY: 24 }));
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+  };
+  try {
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(<I18nProvider><SyncProvider sdk={sdk} directory="/repo">
+        <WorkBoardCardContextMenu
+          menu={{
+            sessionId: 'session1', directory: '/repo', title: 'Card title', disabled: false,
+            onStartPlan: null,
+            onReturnToTodo: () => boardCalls.push('back'),
+            onRemove: () => boardCalls.push('remove'),
+            onRemoveTodo: () => boardCalls.push('removeTodo'),
+          }}
+          trigger={<div data-testid="card" />}
+        >
+          <span>Card title</span>
+        </WorkBoardCardContextMenu>
+      </SyncProvider></I18nProvider>);
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+    // Nothing is open until the card itself is right-clicked.
+    expect(items()).toEqual([]);
+    await openMenu();
+    // The card's own entries, then the linked session's, in one menu.
+    expect(items()).toEqual([
+      'Back to To-do', 'Remove to-do', 'Remove card', 'Rename', 'Rename with AI', 'Copy session ID', 'Export Markdown', 'Track as in work', 'Archive', 'Delete',
+    ]);
+    await clickItem('Back to To-do');
+    expect(boardCalls).toEqual(['back']);
   } finally {
     if (root) await act(async () => root!.unmount());
     fetchSpy.mockRestore();
