@@ -2170,7 +2170,9 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
 /* A plan turn running now, and the same green treatment on a working card that
    also has a notice: the card takes the colour of the band it already carries,
    so a plan still being worked reads as active without being taller than the
-   build card beside it. Work in progress outranks the notice; the notice text
+   build card beside it (on the desktop board, where the lanes sit side by side;
+   a phone shows one lane, so the card stays one line tall). Work in progress
+   outranks the notice; the notice text
    still says what is wrong. */
 [data-work-board-working] {
   border-color: color-mix(in srgb, var(--status-success) 42%, transparent);

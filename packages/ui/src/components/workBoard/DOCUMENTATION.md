@@ -154,6 +154,13 @@ The lane picker remembers the last lane per client and connected server in
 storage is blocked. The search field is not drawn on a phone: one lane at a
 time is already short enough to read.
 
+A running plan card keeps one line on a phone. The desktop card reserves an
+empty status line so it stands the same height as the running build and the
+waiting queue rows beside it; with a single lane on screen there is nothing to
+line up with, so the reserved line would only make that card taller than the
+cards around it. The card still carries the green band and the working tint,
+and the status line appears the moment it has something to say.
+
 The project selector lists the boards this device opened first, most recent at
 the top, and carries each board's marks (`WorkBoardProjectMarks`) so the list
 says which board is waiting before it is opened. The recency is per client and

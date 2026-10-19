@@ -12,6 +12,7 @@ import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { WorkBoardSnapshot } from '@/lib/workBoardApi';
 import { makeSnapshot, snapshotCard } from './workBoardSnapshot.fixture';
+import { rememberMobileWorkBoardLane } from './workBoardMobileLane';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -24,7 +25,8 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 test('live builds without queue entries remain visible and reconcile without duplicates', async () => {
   const dom = new Window({ url: 'http://localhost' });
   const globals = {
-    window: dom, document: dom.document, navigator: dom.navigator,
+    // The phone board remembers which lane it opens on, so it needs storage.
+    window: dom, document: dom.document, navigator: dom.navigator, localStorage: dom.localStorage,
     Node: dom.Node, Element: dom.Element, HTMLElement: dom.HTMLElement,
     HTMLIFrameElement: dom.HTMLIFrameElement, MutationObserver: dom.MutationObserver,
     KeyboardEvent: dom.KeyboardEvent,
@@ -108,6 +110,25 @@ test('live builds without queue entries remain visible and reconcile without dup
     // running build beside it; an idle plan reserves nothing.
     expect(planCard.querySelector('p[aria-hidden="true"]')).not.toBeNull();
     expect(lane('Plan').querySelector('button[title="idle-plan"]')!.closest('article')!.querySelector('p[aria-hidden="true"]')).toBeNull();
+    // The phone shows one lane at a time, so the running plan has nothing to
+    // line up with and stays one line tall: the band still marks it as running,
+    // but no empty status line is reserved under it.
+    rememberMobileWorkBoardLane(getRuntimeKey(), 'plan');
+    const phoneContainer = document.createElement('div');
+    document.body.appendChild(phoneContainer);
+    const phoneRoot = createRoot(phoneContainer);
+    // Unmounted even when an assertion throws: a board left mounted would go
+    // on polling through the rest of the run.
+    try {
+      await act(async () => { phoneRoot.render(<I18nProvider><WorkBoardView mobile /></I18nProvider>); await sleep(50); });
+      const phoneCard = phoneContainer.querySelector('section[aria-label="Plan"] button[title="planning"]')!.closest('article')!;
+      expect(Boolean(phoneCard.querySelector('.oc-build-stripes-plan'))).toBe(true);
+      expect(phoneCard.hasAttribute('data-work-board-working')).toBe(true);
+      expect(Boolean(phoneCard.querySelector('p[aria-hidden="true"]'))).toBe(false);
+    } finally {
+      await act(async () => phoneRoot.unmount());
+      phoneContainer.remove();
+    }
     await act(async () => { openButtons()[0].click(); });
     expect(openSpy.mock.calls.at(-1)).toEqual(['direct-a', '/repo']);
 

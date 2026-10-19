@@ -406,7 +406,7 @@ function WorkBoardLaneColumn({ lane, droppable, count, mobile, children }: {
  * and reorders it inside one, and dropping another card on it is how a place in
  * the middle of a lane is named.
  */
-function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnknown, needsReview, title, large, draggable, loading, error, actions, onOpenCard, onAcknowledge }: {
+function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnknown, needsReview, title, large, mobile, draggable, loading, error, actions, onOpenCard, onAcknowledge }: {
   card: WorkBoardCard;
   lane: WorkBoardLane;
   activity: WorkBoardActivity | undefined;
@@ -416,6 +416,7 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
   needsReview: boolean;
   title: string;
   large: boolean;
+  mobile: boolean;
   draggable: boolean;
   loading: boolean;
   error: string;
@@ -474,9 +475,11 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
     {checking ? <p className="min-h-[1lh] text-xs leading-5 text-muted-foreground">{t('common.loading')}</p>
       : feedback ? <WorkBoardSessionFeedback feedback={feedback} />
       : waitingFor ? <p className="min-h-[1lh] text-xs leading-5 text-[var(--status-warning-text)]">{waitingLabel}</p>
-      // A running plan reserves its status line even with nothing to say, so the
-      // card matches the running build and the waiting rows in the queue lane.
-      : activePlan ? <p aria-hidden="true" className="min-h-[1lh] text-xs leading-5" />
+      // A running plan on the desktop board reserves its status line even with
+      // nothing to say, so the card matches the running build and the waiting
+      // rows in the lane beside it. A phone shows one lane at a time, so there
+      // is nothing to line up with and the card keeps its single line.
+      : activePlan && !mobile ? <p aria-hidden="true" className="min-h-[1lh] text-xs leading-5" />
       : null}
     </div>
   </article>;
@@ -1300,7 +1303,8 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
               // line — a working plan, or any card linked to a session, which
               // can gain "Needs attention" or a loading line — takes the larger
               // box. A working plan reserves its status line, even empty, so it
-              // is the same height as the running build and the waiting rows.
+              // is the same height as the running build and the waiting rows —
+              // on the desktop board, where those lanes sit side by side.
               // A card with nothing to report, and an unstarted To-do with no
               // session to report on, stays compact.
               const large = (lane === 'plan' && hasRunningTurn) || lane !== 'todo' || Boolean(card.sessionId);
@@ -1315,6 +1319,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
                 needsReview={Boolean(queueStateFor(card)?.needsReview)}
                 title={title}
                 large={large}
+                mobile={mobile}
                 draggable={!loading && !error && !busy}
                 loading={loading}
                 error={error}
