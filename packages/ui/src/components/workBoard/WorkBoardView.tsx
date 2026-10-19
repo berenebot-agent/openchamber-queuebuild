@@ -31,7 +31,7 @@ import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
 import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, updateQueueSettings, type WorkBoardCard, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
-import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
+import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardCompletesMove, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -1026,14 +1026,18 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
    */
   const place = (cards: WorkBoardCard[], lane: WorkBoardCardLane, before?: string | null) => void mutate(async () => {
     if (!cards.length) return;
+    // A move into Done from another lane completes the card: the server stamps
+    // its own completion time, so it leads Done and its mark returns. A move
+    // already inside Done is an arrangement, not a completion.
+    const completed = cards.some(card => workBoardCompletesMove(laneFor(card), lane));
     // The server stamps the placement with its own clock; each card carries its
     // version so a concurrent change elsewhere is a reported conflict.
     const targets = cards.map(card => ({
       id: card.id, updatedAt: card.updatedAt, text: card.text, sessionId: card.sessionId,
     }));
     const result: { placed: WorkBoardCard[]; failed: { id: string; error: string }[] } = cards.length === 1
-      ? { placed: [await placeWorkBoardCard(cards[0], lane, before)], failed: [] }
-      : await placeWorkBoardCards(directory, lane, targets);
+      ? { placed: [await placeWorkBoardCard(cards[0], lane, before, completed)], failed: [] }
+      : await placeWorkBoardCards(directory, lane, targets, completed);
     const failures = result.failed.map(failure => `${workBoardCardTitle(cards.find(card => card.id === failure.id)?.text ?? failure.id, [])}: ${failure.error}`);
     // A linked session follows its card: into Done means the work is done and
     // the session leaves In work; out of Done puts it back.

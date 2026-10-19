@@ -101,6 +101,15 @@ export function workBoardShowsCompletionMark(card: WorkBoardCard): boolean {
 }
 
 /**
+ * Whether a move into Done completes the card: it comes from another lane. A move
+ * that starts inside Done arranges the lane; it completes nothing new, so the card
+ * keeps the completion it already had.
+ */
+export function workBoardCompletesMove(fromLane: WorkBoardLane, toLane: WorkBoardCardLane): boolean {
+  return toLane === 'done' && fromLane !== 'done';
+}
+
+/**
  * The build queue as one column: the lease the server is running now, then the
  * waiting items in dispatch order, then any queue entry the board has no card
  * for. Entries without a card are still the queue's work; leaving them out

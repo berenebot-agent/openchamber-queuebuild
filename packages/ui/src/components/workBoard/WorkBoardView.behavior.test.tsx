@@ -57,6 +57,7 @@ test('board actions, live activity and viewed turn attention use shared session 
     snapshotCard({ id: 'newer', lane: 'done', text: 'Newer completion', completedAt: 10 }),
   ];
   let placementRequests = 0;
+  let placementBody: { targets?: { id: string }[]; completed?: boolean } | null = null;
   let queuePaused = false;
   let serverCards = cards;
   const activity: WorkBoardSnapshot['activities'] = {
@@ -82,6 +83,7 @@ test('board actions, live activity and viewed turn attention use shared session 
     if (url.includes('/api/work-board/placement') || url.includes('/placement')) {
       placementRequests += 1;
       const body = init?.body ? JSON.parse(String(init.body)) : {};
+      placementBody = body;
       const ids: string[] = body.targets ? body.targets.map((target: { id: string }) => target.id) : ['plan'];
       const placed = ids.map(id => ({ ...serverCards.find(card => card.id === id)!, lane: 'done' as const, stage: 'done' as const, completedAt: 20 }));
       serverCards = serverCards.map(card => placed.find(entry => entry.id === card.id) ?? card);
@@ -148,6 +150,9 @@ test('board actions, live activity and viewed turn attention use shared session 
     if (!bulk) throw new Error('Missing bulk completion action');
     await act(async () => { bulk.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
     expect(placementRequests).toBe(1);
+    // The Plan lane's card was not in Done, so the move completes it: the server
+    // stamps its own completion time and the card leads Done.
+    expect(placementBody).toMatchObject({ completed: true });
     const linkedCard = () => container.querySelector('button[title="Inherited plan"]')!.closest('article')!;
     expect(linkedCard().textContent).toContain('Needs attention');
     expect(linkedCard().querySelector('[data-session-activity-indicator="unread"]')).not.toBeNull();

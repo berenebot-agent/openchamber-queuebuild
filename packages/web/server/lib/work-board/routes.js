@@ -70,7 +70,8 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
       const body = z.object({ lane: z.enum(['todo', 'plan', 'build', 'done']),
         expectedUpdatedAt: z.number().finite().optional(),
         before: z.string().min(1).nullable().optional(), directory: z.string().trim().min(1).optional(),
-        sessionId: z.string().trim().min(1).optional(), text: z.string().optional() }).parse(req.body);
+        sessionId: z.string().trim().min(1).optional(), text: z.string().optional(),
+        completed: z.boolean().optional() }).parse(req.body);
       // A card the board derives from a session has no stored record yet; its
       // first placement creates one, so the request carries what it needs.
       const directory = body.directory ? await resolveDirectory(req, body.directory) : undefined;
@@ -85,6 +86,7 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
   app.post('/api/work-board/placement', json, async (req, res) => {
     try {
       const body = z.object({ directory: z.string().trim().min(1), lane: z.enum(['todo', 'plan', 'build', 'done']),
+        completed: z.boolean().optional(),
         targets: z.array(z.object({
           id: z.string().min(1), updatedAt: z.number().finite(), text: z.string(),
           sessionId: z.string().trim().min(1).optional(),
@@ -104,7 +106,8 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
           // the card's current version, so a change made between this read and
           // the write is a 409, not an overwrite.
           placed.push(await store.placement(target.id, { lane: body.lane, directory,
-            sessionId: target.sessionId, text: target.text, expectedUpdatedAt: target.updatedAt }));
+            sessionId: target.sessionId, text: target.text, expectedUpdatedAt: target.updatedAt,
+            completed: body.completed }));
         } catch (error) { failed.push({ id: target.id, error: error.message }); }
       }
       return res.json({ placed, failed });

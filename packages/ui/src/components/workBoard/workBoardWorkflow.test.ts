@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardMoved, workBoardOrderNeighbour, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording, workBoardCardLane, workBoardSnapshotOrder, workBoardSnapshotRows, workBoardQueueFromSnapshot } from './workBoardWorkflow';
+import { captureWorkBoardAttachments, startWorkBoardPlan, workBoardFeedback, workBoardMoved, workBoardOrderNeighbour, workBoardReordered, workBoardShowsCompletionMark, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardDirectoryKey, workBoardActiveEntries, workBoardReviewConfirmWording, workBoardCardLane, workBoardCompletesMove, workBoardSnapshotOrder, workBoardSnapshotRows, workBoardQueueFromSnapshot } from './workBoardWorkflow';
 import type { WorkBoardBuildBadge, WorkBoardTabAsks } from './workBoardWorkflow';
 import type { WorkBoardCard, WorkBoardSnapshot, WorkBoardActivityMessage } from '@/lib/workBoardApi';
 
@@ -266,6 +266,17 @@ describe('completion mark', () => {
     const acknowledged: WorkBoardCard = { ...card, stage: 'done', completedAt: 6, viewedAt: 6 };
     expect(workBoardShowsCompletionMark(acknowledged)).toBe(false);
     expect(workBoardShowsCompletionMark({ ...acknowledged, completedAt: 12, updatedAt: 12 })).toBe(true);
+  });
+});
+
+describe('completing a move', () => {
+  test('a move into Done from another lane completes the card', () => {
+    expect(workBoardCompletesMove('build', 'done')).toBe(true);
+    expect(workBoardCompletesMove('plan', 'done')).toBe(true);
+    expect(workBoardCompletesMove('todo', 'done')).toBe(true);
+    // A move already inside Done arranges the lane; it completes nothing new.
+    expect(workBoardCompletesMove('done', 'done')).toBe(false);
+    expect(workBoardCompletesMove('build', 'plan')).toBe(false);
   });
 });
 

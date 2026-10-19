@@ -20,8 +20,8 @@ type CardChanges = {
 type BoardWrite = CardChanges | { directory: string; text: string; attachments: WorkBoardAttachment[]; sessionDirectory?: string };
 type PlacementTarget = { id: string; updatedAt: number; text: string; sessionId?: string };
 type PlacementLane = 'todo' | 'plan' | 'build' | 'done';
-type PlacementWrite = { lane: PlacementLane; expectedUpdatedAt?: number; before?: string | null }
-  | { directory: string; lane: PlacementLane; targets: PlacementTarget[] };
+type PlacementWrite = { lane: PlacementLane; expectedUpdatedAt?: number; before?: string | null; completed?: boolean }
+  | { directory: string; lane: PlacementLane; targets: PlacementTarget[]; completed?: boolean };
 type QueueSettingsWrite = { directory: string; enabled: boolean | null };
 type QueueRepositoryWrite = { directory: string; repository: string | null };
 type QueuePolicyWrite = { directory: string; policy: QueueGitPolicy | null };
@@ -59,15 +59,17 @@ async function request(path: string, method = 'GET', body?: BoardWrite | Placeme
  * an overwrite. `before` names the card it now sits in front of, so only the card
  * the user moved is pinned; null places it at the end of the lane, and omitting
  * `before` names no place at all, which leaves the card to its lane's own order.
+ * `completed` marks a move into Done as a completion: the server stamps the card's
+ * own completion time, so a card built again and completed again is new work.
  */
-export async function placeWorkBoardCard(card: Pick<WorkBoardCard, 'id' | 'directory' | 'text' | 'sessionId' | 'updatedAt'>, lane: PlacementLane, before?: string | null): Promise<WorkBoardCard> {
+export async function placeWorkBoardCard(card: Pick<WorkBoardCard, 'id' | 'directory' | 'text' | 'sessionId' | 'updatedAt'>, lane: PlacementLane, before?: string | null, completed?: boolean): Promise<WorkBoardCard> {
   return z.object({ card: cardSchema })
     .parse(await request(`/api/work-board/${encodeURIComponent(card.id)}/placement`, 'POST',
-      { lane, expectedUpdatedAt: card.updatedAt, before, directory: card.directory, sessionId: card.sessionId, text: card.text })).card;
+      { lane, expectedUpdatedAt: card.updatedAt, before, directory: card.directory, sessionId: card.sessionId, text: card.text, completed })).card;
 }
-export async function placeWorkBoardCards(directory: string, lane: PlacementLane, targets: PlacementTarget[]) {
+export async function placeWorkBoardCards(directory: string, lane: PlacementLane, targets: PlacementTarget[], completed?: boolean) {
   return z.object({ placed: z.array(cardSchema), failed: z.array(z.object({ id: z.string(), error: z.string() })) })
-    .parse(await request('/api/work-board/placement', 'POST', { directory, lane, targets }));
+    .parse(await request('/api/work-board/placement', 'POST', { directory, lane, targets, completed }));
 }
 export async function fetchSessionWorkBoardCards(sessionId: string): Promise<WorkBoardCard[]> {
   return z.object({ cards: z.array(cardSchema) }).parse(await request(`/api/work-board?sessionId=${encodeURIComponent(sessionId)}`)).cards;

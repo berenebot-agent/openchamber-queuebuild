@@ -190,7 +190,11 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       const target = z.object({ lane: z.enum(['todo', 'plan', 'build', 'done']),
         expectedUpdatedAt: z.number().finite().optional(),
         before: z.string().min(1).nullable().optional(), directory: nonempty.optional(),
-        sessionId: nonempty.optional(), text: z.string().optional() }).parse(input);
+        sessionId: nonempty.optional(), text: z.string().optional(),
+        // The client's own "this move completes the card": a card built again and
+        // completed again is a new completion, and its own arrival time cannot say
+        // so, because its saved stage already reads `done`.
+        completed: z.boolean().optional() }).parse(input);
       const cards = await read();
       const index = cards.findIndex(card => card.id === cardId);
       // A card the board derives from a linked session has no stored record
@@ -223,15 +227,14 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       const placed = { ...current,
         stage: target.lane === 'plan' ? 'plan' : target.lane === 'todo' ? 'todo' : 'done',
         placementAt: at };
-      // Only a card the user actually dropped carries a place: `before` names the
-      // card it now sits in front of, and `null` the end of the lane. A move that
-      // names no place — the completion check, a drop on the lane itself, a bulk
-      // move — clears any earlier one, so the card takes the lane's own order.
-      if (target.before !== undefined) placed.placementBefore = target.before;
+      // Done is ordered by completion alone: a drop into it names no arrangement,
+      // so no card carries a place in it.
+      if (target.before !== undefined && target.lane !== 'done') placed.placementBefore = target.before;
       else delete placed.placementBefore;
-      // Only the first arrival in Done stamps a completion; the acknowledgement
-      // stays until the completion is acknowledged on its own.
-      if (target.lane === 'done' && current.completedAt === undefined) placed.completedAt = at;
+      // Every completion stamps its own time, so a card that is built and completed
+      // again tops Done and shows the completion mark again. The client says when a
+      // move is a completion (from a lane other than Done); a first arrival always is.
+      if (target.lane === 'done' && (target.completed === true || current.completedAt === undefined)) placed.completedAt = at;
       const next = cardSchema.parse(placed);
       const updated = index < 0 ? [...cards, next] : cards.map(card => card.id === next.id ? next : card);
       await write(updated);

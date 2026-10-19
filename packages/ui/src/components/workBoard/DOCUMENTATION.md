@@ -114,7 +114,9 @@ only copy of it.
 Moving a card to or from Done also syncs the linked session's Done/In-work
 state (`setSessionWorkState`). That write is separate and best-effort: the card
 is placed even when the session write fails, and the failure is reported on its
-own rather than rolled back, so a partial failure is visible.
+own rather than rolled back, so a partial failure is visible. A move that lands a
+card in Done from another lane sends `completed`, so the server stamps a new
+completion: the card leads Done and its mark returns even after a rebuild.
 
 ## Ambiguous Force
 

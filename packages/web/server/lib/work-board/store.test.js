@@ -175,6 +175,35 @@ describe('work board persistence', () => {
     } finally { await remove(dataDir); }
   });
 
+  it('stamps every completion afresh and keeps no arrangement in Done', async () => {
+    const { dataDir } = await setup();
+    try {
+      let clock = 1000;
+      const store = createWorkBoardStore({ dataDir, now: () => clock });
+      const card = await store.create(input());
+      // A completion is not an arrangement: a place named in Done is not stored.
+      const first = await store.placement(card.id, { lane: 'done', before: card.id, completed: true });
+      expect(first.completedAt).toBe(1000);
+      expect(first.placementBefore).toBeUndefined();
+      await store.viewed(card.id);
+      expect((await store.list('/project'))[0].viewedAt).toBe(1000);
+
+      // Built again and completed again: the completion is new work, so it takes a
+      // fresh stamp and the acknowledged mark returns.
+      clock = 2000;
+      const again = await store.placement(card.id, { lane: 'done', completed: true });
+      expect(again.completedAt).toBe(2000);
+      expect(again.completedAt).toBeGreaterThan((await store.list('/project'))[0].viewedAt);
+
+      // A later move inside Done is an arrangement, not a completion: it keeps the
+      // completion it already had.
+      clock = 3000;
+      const moved = await store.placement(card.id, { lane: 'done' });
+      expect(moved.completedAt).toBe(2000);
+      expect(moved.placementAt).toBe(3000);
+    } finally { await remove(dataDir); }
+  });
+
   it('drops the retired whole-lane arrangement from an existing file', async () => {
     const { dataDir } = await setup();
     try {

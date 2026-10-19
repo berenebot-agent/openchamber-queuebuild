@@ -176,28 +176,28 @@ describe('work board projection', () => {
     expect(snapshot.waitingFor).toEqual({ 's-asked': 'question' });
   });
 
-  it('orders Done newest completion first, with only the dropped card moved', async () => {
+  it('orders Done newest completion first, ignoring a drop', async () => {
     const cards = [
       baseCard({ id: 'old', stage: 'done', placementAt: 1, completedAt: 5 }),
       baseCard({ id: 'new', stage: 'done', placementAt: 1, completedAt: 9 }),
-      // The user dropped this one in front of the oldest completion.
+      // A drop in this lane names no place: Done is ordered by completion alone.
       baseCard({ id: 'dropped', stage: 'done', placementAt: 2, completedAt: 7, placementBefore: 'old' }),
     ];
     const snapshot = await makeProjection({ cards }).snapshot('/repo');
     expect(snapshot.order.done).toEqual(['new', 'dropped', 'old']);
   });
 
-  it('keeps a later completion above a lane the user arranged earlier', async () => {
-    // The reported bug: once a card was dropped, that lane kept its old order and
-    // every later completion landed at the bottom.
+  it('keeps the newest completion on top of Done however the lane was arranged', async () => {
+    // The reported bug: a card dropped into Done kept an old arrangement, so a
+    // later completion landed under it instead of leading the lane.
     const first = baseCard({ id: 'first', stage: 'done', placementAt: 1, completedAt: 10 });
     const second = baseCard({ id: 'second', stage: 'done', placementAt: 2, completedAt: 20 });
     const dropped = baseCard({ id: 'dropped', stage: 'done', placementAt: 3, completedAt: 30, placementBefore: 'first' });
     const snapshot = await makeProjection({ cards: [first, second, dropped] }).snapshot('/repo');
-    expect(snapshot.order.done).toEqual(['second', 'dropped', 'first']);
+    expect(snapshot.order.done).toEqual(['dropped', 'second', 'first']);
     const later = baseCard({ id: 'later', stage: 'done', placementAt: 4, completedAt: 40 });
     const next = await makeProjection({ cards: [first, second, dropped, later] }).snapshot('/repo');
-    expect(next.order.done).toEqual(['later', 'second', 'dropped', 'first']);
+    expect(next.order.done).toEqual(['later', 'dropped', 'second', 'first']);
   });
 
   it('moves only the dropped card inside a lane that keeps its own order', async () => {
@@ -211,14 +211,27 @@ describe('work board projection', () => {
     expect(snapshot.order.todo).toEqual(['first', 'dropped', 'second', 'last']);
   });
 
-  it('leaves a dropped card at the end of its lane when it names no card', async () => {
+  it('leaves a dropped card at the end of a lane that keeps an arrangement', async () => {
+    const cards = [
+      baseCard({ id: 'older', stage: 'todo' }),
+      baseCard({ id: 'newer', stage: 'todo' }),
+      baseCard({ id: 'dropped', stage: 'todo', placementAt: 2, placementBefore: null }),
+    ];
+    const snapshot = await makeProjection({ cards }).snapshot('/repo');
+    expect(snapshot.order.todo).toEqual(['older', 'newer', 'dropped']);
+  });
+
+  it('leads Done with a completion the lane had pinned to the end', async () => {
+    // The reported symptom: a card carrying a stale end-pin stayed at the bottom
+    // of Done even after it was completed again.
     const cards = [
       baseCard({ id: 'older', stage: 'done', placementAt: 1, completedAt: 5 }),
       baseCard({ id: 'newer', stage: 'done', placementAt: 1, completedAt: 9 }),
-      baseCard({ id: 'dropped', stage: 'done', placementAt: 2, completedAt: 7, placementBefore: null }),
+      baseCard({ id: 'pinned', stage: 'done', placementAt: 2, completedAt: 7, placementBefore: null }),
+      baseCard({ id: 'fresh', stage: 'done', placementAt: 3, completedAt: 12, placementBefore: null }),
     ];
     const snapshot = await makeProjection({ cards }).snapshot('/repo');
-    expect(snapshot.order.done).toEqual(['newer', 'older', 'dropped']);
+    expect(snapshot.order.done).toEqual(['fresh', 'newer', 'pinned', 'older']);
   });
 
   it('returns a dropped card to its own place when the card it named has left the lane', async () => {
@@ -531,6 +544,29 @@ describe('work board projection runtime', () => {
     const snapshot = await runtime.projection.snapshot('/repo');
     expect(snapshot.cards[0].lane).toBe('build');
     expect(snapshot.cards[0].availableActions).toContain('complete');
+  });
+
+  it('keys a stored card\'s history cache on the session, not the card', async () => {
+    // The card's own updatedAt never moves when the session runs again, so a cache
+    // keyed on it would keep the first build's finish time forever.
+    const cards = [{
+      id: 'stored', directory: '/repo', text: 'go', attachments: [],
+      createdAt: 1, updatedAt: 100, stage: 'plan', sessionId: 'ses_1',
+    }];
+    const sessions = [{
+      id: 'ses_1', projectID: 'p', title: 'Session', location: { directory: '/repo' },
+      time: { created: 1, updated: 500 },
+    }];
+    const { runtime, reads } = makeRuntime({ cards, sessions, active: {} });
+    await runtime.projection.snapshot('/repo');
+    expect(reads).toEqual(['ses_1']);
+    // The session has not moved, so the settled history stands and nothing is read.
+    await runtime.projection.snapshot('/repo');
+    expect(reads).toEqual(['ses_1']);
+    // A second build moves the session; the card is untouched but must be re-read.
+    sessions[0].time.updated = 900;
+    await runtime.projection.snapshot('/repo');
+    expect(reads).toEqual(['ses_1', 'ses_1']);
   });
 
   it('prunes the card of a session OpenCode no longer has, and never returns it', async () => {
