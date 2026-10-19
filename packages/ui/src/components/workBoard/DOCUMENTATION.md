@@ -149,10 +149,12 @@ snapshot, writes through the same routes and keeps every action. Only the
 presentation changes. It shows one lane at a time behind a lane picker whose
 counts match the lane it opens, replaces the tab strip with a project selector,
 moves the queue rows' actions into a touch-sized menu, and scrolls vertically.
-The lane picker remembers the last lane per client and connected server in
-`workBoardMobileLane.ts`, and opens on the queue lane when nothing is stored or
-storage is blocked. The search field is not drawn on a phone: one lane at a
-time is already short enough to read.
+A menu item names the action alone, because the row beside it already carries
+the card's name and a full title would make the menu wider than the phone; each
+item keeps that name as its accessible one. The lane picker remembers the last
+lane per client and connected server in `workBoardMobileLane.ts`, and opens on
+the queue lane when nothing is stored or storage is blocked. The search field is
+not drawn on a phone: one lane at a time is already short enough to read.
 
 A running plan card keeps one line on a phone. The desktop card reserves an
 empty status line so it stands the same height as the running build and the

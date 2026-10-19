@@ -206,7 +206,9 @@ function WorkBoardQueueRowItem({ row, index, order, busy, disabled, mobile, onOp
     </WorkBoardQueueTooltip>
     {/* A phone gets the same actions in a touch-sized menu. Five 24px icon
         buttons do not fit a row, and the hover reveal they rely on has no touch
-        equivalent. */}
+        equivalent. The row beside the menu already names the card — as a full
+        title it would make the menu wider than the phone — so an item shows the
+        action alone and keeps the card's name as its accessible one. */}
     {mobile ? <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button size="icon" variant="ghost" className="size-10 shrink-0" disabled={busy}
@@ -215,11 +217,11 @@ function WorkBoardQueueRowItem({ row, index, order, busy, disabled, mobile, onOp
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem disabled={busy || index === 0} onClick={() => onMove(row.itemId, -1)}>{t('workBoard.moveUp', { title: row.title })}</DropdownMenuItem>
-        <DropdownMenuItem disabled={busy || index === order.length - 1} onClick={() => onMove(row.itemId, 1)}>{t('workBoard.moveDown', { title: row.title })}</DropdownMenuItem>
-        <DropdownMenuItem disabled={busy} className={row.paused ? 'text-[var(--status-warning-text)]' : undefined} onClick={() => onTogglePause(row)}>{t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })}</DropdownMenuItem>
-        <DropdownMenuItem disabled={busy} onClick={() => onForce(row)}>{t('workBoard.force', { title: row.title })}</DropdownMenuItem>
-        <DropdownMenuItem disabled={busy} onClick={() => onCancel(row)}>{t('workBoard.cancelBuild', { title: row.title })}</DropdownMenuItem>
+        <DropdownMenuItem aria-label={t('workBoard.moveUp', { title: row.title })} disabled={busy || index === 0} onClick={() => onMove(row.itemId, -1)}>{t('workBoard.moveUpShort')}</DropdownMenuItem>
+        <DropdownMenuItem aria-label={t('workBoard.moveDown', { title: row.title })} disabled={busy || index === order.length - 1} onClick={() => onMove(row.itemId, 1)}>{t('workBoard.moveDownShort')}</DropdownMenuItem>
+        <DropdownMenuItem aria-label={t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })} disabled={busy} className={row.paused ? 'text-[var(--status-warning-text)]' : undefined} onClick={() => onTogglePause(row)}>{t(row.paused ? 'workBoard.resumeShort' : 'workBoard.pauseShort')}</DropdownMenuItem>
+        <DropdownMenuItem aria-label={t('workBoard.force', { title: row.title })} disabled={busy} onClick={() => onForce(row)}>{t('workBoard.forceShort')}</DropdownMenuItem>
+        <DropdownMenuItem aria-label={t('workBoard.cancelBuild', { title: row.title })} disabled={busy} onClick={() => onCancel(row)}>{t('workBoard.cancelBuildShort')}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu> : <div className={'flex shrink-0 items-center gap-0.5 transition-opacity ' + (row.paused
       // A paused row keeps its controls up so the resume control is visible

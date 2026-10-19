@@ -906,3 +906,69 @@ test('a queue row is named from the snapshot when the device has not loaded the 
     }
   }
 });
+
+test('a phone queue row names the action in its menu and the card only to a screen reader', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = domGlobals(dom);
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projects = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  const snapshot = makeSnapshot({
+    sessionTitles: { 's-wait': 'Allocated build name' },
+    queue: {
+      rows: [{ itemId: 'queued1', sessionId: 's-wait', directory: '/repo', content: 'Build it', paused: false, position: 0, model: null }],
+      order: ['queued1'],
+    },
+  });
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
+    if (url.includes('/api/build-queue')) return Response.json({ revision: 1, active: [], queued: [], issues: [] });
+    if (url.includes('/api/work-board/snapshot')) return Response.json(snapshot);
+    if (url.includes('/api/work-board')) return Response.json({ cards: [] });
+    return Response.json({});
+  });
+  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
+  useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    // No stored lane: the phone opens on the queue lane, the one this covers.
+    await act(async () => { root.render(<I18nProvider><WorkBoardView mobile /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
+    const trigger = container.querySelector<HTMLButtonElement>('section[aria-label="Build queue"] button[aria-label="Column actions"]');
+    if (!trigger) throw new Error('Missing the queue row menu');
+    await act(async () => {
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    // A full card title would make the menu wider than the phone, so the row
+    // beside it carries the name and the item carries only the action.
+    expect(items.map(item => item.textContent)).toEqual(['Move up', 'Move down', 'Pause', 'Force', 'Cancel']);
+    expect(items[0].getAttribute('aria-label')).toBe('Move Allocated build name up');
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore();
+    useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
