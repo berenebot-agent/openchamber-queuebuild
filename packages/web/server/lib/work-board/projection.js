@@ -97,6 +97,28 @@ function buildFinishedAt(card, activity) {
   return lastTurn?.time.created ?? card.updatedAt;
 }
 
+/**
+ * A lane's own order with the cards the user dropped by hand moved to the place
+ * they named. `placementBefore` is the card a dropped card now sits in front of,
+ * or null for the end of the lane. Every other card keeps the lane's order, so a
+ * new completion sorts in at the top rather than under a stale arrangement, and
+ * only the card the user moved is pinned. A named card that has left the lane is
+ * no anchor: the dropped card falls back to the place its own order gave it.
+ */
+function placePinnedCards(cards) {
+  if (!cards.some(card => card.placementBefore !== undefined)) return cards;
+  const order = [...cards];
+  for (const card of cards) {
+    if (card.placementBefore === undefined) continue;
+    const from = order.indexOf(card);
+    if (from < 0) continue;
+    order.splice(from, 1);
+    const at = card.placementBefore === null ? order.length : order.findIndex(entry => entry.id === card.placementBefore);
+    order.splice(at < 0 ? from : at, 0, card);
+  }
+  return order;
+}
+
 /** The queue's own view of one directory; a forced build with an unconfirmed
  * prompt carries its target item and recovery instead of reading as running. */
 function queueForDirectory(queue, directory) {
@@ -306,21 +328,18 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       return { ...card, lane, status, availableActions: availableActions(card, lane, status, Boolean(entry?.busy), sessions.available) };
     });
 
-    // Order within a lane: the stored placement order where the user set one,
-    // Done by newest completion first, and anything unarranged after it. The
-    // Plan lane runs its sessions in parallel, so its unarranged cards hold the
-    // order the sessions were started in rather than jumping to the top as one
-    // streams: newest start first, like Done's newest completion. Build complete
-    // orders its unarranged cards by newest finish first, the same way.
+    // Order within a lane: the lane's own rule, with the cards the user dropped
+    // by hand moved to the place they named. Done runs newest completion first,
+    // the Plan lane runs its sessions in parallel and holds newest start first,
+    // Build complete holds newest finish first, and To-do keeps the stored order.
+    // A drop pins only the card that was moved, so a lane never freezes in an
+    // old arrangement.
     for (const lane of CARD_LANES) {
       const inLane = decorated.filter(card => lanes[card.id] === lane);
       if (lane === 'done') inLane.sort((a, b) => placements[b.id].completedAt - placements[a.id].completedAt || a.id.localeCompare(b.id));
-      const arranged = inLane.filter(card => card.placementOrder !== undefined)
-        .sort((a, b) => (a.placementOrder ?? 0) - (b.placementOrder ?? 0) || a.id.localeCompare(b.id));
-      const unarranged = inLane.filter(card => card.placementOrder === undefined);
-      if (lane === 'plan') unarranged.sort((a, b) => startTimeOf(b) - startTimeOf(a));
-      if (lane === 'build') unarranged.sort((a, b) => buildFinishedAt(b, live.get(b.sessionId)) - buildFinishedAt(a, live.get(a.sessionId)) || a.id.localeCompare(b.id));
-      order[lane] = [...arranged, ...unarranged].map(card => card.id);
+      if (lane === 'plan') inLane.sort((a, b) => startTimeOf(b) - startTimeOf(a));
+      if (lane === 'build') inLane.sort((a, b) => buildFinishedAt(b, live.get(b.sessionId)) - buildFinishedAt(a, live.get(a.sessionId)) || a.id.localeCompare(b.id));
+      order[lane] = placePinnedCards(inLane).map(card => card.id);
     }
 
     // The name OpenCode shows for each session this snapshot names, so a device

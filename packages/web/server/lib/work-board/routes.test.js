@@ -211,15 +211,20 @@ describe('work board placement routes', () => {
       expect(moved.body.card).toMatchObject({ stage: 'done' });
       expect(moved.body.card.completedAt).toBe(moved.body.card.placementAt);
       // `before` names the card it now sits in front of, and `null` puts it at
-      // the end; the lane is rewritten in that order either way.
+      // the end of the lane. The card that was dropped carries the place; the
+      // rest of the lane keeps the order the file already had.
       const second2 = await store.placement(second.id, { lane: 'todo', before: null });
       const firstBack = await request(app).post(`/api/work-board/${first.id}/placement`)
         .send({ lane: 'todo', before: null }).expect(200);
-      expect(firstBack.body.card).toMatchObject({ stage: 'todo', placementOrder: 1 });
+      expect(firstBack.body.card).toMatchObject({ stage: 'todo', placementBefore: null });
+      expect(second2.placementBefore).toBe(null);
       const board = await request(app).get('/api/work-board').query({ directory: '/repo' }).expect(200);
-      expect(board.body.cards.map(card => [card.id, card.placementOrder]))
-        .toEqual([[second.id, 0], [first.id, 1]]);
-      expect(second2.placementOrder).toBe(0);
+      expect(board.body.cards.map(card => [card.id, card.placementBefore]))
+        .toEqual([[first.id, null], [second.id, null]]);
+      // A move that names no place clears the drop: the card goes back to the
+      // lane's own order instead of keeping a stale anchor.
+      const cleared = await store.placement(first.id, { lane: 'todo' });
+      expect(cleared.placementBefore).toBeUndefined();
       // A placement is the board's own write: it never reaches the queue.
       await request(app).post(`/api/work-board/${first.id}/placement`).send({ lane: 'queue' }).expect(400);
       await request(app).post(`/api/work-board/missing/placement`).send({ lane: 'done' }).expect(404);

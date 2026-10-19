@@ -270,6 +270,11 @@ lane. Changing the composer agent without submitting does not move it.
 
 Done is sorted by the last Build turn's finish time, newest first.
 Session creation dates and unrelated session updates do not affect this order.
+A card the user drops by hand sits where they dropped it, and only that card is
+pinned: the rest of the column keeps the newest-first order, so a build that
+finishes later still lands at the top. Moving a card into a column — with the
+check mark, a column's **Move all cards to Done**, or a drop on the column
+itself — names no place and leaves the column's own order alone.
 
 An idle To-do or Plan card offers **Move to Done** in its card menu. This also
 works for inherited sessions that have never been saved as board cards. Manual

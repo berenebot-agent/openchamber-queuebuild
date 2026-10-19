@@ -8,7 +8,7 @@ const attachmentSchema = z.object({
 const cardSchema = z.object({
   id: z.string(), directory: z.string(), text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().optional(), viewedAt: z.number().optional(), sessionId: z.string().optional(), stage: z.enum(['todo', 'plan', 'done']),
-  placementAt: z.number().optional(), placementOrder: z.number().optional(),
+  placementAt: z.number().optional(), placementBefore: z.string().nullable().optional(),
   briefRemoved: z.literal(true).optional(),
 });
 export type WorkBoardAttachment = z.infer<typeof attachmentSchema>;
@@ -56,10 +56,11 @@ async function request(path: string, method = 'GET', body?: BoardWrite | Placeme
  * Put a card where the user dropped it or checked it off. The server stamps the
  * placement with its own clock, so two devices order by one source; the card's
  * version travels with the write so a card another device changed is a 409, not
- * an overwrite. `before` names the card it now sits in front of, which is how
- * one lane's order travels; null places it at the end.
+ * an overwrite. `before` names the card it now sits in front of, so only the card
+ * the user moved is pinned; null places it at the end of the lane, and omitting
+ * `before` names no place at all, which leaves the card to its lane's own order.
  */
-export async function placeWorkBoardCard(card: Pick<WorkBoardCard, 'id' | 'directory' | 'text' | 'sessionId' | 'updatedAt'>, lane: PlacementLane, before: string | null): Promise<WorkBoardCard> {
+export async function placeWorkBoardCard(card: Pick<WorkBoardCard, 'id' | 'directory' | 'text' | 'sessionId' | 'updatedAt'>, lane: PlacementLane, before?: string | null): Promise<WorkBoardCard> {
   return z.object({ card: cardSchema })
     .parse(await request(`/api/work-board/${encodeURIComponent(card.id)}/placement`, 'POST',
       { lane, expectedUpdatedAt: card.updatedAt, before, directory: card.directory, sessionId: card.sessionId, text: card.text })).card;

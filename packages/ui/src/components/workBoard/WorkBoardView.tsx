@@ -847,13 +847,14 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     !loading && !error && card.availableActions.includes(action);
   const canComplete = (card: WorkBoardSnapshotCard) => canDo(card, 'complete');
   // Every lane's own card moves into Done together, from its own menu. Done has
-  // no such action: its cards are already there.
+  // no such action: its cards are already there. A bulk move names no place, so
+  // each card keeps Done's own newest-completion order.
   const completeAllIn = (lane: WorkBoardLane) => {
     // The cards the column shows, so a search narrows this action with it.
     const inLane = shownLanes.get(lane) ?? [];
     const eligible = inLane.filter(canComplete);
     if (!eligible.length) return;
-    place(eligible, 'done', null);
+    place(eligible, 'done');
   };
   const newCard = (lane: 'todo' | 'plan' | 'queue') => {
     useSessionUIStore.getState().openNewSessionDraft({
@@ -1024,12 +1025,14 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     void queueMutate('/api/build-queue/resolve', 'POST', { directory, itemId: row.itemId, action: 'skip' });
 
   /**
-   * Move one card to a lane, or to a place inside one. The board write and the
+   * Move one card to a lane, or to a place inside one. `before` names the card it
+   * now sits in front of, or null for the end of the lane; leaving it out names no
+   * place, so the lane's own order keeps the card. The board write and the
    * session-work write are separate steps on purpose: the card is placed even
    * when the session cannot be reached, and a failed session write is reported
    * on its own rather than rolled back.
    */
-  const place = (cards: WorkBoardCard[], lane: WorkBoardCardLane, before: string | null) => void mutate(async () => {
+  const place = (cards: WorkBoardCard[], lane: WorkBoardCardLane, before?: string | null) => void mutate(async () => {
     if (!cards.length) return;
     // The server stamps the placement with its own clock; each card carries its
     // version so a concurrent change elsewhere is a reported conflict.
@@ -1074,7 +1077,9 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       const target = overId.slice(LANE_PREFIX.length) as WorkBoardCardLane;
       if (target === held.lane) return;
       const card = cards.find(candidate => candidate.id === held.id);
-      if (card) place([card], target, null);
+      // The lane body names no place inside it, so the card keeps that lane's
+      // own order instead of being pinned somewhere in it.
+      if (card) place([card], target);
       return;
     }
     if (held.type === 'queue') {
@@ -1084,17 +1089,22 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     }
     const card = cards.find(candidate => candidate.id === held.id);
     if (!card) return;
-    const overCard = cards.find(candidate => candidate.id === overId);
+    // A drop on the lane body or on the dragged card itself names no other card,
+    // and one on a queue row names none in a card lane: none of them is a place.
+    const overCard = overId === held.id ? undefined : cards.find(candidate => candidate.id === overId);
     const overLane = overCard ? laneFor(overCard) : undefined;
     // A drag never moves a card into or out of the queue: the queue lane is not a
     // drop target, so a card whose lane is queue is not draggable and an over
     // card in the queue falls back to the dragged card's own lane.
     const targetLane: WorkBoardCardLane = overLane === undefined || overLane === 'queue' ? held.lane : overLane;
+    if (!overCard || overLane === 'queue') {
+      if (targetLane !== held.lane) place([card], targetLane);
+      return;
+    }
     const current = laneCards(targetLane);
-    const before = overId === held.id || overId.startsWith(LANE_PREFIX) ? null
-      : targetLane === held.lane
-        ? workBoardOrderNeighbour(workBoardMoved(current, held.id, current.indexOf(overId)), held.id)
-        : overId;
+    const before = targetLane === held.lane
+      ? workBoardOrderNeighbour(workBoardMoved(current, held.id, current.indexOf(overId)), held.id)
+      : overId;
     place([card], targetLane, before);
   };
   const laneCards = (lane: WorkBoardLane) => (orderedLanes.get(lane) ?? []).map(card => card.id);
@@ -1325,7 +1335,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
                     disabled={busy || loading || Boolean(error)}
                     aria-label={t('workBoard.moveToDone', { title })}
                     title={t('workBoard.moveToDone', { title })}
-                    onClick={() => place([card], 'done', null)}
+                    onClick={() => place([card], 'done')}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:text-[var(--status-success-text)] hover:opacity-100 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                     <Icon name="check" className="size-3.5" />
                   </button>}

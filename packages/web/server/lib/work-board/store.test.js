@@ -175,6 +175,31 @@ describe('work board persistence', () => {
     } finally { await remove(dataDir); }
   });
 
+  it('drops the retired whole-lane arrangement from an existing file', async () => {
+    const { dataDir } = await setup();
+    try {
+      // A file from before per-card placement: every card of the lane carried a
+      // position, which froze that lane's own order.
+      await fs.writeFile(path.join(dataDir, 'work-board.json'), JSON.stringify({ version: 1, cards: [
+        { id: 'first', directory: '/project', text: 'First', attachments: [], createdAt: 1, updatedAt: 1, stage: 'todo', placementOrder: 0 },
+        { id: 'second', directory: '/project', text: 'Second', attachments: [], createdAt: 2, updatedAt: 2, stage: 'todo', placementOrder: 1 },
+      ] }), 'utf8');
+      const store = createWorkBoardStore({ dataDir, now: () => 3 });
+      expect((await store.list('/project')).map(card => card.placementOrder)).toEqual([undefined, undefined]);
+      // The next write stores only the card the user dropped, naming the card it
+      // sits in front of, and leaves the retired field out for good.
+      await store.placement('second', { lane: 'todo', before: 'first' });
+      const stored = JSON.parse(await fs.readFile(path.join(dataDir, 'work-board.json'), 'utf8'));
+      expect(stored.cards).toEqual([
+        { id: 'first', directory: '/project', text: 'First', attachments: [], createdAt: 1, updatedAt: 1, stage: 'todo' },
+        {
+          id: 'second', directory: '/project', text: 'Second', attachments: [], createdAt: 2,
+          updatedAt: 2, stage: 'todo', placementAt: 3, placementBefore: 'first',
+        },
+      ]);
+    } finally { await remove(dataDir); }
+  });
+
   it('creates an inherited card brief-less on its first placement', async () => {
     const { dataDir, store } = await setup();
     try {

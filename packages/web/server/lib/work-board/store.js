@@ -37,8 +37,13 @@ const cardSchema = z.object({
   // When the user placed the card on the board by hand. Later session activity
   // outranks it; nothing else writes it.
   placementAt: z.number().finite().optional(),
-  // The card's place within its lane, written by a drag. Cards the board adds
-  // outside the store leave it unset and follow the stored ones.
+  // The card a dropped card now sits in front of, inside its lane; null is the
+  // end of the lane. Only the card the user moved carries it, so every other
+  // card keeps the lane's own order.
+  placementBefore: z.string().trim().min(1).nullable().optional(),
+  // Retired: the whole-lane arrangement an older build stamped on every card of a
+  // lane. Kept in the schema so existing files stay readable, and dropped on read
+  // so it is never written again.
   placementOrder: z.number().finite().optional(),
   stage: z.enum(['todo', 'plan', 'done']),
   briefRemoved: z.literal(true).optional(),
@@ -52,34 +57,15 @@ const storedSchema = z.object({ version: z.literal(1), cards: z.array(cardSchema
 const invalid = (error) => Object.assign(new TypeError(error.message), { status: 400 });
 
 /**
- * The cards of one project, in board order, with `moved` sitting in front of
- * `beforeId`. Board order is the stored order where there is one, and the cards
- * that came from outside the file — a linked session with no card yet — go last,
- * which is the order the board already shows them in. A lane the store has no
- * order for keeps the file's own order.
+ * A card of a version-1 file from before per-card placement: its `placementOrder`
+ * was the whole lane's arrangement, which froze that lane's own order. Drop it, so
+ * a read hands back only the fields the board acts on and the next write clears it
+ * from the file.
  */
-function withLaneOrder(cards, moved, beforeId) {
-  const lane = cards.find(card => card.id === moved.id);
-  if (!lane) return cards;
-  const peers = cards.filter(card => card.id !== moved.id && card.directory === lane.directory && card.stage === lane.stage);
-  const stored = new Map(cards.filter(card => card.placementOrder !== undefined).map(card => [card.id, card.placementOrder]));
-  const ordered = [...peers].sort((a, b) => (stored.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (stored.get(b.id) ?? Number.MAX_SAFE_INTEGER));
-  if (beforeId !== null) {
-    const at = ordered.findIndex(card => card.id === beforeId);
-    if (at < 0) return cards;
-    ordered.splice(at, 0, moved);
-  } else {
-    ordered.push(moved);
-  }
-  // The lane's own order becomes the file's order too, so a read that has no
-  // arrangement of its own still sees the one the user dragged into place.
-  const position = new Map(ordered.map((card, index) => [card.id, index]));
-  const orderedCards = ordered.map(card => ({ ...card, placementOrder: position.get(card.id) }));
-  const laneIds = new Set(ordered.map(card => card.id));
-  const rest = cards.filter(card => !laneIds.has(card.id));
-  const laneStart = cards.findIndex(card => laneIds.has(card.id));
-  const next = [...rest];
-  next.splice(Math.max(0, Math.min(laneStart, next.length)), 0, ...orderedCards);
+function withoutRetiredOrder(card) {
+  if (card.placementOrder === undefined) return card;
+  const next = { ...card };
+  delete next.placementOrder;
   return next;
 }
 
@@ -110,7 +96,7 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       cachedCards = undefined;
       throw new Error('Invalid persisted work board');
     }
-    cachedCards = stored.data.cards;
+    cachedCards = stored.data.cards.map(withoutRetiredOrder);
     return cachedCards;
   };
   const write = async cards => {
@@ -193,8 +179,9 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       await write(next);
       return card;
     }),
-    // A drag on the board writes the user's own placement. `placementAt` is the
-    // server's own clock: a device with a wrong clock must not pin a card
+    // A drag on the board writes the user's own placement: the lane, and the card
+    // it was dropped in front of. `placementAt` is the server's own clock: a
+    // device with a wrong clock must not pin a card
     // against later activity, and two devices must order by one source. It is
     // the boundary later session activity has to pass. `updatedAt` deliberately
     // stays put: it is the boundary a parked To-do and the stale-completion
@@ -236,16 +223,19 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       const placed = { ...current,
         stage: target.lane === 'plan' ? 'plan' : target.lane === 'todo' ? 'todo' : 'done',
         placementAt: at };
+      // Only a card the user actually dropped carries a place: `before` names the
+      // card it now sits in front of, and `null` the end of the lane. A move that
+      // names no place — the completion check, a drop on the lane itself, a bulk
+      // move — clears any earlier one, so the card takes the lane's own order.
+      if (target.before !== undefined) placed.placementBefore = target.before;
+      else delete placed.placementBefore;
       // Only the first arrival in Done stamps a completion; the acknowledgement
       // stays until the completion is acknowledged on its own.
       if (target.lane === 'done' && current.completedAt === undefined) placed.completedAt = at;
       const next = cardSchema.parse(placed);
       const updated = index < 0 ? [...cards, next] : cards.map(card => card.id === next.id ? next : card);
-      const ordered = target.before === undefined ? updated : withLaneOrder(updated, next, target.before);
-      await write(ordered);
-      // Return what was stored, so the caller sees the position the lane gave
-      // the card rather than the pre-order card it sent in.
-      return ordered.find(card => card.id === next.id) ?? next;
+      await write(updated);
+      return next;
     }),
     create: input => serialized(async () => {
       const parsed = createSchema.safeParse(input);

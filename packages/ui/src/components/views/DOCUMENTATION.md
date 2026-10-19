@@ -130,11 +130,15 @@ that lands is placed even when the session write fails, and the failure is
 reported on its own.
 
 Everything the user arranges lives on the card itself, not in a second list: a
-drag writes `placementAt` for the lane boundary and `placementOrder` for the
-position. A later real turn in the session, or a queue lease that starts
+drag writes `placementAt` for the lane boundary and `placementBefore`, the card
+the dropped one sits in front of, for the position. A later real turn in the
+session, or a queue lease that starts
 afterwards, outranks the placement, so a card returns to the lane its work
-belongs in until the user moves it again. Dragging within a lane reorders it;
-dragging a waiting queue row sends the queue's own order, the same call the
+belongs in until the user moves it again. Only the card the user dropped is
+pinned, so a lane keeps its own order and a new completion still sorts to the
+top; dragging within a lane moves that card where it was dropped, and a drop
+that names no card leaves the lane's order alone. Dragging a waiting queue row
+sends the queue's own order, the same call the
 arrow buttons make. The build queue column is the one place drag leaves alone.
 
 A build awaiting review has a red card. On the board's queue column a parked
