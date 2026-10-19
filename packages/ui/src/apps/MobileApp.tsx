@@ -154,6 +154,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     }
   }), []);
   const runOverviewOpen = useUIStore((state) => state.runOverviewKey !== null);
+  // Shared chat code asks for the board by flipping the flag the desktop shell
+  // renders (the build-queue row's View on Work Board, a saved to-do). Mobile
+  // owns its surfaces, so mirror that request onto the board surface below.
+  const workBoardRequested = useUIStore((state) => state.isWorkBoardOpen);
   React.useEffect(() => {
     if (runOverviewOpen) setSessionsSheetOpen(false);
   }, [runOverviewOpen]);
@@ -191,6 +195,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // the persistent Changes pane in the workspace drawer, and clearing it would
   // remount the pane (losing its navigation) on every close.
   const closeSurface = React.useCallback(() => {
+    // Drop a shared board request with the surface, so the same link opens the
+    // board again next time.
+    if (useUIStore.getState().isWorkBoardOpen) useUIStore.getState().setWorkBoardOpen(false);
     setActiveSurface(null);
     setOpenPlan(null);
   }, []);
@@ -209,6 +216,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     setSessionsSheetOpen(false);
     openSurface('work-board');
   }, [openSurface]);
+
+  React.useEffect(() => {
+    if (workBoardRequested) openWorkBoard();
+  }, [workBoardRequested, openWorkBoard]);
 
   const openSettingsSurface = React.useCallback((stage: 'nav' | 'page-content') => {
     setSettingsInitialMobileStage(stage);
