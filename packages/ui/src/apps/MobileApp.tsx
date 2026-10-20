@@ -83,7 +83,8 @@ import { MobileSourceBoard } from '@/components/sourceBoard/SourceBoardView';
 // reload the shell instead of crashing in the error boundary.
 const MobileWorkBoard = lazyWithChunkRecovery(() => import('@/components/workBoard/WorkBoardView').then(m => ({ default: m.WorkBoardView })));
 import { ScheduledTasksView, type ScheduledTasksLeaveReason } from '@/components/session/ScheduledTasksDialog';
-import { MobileWorkspaceDrawer, type MobileWorkspaceTab } from './MobileWorkspaceDrawer';
+import { MobileWorkspaceDrawer } from './MobileWorkspaceDrawer';
+import { shownMobileWorkspaceTabs, type MobileWorkspaceTab } from '@/lib/mobileWorkspaceTabs';
 import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
 import { autoConnectLastInstance, getAutoConnectTargetLabel, logMobileConnectEvent, reprobeActiveConnection, suppressAutoConnectUntilManualConnect, type AutoConnectOutcome } from './mobileConnections';
 import { isCapacitorMobileApp, useNativeAndroidBackButton, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
@@ -176,6 +177,15 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // open/close so the right-edge swipe reopens where the user left off.
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
   const [workspaceTab, setWorkspaceTab] = React.useState<MobileWorkspaceTab>('changes');
+  // Opening the drawer itself lands on the last tab, unless the user has since
+  // hidden it in Settings; then on their first tab. A trigger that asks for a
+  // tab (a changed file in the chat) sets it on its own and opens it hidden or not.
+  const openWorkspace = React.useCallback(() => {
+    const { mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs } = useUIStore.getState();
+    const shown = shownMobileWorkspaceTabs(mobileWorkspaceTabOrder, mobileWorkspaceHiddenTabs);
+    setWorkspaceTab((current) => (shown.includes(current) ? current : shown[0]));
+    setWorkspaceOpen(true);
+  }, []);
   // A plan opened from the workspace drawer's Notes tab, shown as a fullscreen
   // layer on top of it (back returns to the notes).
   const [openPlan, setOpenPlan] = React.useState<{ id: string; title: string; projectRef: ProjectRef } | null>(null);
@@ -387,7 +397,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     if (isTabletLayout) setSidebarOpen(true);
     else setSessionsSheetOpen(true);
   };
-  const openWorkspaceFromEdge = () => setWorkspaceOpen(true);
+  const openWorkspaceFromEdge = () => openWorkspace();
   useEdgeSwipe(chatMainRef, {
     onLeftEdgeSwipe: direction === 'rtl' ? openWorkspaceFromEdge : openSessionsFromEdge,
     onRightEdgeSwipe: direction === 'rtl' ? openSessionsFromEdge : openWorkspaceFromEdge,
@@ -599,7 +609,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <MobileHeader
             onOpenSessions={() => (isTabletLayout ? toggleSidebar() : setSessionsSheetOpen(true))}
             onOpenWorkBoard={openWorkBoard}
-            onOpenWorkspace={() => setWorkspaceOpen(true)}
+            onOpenWorkspace={openWorkspace}
             compactTitle={isTabletLayout}
           />
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
@@ -1439,7 +1449,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
                   <h1 className="typography-h3 text-foreground">{t('sessionAuth.error.networkTitle')}</h1>
                   {/* Native copy — the browser-oriented sessionAuth description
                       (Desktop Network Access etc.) reads as noise here. */}
-                  <p className="typography-body text-muted-foreground">{t('mobile.connect.recovery.description')}</p>
+                  <p className="typography-markdown text-muted-foreground">{t('mobile.connect.recovery.description')}</p>
                 </div>
                 <Button
                   type="button"
@@ -1503,7 +1513,7 @@ function MobileAppContent({ apis }: MobileAppProps) {
       <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-center text-foreground">
         <div className="max-w-sm space-y-3">
           <h1 className="typography-h3 text-foreground">{t('sessionAuth.error.networkTitle')}</h1>
-          <p className="typography-body text-muted-foreground">{t('sessionAuth.error.networkDescription')}</p>
+          <p className="typography-markdown text-muted-foreground">{t('sessionAuth.error.networkDescription')}</p>
         </div>
       </main>
     );

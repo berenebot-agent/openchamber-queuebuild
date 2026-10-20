@@ -411,7 +411,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         : currentVariantSelection.override ?? effectiveCurrentVariant;
     if (selection) currentVariant = selection.variant ?? undefined;
     const currentAgentName = useConfigStore((state) => selection ? selection.agent : state.currentAgentName);
+    const settingsDefaultModel = useConfigStore((state) => state.settingsDefaultModel);
     const settingsDefaultVariant = useConfigStore((state) => state.settingsDefaultVariant);
+    const getDefaultVariantForModel = useConfigStore((state) => state.getDefaultVariantForModel);
     const settingsDefaultAgent = useConfigStore((state) => state.settingsDefaultAgent);
     const defaultsLoaded = useConfigStore((state) => state.settingsDefaultsLoaded);
     const agentsResolved = useConfigStore((state) => state.agentsLoaded);
@@ -888,11 +890,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             agent?.model?.providerID === providerId
             && agent.model.id === modelId
         ) ? agent.model?.variant : undefined;
+        const configuredVariant = getDefaultVariantForModel(providerId, modelId);
         const candidates = currentSessionId
-            ? [agentVariant, settingsDefaultVariant, currentInherited]
-            : [currentInherited, agentVariant, settingsDefaultVariant];
+            ? [agentVariant, configuredVariant, currentInherited]
+            : [currentInherited, agentVariant, configuredVariant];
         return candidates.find((candidate) => candidate !== undefined && variantOptions.includes(candidate));
-    }, [agents, currentAgentName, currentModelId, currentProviderId, currentSessionId, currentVariantSelection, effectiveCurrentVariant, getModelVariantOptions, settingsDefaultVariant, uiAgentName]);
+    }, [agents, currentAgentName, currentModelId, currentProviderId, currentSessionId, currentVariantSelection, effectiveCurrentVariant, getDefaultVariantForModel, getModelVariantOptions, uiAgentName]);
 
     /**
      * The session's recorded choice for this model, in the selection store's
@@ -1395,6 +1398,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         selection,
     ]);
 
+    // Declared before the re-sync below so that, on the render a model switch
+    // lands, a pick made on the previous model no longer holds back the new
+    // model's default.
+    React.useEffect(() => {
+        manualVariantSelectionRef.current = false;
+    }, [currentProviderId, currentModelId]);
+
     React.useEffect(() => {
         if (selection) return;
         // Missing discovery/context data cannot invalidate a configured effort.
@@ -1424,7 +1434,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             return;
         }
 
-        // Draft state (no session yet): seed from settings default, but don't override
+        // Draft state (no session yet): seed from the model's configured default, but don't override
         // user selection while drafting.
         if (!currentSessionId) {
             if (currentVariantSelection.override === undefined && !manualVariantSelectionRef.current) {
@@ -1467,13 +1477,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         resolveInheritedVariantForModel,
         setCurrentVariant,
         setCurrentVariantOverride,
+        // `getDefaultVariantForModel` reads these from the store; listing them
+        // re-resolves the inherited effort when the Settings defaults change.
+        settingsDefaultModel,
         settingsDefaultVariant,
         selection,
     ]);
-
-    React.useEffect(() => {
-        manualVariantSelectionRef.current = false;
-    }, [currentProviderId, currentModelId]);
 
     const handleVariantSelect = React.useCallback((variant: string | undefined) => {
         if (currentProviderId && currentModelId) {
@@ -2600,6 +2609,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             keyboardHint: t('chat.modelControls.keyboardHintNavigate'),
             favorite: t('chat.modelControls.favoriteAria'),
             unfavorite: t('chat.modelControls.unfavoriteAria'),
+            provider: t('chat.modelControls.provider'),
             capabilities: t('chat.modelControls.capabilities'),
             capabilityToolCalling: t('chat.modelControls.capability.toolCalling'),
             capabilityReasoning: t('chat.modelControls.capability.reasoning'),
@@ -2956,6 +2966,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         const displayVariant = currentVariant ?? t('chat.modelControls.default');
         const isDefault = !currentVariant;
         const colorClass = isDefault ? 'text-muted-foreground' : 'text-[color:var(--status-info)]';
+        // An effort nobody picked in this composer is this model's configured
+        // default; the tooltip says so.
+        const isInherited = !selection && !isDefault && currentVariantSelection.override === undefined;
+        const tooltipText = isInherited
+            ? t('chat.modelControls.inheritedVariantTooltip', { variant: displayVariant })
+            : `${t('chat.modelControls.thinking')}: ${displayVariant}`;
 
         if (isCompact) {
             return (
@@ -3040,7 +3056,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                     </DropdownMenuContent>
                 </DropdownMenu>
                 <TooltipContent side="top">
-                    <p className="typography-meta">{t('chat.modelControls.thinking')}: {displayVariant}</p>
+                    <p className="typography-meta">{tooltipText}</p>
                 </TooltipContent>
             </Tooltip>
         );

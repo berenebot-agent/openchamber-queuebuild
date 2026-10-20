@@ -57,6 +57,17 @@ export interface QueuedMessageSendConfig {
 }
 
 /**
+ * "Run as goal" captured with a queued message: the goal starts when this
+ * message is delivered, never with whichever message happens to go out first.
+ * `objective` is present only when the arming flow supplied one (the plan
+ * flow); otherwise the delivered text is the objective.
+ */
+export interface QueuedMessageGoal {
+    objective?: string;
+    tokenBudget: number | null;
+}
+
+/**
  * Context captured with a queued message: whatever the composer had attached
  * when the message was queued. It leaves the composer with the message, so
  * delivery (by the server, or by the auto-send hook in VS Code) carries it and
@@ -102,6 +113,7 @@ export interface QueuedMessage {
     createdAt: number;
     /** Send config captured at queue time — used as-is when auto-sending */
     sendConfig?: QueuedMessageSendConfig;
+    goal?: QueuedMessageGoal;
     scheduledTask?: z.infer<typeof scheduledTaskSchema>;
     /** Server-classified project Build item. */
     buildQueue?: boolean;
@@ -115,6 +127,7 @@ interface QueuedMessageInput {
     attachments?: AttachedFile[];
     context?: QueuedContextPart[];
     sendConfig?: QueuedMessageSendConfig;
+    goal?: QueuedMessageGoal;
 }
 
 export type MessageQueueTarget = {
@@ -155,6 +168,11 @@ const serverSendConfigSchema = z.object({
     variant: z.string().optional(),
 });
 
+const serverGoalSchema = z.object({
+    objective: z.string().min(1).optional(),
+    tokenBudget: z.number().int().positive().nullable(),
+});
+
 const serverAttachmentSchema = z.object({
     id: z.string(),
     filename: z.string(),
@@ -189,6 +207,7 @@ const serverItemBaseSchema = z.object({
     contextPreview: z.string().optional(),
     sendConfig: serverSendConfigSchema,
     buildQueue: z.boolean().optional(),
+    goal: serverGoalSchema.optional(),
 });
 
 const scheduledTaskSchema = z.object({
@@ -273,6 +292,7 @@ const toQueuedMessage = (item: ServerQueueItem): QueuedMessage => {
     };
     const selection = serverSendConfigSchema.safeParse(item.sendConfig);
     if (selection.success) message.sendConfig = selection.data;
+    if (item.goal) message.goal = item.goal;
     if ('scheduledTask' in item) message.scheduledTask = item.scheduledTask;
     if (item.buildQueue) message.buildQueue = true;
     if (item.agentMention) message.agentMention = item.agentMention;
@@ -292,6 +312,7 @@ type ServerQueueItemInput = {
     context: QueuedContextPart[];
     contextPreview?: string;
     sendConfig: QueuedMessageSendConfig;
+    goal?: QueuedMessageGoal;
 };
 
 type ServerQueueRequestBody =
@@ -321,6 +342,7 @@ const toServerItemInput = (message: QueuedMessageInput, sendConfig: QueuedMessag
         sendConfig,
     };
     if (message.agentMention) item.agentMention = message.agentMention;
+    if (message.goal) item.goal = message.goal;
     const contextPreview = getQueuedMessagePreview({ content: '', context: message.context });
     if (contextPreview) item.contextPreview = contextPreview;
     return item;
@@ -630,6 +652,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         if (message.agentMention) queuedMessage.agentMention = message.agentMention;
                         if (message.attachments && message.attachments.length > 0) queuedMessage.attachments = message.attachments;
                         if (message.context && message.context.length > 0) queuedMessage.context = message.context;
+                        if (message.goal) queuedMessage.goal = message.goal;
 
                         set((state) => {
                             const currentQueue = state.queuedMessages[key] ?? [];

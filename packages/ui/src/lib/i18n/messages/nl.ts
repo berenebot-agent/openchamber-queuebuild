@@ -10,8 +10,10 @@ import { surfacePanelI18n } from './surface-panel.i18n';
 import { fileArtifactsI18n } from './file-artifacts.i18n';
 import { fileContentSearchI18n } from './file-content-search.i18n';
 import { htmlRenderI18n } from './html-render.i18n';
+import { sessionNoticesI18n } from './session-notices.i18n';
 import { usageStatsI18n } from './usage-stats.i18n';
 import { webSearchI18n } from './websearch.i18n';
+import { sessionWarmingI18n } from './session-warming.i18n';
 import { isolatedSpacesI18n } from './isolated-spaces.i18n';
 import { sourceBoardI18n } from './source-board.i18n';
 import { workBoardI18n } from './work-board.i18n';
@@ -22,6 +24,7 @@ import { providersI18n } from './providers.i18n';
 import { mcpGridI18n } from './mcp-grid.i18n';
 import { pluginsGridI18n } from './plugins-grid.i18n';
 import { integrationsCatalogI18n } from './integrations-catalog.i18n';
+import { diffFindI18n } from './diff-find.i18n';
 
 export const dict = {
   'buildQueue.recovery.continue': 'Wachtrij hervatten',
@@ -160,8 +163,10 @@ export const dict = {
   ...fileArtifactsI18n.nl,
   ...fileContentSearchI18n.nl,
   ...htmlRenderI18n.nl,
+  ...sessionNoticesI18n.nl,
   ...usageStatsI18n.nl,
   ...webSearchI18n.nl,
+  ...sessionWarmingI18n.nl,
   ...isolatedSpacesI18n.nl,
   ...sourceBoardI18n.nl,
   ...workBoardI18n.nl,
@@ -172,6 +177,7 @@ export const dict = {
   ...mcpGridI18n.nl,
   ...pluginsGridI18n.nl,
   ...integrationsCatalogI18n['nl'],
+  ...diffFindI18n['nl'],
   'terminalView.actions.attachSelection': 'Geselecteerde uitvoer toevoegen',
   'terminalView.actions.copySelection': 'Geselecteerde uitvoer kopiëren',
   'terminalView.toast.selectionCopied': 'Uitvoer gekopieerd',
@@ -179,6 +185,7 @@ export const dict = {
   'terminalView.actions.copy': 'Kopiëren',
   'terminalView.actions.paste': 'Plakken',
   'terminalView.toast.pasteFailed': 'Kan het klembord niet lezen. Gebruik de sneltoets voor plakken.',
+  'terminalView.toast.pasteFailedTouch': 'Kan het klembord niet lezen.',
   'terminalView.actions.restart': 'Terminal herstarten',
   'chat.message.terminalContext': '{terminal}, regels {start}-{end}',
   'chat.message.context.codeComment': 'Commentaar op {file}, regels {start}-{end}',
@@ -630,6 +637,10 @@ export const dict = {
   'sessions.sidebar.header.viewMode.timeline': 'Lijst',
   'sessions.sidebar.header.projectDisplay.label': 'Projecten tonen',
   'sessions.sidebar.header.projectDisplay.all': 'Alle projecten',
+  'sessions.sidebar.header.listGrouping.label': 'Sessies',
+  'sessions.sidebar.header.listGrouping.project': 'Per project',
+  'sessions.sidebar.header.listGrouping.time': 'Op tijd',
+  'sessions.sidebar.activity.projectsTitle': 'Projecten',
   'sessions.sidebar.header.projectDisplay.single': 'Eén project',
   'sessions.sidebar.project.selectAria': 'Project selecteren, momenteel {project}',
   'sessions.sidebar.project.actions.manageWorktrees': 'Worktrees beheren',
@@ -1458,6 +1469,11 @@ export const dict = {
   'walkthrough.toc.moreFiles': 'Meer bestanden: {count}',
   'walkthrough.toc.uncovered': 'Niet besproken: {count}',
   'walkthrough.toc.resize': 'Grootte van de inhoudskolom aanpassen',
+  'walkthrough.toc.jumpAria': 'Naar stap gaan',
+  'walkthrough.options.title': 'Opties voor de rondleiding',
+  'walkthrough.options.moreAria': 'Meer opties voor de rondleiding',
+  'walkthrough.options.model': 'Model',
+  'walkthrough.options.language': 'Taal',
   'walkthrough.importance.critical': 'Belangrijke wijziging',
   'walkthrough.importance.criticalHint': 'Deze stap bepaalt de rest van de wijziging, dus lees hem zorgvuldig. Het is geen probleem dat in uw code is gevonden.',
   'walkthrough.importance.context': 'Context',
@@ -1759,6 +1775,7 @@ export const dict = {
   'filesView.error.switchToEditMode': 'Schakel over naar bewerkmodus om het probleem op te lossen.',
   'filesView.error.readFileFailed': 'Kan bestand niet lezen',
   'filesView.editor.htmlPreviewTitle': 'HTML-preview',
+  'filesView.editor.htmlAnnotate.intro': 'Dit is een geannoteerde selectie uit de preview van een HTML-bestand.',
   'filesView.diagram.closeDiagramView': 'Diagramweergave sluiten',
   'filesView.diagram.saveDiagram': 'Diagram opslaan',
   'filesView.excalidraw.installHint': 'Installeer de Excalidraw-extensie om in dit bestand te tekenen.',
@@ -1788,7 +1805,7 @@ export const dict = {
   'contextSidebar.breakdown.user': 'Gebruiker',
   'contextSidebar.breakdown.assistant': 'Assistent',
   'contextSidebar.breakdown.toolCalls': 'Toolaanroepen',
-  'contextSidebar.breakdown.other': 'Overig',
+  'contextSidebar.breakdown.other': 'Systeem & tools',
   'contextSidebar.stats.messages': 'Berichten',
   'contextSidebar.stats.user': 'Gebruiker',
   'contextSidebar.stats.assistant': 'Assistent',
@@ -1894,6 +1911,9 @@ export const dict = {
   'diffView.whitespace.hidden': 'Witruimtewijzigingen verborgen',
   'diffView.layout.switchToUnified': 'Overschakelen naar samengevoegde weergave',
   'diffView.layout.switchToSideBySide': 'Overschakelen naar weergave naast elkaar',
+  'diffView.layout.sideBySide': 'Weergave naast elkaar',
+  'diffView.actions.wrapLines': 'Regelafbreking',
+  'diffView.actions.moreActions': 'Meer acties',
   'diffView.whitespace.shown': 'Witruimtewijzigingen zichtbaar',
   'diffView.actions.openFileInEditorAtChange': 'Dit bestand in de editor openen op de wijziging',
   'diffView.actions.openFileAtFirstChangedLine': 'Dit bestand openen bij de eerste gewijzigde regel',
@@ -2314,6 +2334,9 @@ export const dict = {
   'session.newWorktree.toast.worktreeCreatedDescription': '{target} - wordt op de achtergrond opgezet',
   'session.newWorktree.toast.fetchSourceFailed': 'Kon niet van de remote ophalen — gemaakt vanuit de lokale status',
   'session.newWorktree.toast.fetchSourceAccess': 'Ophalen mislukt: de toegang tot deze repository vraagt aandacht in Repository configureren. Gemaakt vanuit de lokale status.',
+  'session.newWorktree.toast.startFolderMissing': 'Deze worktree heeft geen map "{folder}", dus OpenCode is gestart in de hoofdmap van de worktree.',
+  'session.newWorktree.toast.startFolderUnverified': 'De map "{folder}" kon niet worden gecontroleerd, dus OpenCode is gestart in de hoofdmap van de worktree.',
+  'session.newWorktree.toast.startFolderUnknown': 'Het is niet gelukt vast te stellen welke map van de repository dit project opent, dus OpenCode is gestart in de hoofdmap van de worktree.',
   'session.newWorktree.toast.branchBackup': '{branch} komt nu overeen met de remote. De vorige commits staan in {backup}.',
   'session.githubIntegration.tabs.pullRequests': 'Pull requests',
   'session.githubIntegration.validation.branchAlreadyCheckedOut': 'Branch is al uitgecheckt in een worktree',
@@ -2447,6 +2470,7 @@ export const dict = {
   'chat.queuedMessage.edit': 'bewerken',
   'chat.queuedMessage.send': 'verzenden',
   'chat.queuedMessage.removeAria': 'Uit de wachtrij verwijderen',
+  'chat.queuedMessage.goal': 'Start een goal bij verzenden',
   'chat.queuedMessage.reorderAria': 'Sleep om te herschikken',
   'chat.queuedMessage.toast.queueFailed': 'Kan het bericht niet in de wachtrij plaatsen. Het staat weer in het invoerveld.',
   'chat.queuedMessage.toast.takeFailed': 'Kan het bericht uit de wachtrij niet laden. Probeer het opnieuw.',
@@ -2634,6 +2658,11 @@ export const dict = {
   'chat.chatInput.toast.attachFileFailed': 'Kan het bestand niet toevoegen',
   'chat.chatInput.toast.attachNamedFailed': 'Kan {name} niet toevoegen',
   'chat.chatInput.toast.unsupportedAttachmentModalities': '{model} ondersteunt geen {modalities}-invoer die {files} vereist. U kunt het bericht toch verzenden, maar deze bijlagen worden mogelijk genegeerd.',
+  'chat.chatInput.toast.imagesSaving': '{files} opslaan…',
+  'chat.chatInput.toast.imagesSavedForTextModel': '{model} kan geen afbeeldingen lezen. {files} opgeslagen in {folder}.',
+  'chat.chatInput.toast.imageSaveFailed': 'Kon {files} niet opslaan. In plaats daarvan bijgevoegd.',
+  'chat.chatInput.toast.imagesSaved': '{files} opgeslagen in {folder}.',
+  'chat.chatInput.toast.imageCopySaveFailed': 'Kon {files} niet opslaan.',
   'chat.chatInput.toast.someFilesSkipped': 'Sommige bestanden zijn overgeslagen:\n{summary}',
   'chat.chatInput.toast.vscodePickFailed': 'Kan geen bestanden kiezen in VS Code',
   'chat.chatInput.toast.openSessionFirst': 'Open eerst een sessie',
@@ -2767,6 +2796,7 @@ export const dict = {
   'chat.modelControls.clearSearch': 'Zoekopdracht wissen',
   'chat.modelControls.current': 'Huidig',
   'chat.modelControls.thinking': 'Denken',
+  'chat.modelControls.inheritedVariantTooltip': 'Denken: {variant}, standaard voor dit model',
   'chat.modelControls.default': 'Standaard',
   'chat.modelControls.selectAgent': 'Agent kiezen',
   'chat.modelControls.costPerMillion': 'Kosten ($/1M tokens)',
@@ -3474,6 +3504,7 @@ export const dict = {
   'quota.window.daily': 'Dagelijks',
   'quota.window.monthly': 'Maandelijks',
   'quota.window.credits': 'Credits',
+  'quota.window.keyLimit': 'Sleutellimiet',
   'quota.window.creditsBalance': 'Creditsaldo',
   'quota.window.monthlyCredits': 'Maandelijkse credits',
   'quota.window.purchasedCredits': 'Gekochte credits',
@@ -3839,6 +3870,8 @@ export const dict = {
   'sessions.moveChatToProject.failed': 'Chat kon niet worden verplaatst',
   'chat.worktreeSetup.running': 'Worktree wordt ingericht: de setupopdrachten van het project lopen…',
   'desktopHostSwitcher.startup.fellBackToLocal': 'De verbinding kwam niet tot stand, dus OpenChamber is op Local gestart. Verbind haar via de instantiekiezer zodra ze bereikbaar is.',
+  'desktopSafeStart.title': 'OpenChamber bleef crashen',
+  'desktopSafeStart.description': 'Panelen zijn gesloten en mappen ingeklapt.',
   'chat.chatInput.contextPreview.saveEdit': 'Opmerking opslaan',
   'chat.chatInput.contextPreview.cancelEdit': 'Bewerken annuleren',
   'sessions.scheduledTasks.dialog.actions.openSession': 'Sessie openen',

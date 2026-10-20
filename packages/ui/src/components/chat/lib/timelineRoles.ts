@@ -11,15 +11,20 @@ const NOTICE_ROLES = new Set<Message['role']>(['compaction', 'shell']);
  * `synthetic` is prompt plumbing: the items the user attached in the composer
  * are re-attached to the user message they belong to (see
  * `attachSyntheticContext`), and everything else a plugin injects is machinery
- * the user did not write. Two kinds stay visible: a background report (see
- * `isBackgroundReportEntry`) and a prompt OpenChamber injected, which shows as
- * its own collapsed row (see `isInjectedTimelineEntry`). `skill` and
- * `location-switched` carry no decision the user has to see. `agent-switched`
- * and `model-switched` say what the composer already shows.
+ * the user did not write. Three kinds stay visible: a background report (see
+ * `isBackgroundReportEntry`), a session notice, a labelled `synthetic` message
+ * or OpenCode's `system` note of a move (see `@/lib/opencode/session-notices`),
+ * which `attachSyntheticContext` turns into an info row and `MessageRow` draws
+ * before this check, and a prompt OpenChamber injected, which shows as its own
+ * collapsed row (see `isInjectedTimelineEntry`). Turn splitting still counts a
+ * notice as skipped, so a step after an answer opens its turn at it. A `system`
+ * message that is not a move is an instruction update OpenCode reports and
+ * shows the same way. `skill` and `location-switched` carry no decision the
+ * user has to see. `agent-switched` and `model-switched` say what the composer
+ * already shows.
  *
- * A `system` message is an instruction update OpenCode reports and shows the
- * same way. It stays in this set so turn grouping and windowing read it as the
- * notice it has always been, and only its rendering changes.
+ * A `system` message stays in this set so turn grouping and windowing read it
+ * as the notice it has always been, and only its rendering changes.
  */
 const SKIPPED_ROLES = new Set<Message['role']>([
     'synthetic',
@@ -62,17 +67,19 @@ export const isTurnOpeningNotice = (message: Message): boolean =>
  * and cannot see anywhere else: a command's hidden instructions, a goal
  * briefing, a response-style rule, a queue build's brief, a skill mention.
  *
- * Injected plumbing is the only synthetic message with no metadata. What the
- * user attached carries its payload in the metadata and renders as a chip on
- * the prompt, and a background report carries its own.
+ * Injected plumbing is the only synthetic message with no metadata and no
+ * description. What the user attached carries its payload in the metadata and
+ * renders as a chip on the prompt, a background report carries its own, and a
+ * description marks a labelled notice, which draws as one (`session-notices`).
  */
 export const isInjectedContextEntry = (message: Message): boolean =>
     message.role === 'synthetic'
     && message.metadata === undefined
+    && !message.description?.trim()
     && message.text.trim().length > 0;
 
 /** An instruction update OpenCode reported for the session, which OpenChamber wrote. */
-export const isInjectedInstructionEntry = (message: Message): boolean =>
+const isInjectedInstructionEntry = (message: Message): boolean =>
     message.role === 'system' && message.text.trim().length > 0;
 
 /** Whether the timeline renders this injected entry as its own collapsed row. */
