@@ -10,13 +10,15 @@ not classify sessions itself.
   its session, queue rows, the project queue toggle, and the recovery dialogs.
   Its `mobile` prop renders the same board as a one-lane phone view for the
   mobile shells.
-- `WorkBoardCardMenu.tsx` — a card's own menu, in its two forms: the three-dot
-  menu in the card's actions row, and the same entries on the card's own
-  right-click menu (a phone has neither right click nor a free long press, so it
-  keeps the three-dot menu). The entries are the board's own (start Plan, back
-  to To-do, remove the saved to-do, remove the card) and, for a card linked to a
-  session, the session actions a sidebar row offers. Pin is not among them: a
-  card already carries its own place on the board.
+- `WorkBoardCardMenu.tsx` — the board's own menus, in two forms each: the
+  three-dot menu in a card's actions row (or a queued row's controls), and the
+  same entries on the row's own right-click menu (a phone has neither right
+  click nor a free long press, so it keeps the three-dot menu). A card's
+  entries are the board's own (start Plan, back to To-do, remove the saved
+  to-do, remove the card) and, for a card linked to a session, the session
+  actions a sidebar row offers. Pin is not among them: a card already carries
+  its own place on the board. A queued row's entries are its own queue actions
+  (move up, move down, pause, force, cancel) and the same session actions.
 - `workBoardMobileLane.ts` — the last lane the phone showed, remembered per
   client and connected server.
 - `workBoardRecentProjects.ts` — the work board projects this device opened,
@@ -118,6 +120,25 @@ own rather than rolled back, so a partial failure is visible. A move that lands 
 card in Done from another lane sends `completed`, so the server stamps a new
 completion: the card leads Done and its mark returns even after a rebuild.
 
+## The queued row's menu
+
+A waiting queue row carries the same menus a card carries: a three-dot menu and
+a right-click menu, both opening one list — the row's own queue actions (move
+up, move down, pause, force, cancel) first, then the session actions the other
+cards show. The row's title sits beside the menu, so an item names the action
+alone and keeps the row's name as its accessible one. A phone has neither right
+click nor a free long press, so its row keeps the touch-sized menu alone, and
+the desktop row keeps its own inline controls beside the three-dot.
+
+### Why the queued row's menu holds both lists and not only the session's
+
+A card's menu holds two lists: the card's own board actions, then the session
+actions. A queued row is a card's peer, so its menu holds the same two lists
+with the row's own queue actions where the card's board actions sit. The
+alternative — the session actions alone — opens an empty menu whenever the
+queue holds a session the board has not listed yet, and it split the row's
+actions over two menus on a phone.
+
 ## Ambiguous Force
 
 A build forced outside the queue whose prompt was not confirmed is ambiguous: it
@@ -159,7 +180,8 @@ shells, which mount it from the sessions drawer. The board reads the same
 snapshot, writes through the same routes and keeps every action. Only the
 presentation changes. It shows one lane at a time behind a lane picker whose
 counts match the lane it opens, replaces the tab strip with a project selector,
-moves the queue rows' actions into a touch-sized menu, and scrolls vertically.
+moves the queue rows' actions into a touch-sized menu, which carries the session
+actions a card's menu shows as well, and scrolls vertically.
 A menu item names the action alone, because the row beside it already carries
 the card's name and a full title would make the menu wider than the phone; each
 item keeps that name as its accessible one. The lane picker remembers the last

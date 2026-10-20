@@ -969,7 +969,7 @@ test('a phone queue row names the action in its menu and the card only to a scre
   try {
     // No stored lane: the phone opens on the queue lane, the one this covers.
     await act(async () => { root.render(<I18nProvider><WorkBoardView mobile /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
-    const trigger = container.querySelector<HTMLButtonElement>('section[aria-label="Build queue"] button[aria-label="Column actions"]');
+    const trigger = container.querySelector<HTMLButtonElement>('section[aria-label="Build queue"] button[aria-label="Actions for Allocated build name"]');
     if (!trigger) throw new Error('Missing the queue row menu');
     await act(async () => {
       trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));

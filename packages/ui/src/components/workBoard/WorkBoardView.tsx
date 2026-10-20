@@ -36,7 +36,7 @@ import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectI
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
-import { WorkBoardCardMenu, WorkBoardCardContextMenu, type WorkBoardCardMenuProps } from './WorkBoardCardMenu';
+import { WorkBoardCardMenu, WorkBoardCardContextMenu, WorkBoardQueueMenu, WorkBoardQueueContextMenu, type WorkBoardCardMenuProps, type WorkBoardQueueMenuProps } from './WorkBoardCardMenu';
 import { readMobileWorkBoardLane, rememberMobileWorkBoardLane } from './workBoardMobileLane';
 import { readRecentWorkBoardProjects, rememberWorkBoardProjectAccess } from './workBoardRecentProjects';
 import { WorkBoardMobileProjectPicker } from './WorkBoardMobileProjectPicker';
@@ -170,8 +170,12 @@ function WorkBoardQueueTooltip({ model, content, children }: {
 /**
  * One waiting queue row. It is sortable so the order the user drags it into is
  * the order the queue dispatches; the buttons stay as the keyboard path.
+ *
+ * The row carries the same menu a card carries: a three-dot menu and a
+ * right-click menu, both opening the one list of the row's own queue actions
+ * and the session actions the other cards show.
  */
-function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled, mobile, onOpen, onMove, onTogglePause, onForce, onCancel }: {
+function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled, mobile, directory, onOpen, onMove, onTogglePause, onForce, onCancel }: {
   row: WorkBoardQueueRow;
   queuePaused: boolean;
   index: number;
@@ -179,6 +183,7 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
   busy: boolean;
   disabled: boolean;
   mobile?: boolean;
+  directory: string;
   onOpen: (sessionId: string) => void;
   onMove: (itemId: string, delta: number) => void;
   onTogglePause: (row: { itemId: string; sessionId: string; paused: boolean }) => void;
@@ -187,10 +192,26 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
 }) {
   const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: row.itemId, disabled });
-  return <div ref={setNodeRef} data-work-board-dragging={isDragging ? '' : undefined}
+  const menu: WorkBoardQueueMenuProps = {
+    sessionId: row.sessionId,
+    directory,
+    title: row.title,
+    disabled: busy,
+    paused: row.paused,
+    first: index === 0,
+    last: index === order.length - 1,
+    onMove: delta => onMove(row.itemId, delta),
+    onTogglePause: () => onTogglePause(row),
+    onForce: () => onForce(row),
+    onCancel: () => onCancel(row),
+  };
+  // A phone has no right click, and a long press there belongs to dragging, so
+  // its row keeps the touch-sized menu alone.
+  const contextMenu = mobile ? { ...menu, disabled: true } : menu;
+  return <WorkBoardQueueContextMenu menu={contextMenu} trigger={<div ref={setNodeRef} data-work-board-queue-row="" data-work-board-dragging={isDragging ? '' : undefined}
     style={{ transform: CSS.Translate.toString(transform), transition }}
     className={'group relative flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-2.5 py-2 touch-none select-none '
-      + (isDragging ? 'opacity-60' : '')}>
+      + (isDragging ? 'opacity-60' : '')} />}>
     <WorkBoardQueueTooltip model={row.model} content={row.content}>
       <button type="button" {...attributes} {...listeners} disabled={disabled}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-start"
@@ -205,26 +226,13 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
         </span>
       </button>
     </WorkBoardQueueTooltip>
-    {/* A phone gets the same actions in a touch-sized menu. Five 24px icon
-        buttons do not fit a row, and the hover reveal they rely on has no touch
-        equivalent. The row beside the menu already names the card — as a full
-        title it would make the menu wider than the phone — so an item shows the
-        action alone and keeps the card's name as its accessible one. */}
-    {mobile ? <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="icon" variant="ghost" className="size-10 shrink-0" disabled={busy}
-          aria-label={t('workBoard.laneActions')} title={t('workBoard.laneActions')}>
-          <Icon name="more" className="size-5" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem aria-label={t('workBoard.moveUp', { title: row.title })} disabled={busy || index === 0} onClick={() => onMove(row.itemId, -1)}>{t('workBoard.moveUpShort')}</DropdownMenuItem>
-        <DropdownMenuItem aria-label={t('workBoard.moveDown', { title: row.title })} disabled={busy || index === order.length - 1} onClick={() => onMove(row.itemId, 1)}>{t('workBoard.moveDownShort')}</DropdownMenuItem>
-        <DropdownMenuItem aria-label={t(row.paused ? 'workBoard.resume' : 'workBoard.pause', { title: row.title })} disabled={busy} className={row.paused ? 'text-[var(--status-warning-text)]' : undefined} onClick={() => onTogglePause(row)}>{t(row.paused ? 'workBoard.resumeShort' : 'workBoard.pauseShort')}</DropdownMenuItem>
-        <DropdownMenuItem aria-label={t('workBoard.force', { title: row.title })} disabled={busy} onClick={() => onForce(row)}>{t('workBoard.forceShort')}</DropdownMenuItem>
-        <DropdownMenuItem aria-label={t('workBoard.cancelBuild', { title: row.title })} disabled={busy} onClick={() => onCancel(row)}>{t('workBoard.cancelBuildShort')}</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu> : <div className={'flex shrink-0 items-center gap-0.5 transition-opacity ' + (row.paused
+    {/* A phone gets the same actions in a touch-sized menu: the row's own
+        queue actions and the session actions a card's menu shows. Five 24px
+        icon buttons do not fit a row, and the hover reveal they rely on has no
+        touch equivalent. The row beside the menu already names the card — as a
+        full title it would make the menu wider than the phone — so an item
+        shows the action alone and keeps the card's name as its accessible one. */}
+    {mobile ? <WorkBoardQueueMenu menu={menu} touch /> : <div className={'flex shrink-0 items-center gap-0.5 transition-opacity ' + (row.paused
       // A paused row keeps its controls up so the resume control is visible
       // without hovering; every other row reveals them on hover as before.
       ? 'opacity-100 '
@@ -245,15 +253,16 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
       <Button size="icon" variant="ghost" className="size-6 hover:text-[var(--status-error-text)]" disabled={busy}
         aria-label={t('workBoard.cancelBuild', { title: row.title })} title={t('workBoard.cancelBuild', { title: row.title })}
         onClick={() => onCancel(row)}><Icon name="close" className="size-3.5" /></Button>
+      <WorkBoardQueueMenu menu={menu} />
     </div>}
-  </div>;
+  </WorkBoardQueueContextMenu>;
 }
 
 /**
  * The Build queue lane. The running lease and builds started outside the queue
  * sit above the gap. Waiting items keep the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, order, busy, error, dragged, mobile, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onNewBuild }: {
   rows: WorkBoardQueueRow[];
   paused: boolean;
   active: { sessionId: string; needsReview?: boolean; startedAt: number; model?: WorkBoardQueuedModel | null; content?: string | null } | undefined;
@@ -264,6 +273,7 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, orde
   error: string;
   dragged: string | null;
   mobile?: boolean;
+  directory: string;
   waitingForOf: (sessionId: string) => WorkBoardWaitingKind | undefined;
   onOpen: (sessionId: string) => void;
   onMove: (itemId: string, delta: number) => void;
@@ -302,7 +312,7 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, orde
     <SortableContext items={order} strategy={verticalListSortingStrategy}>
       <div className="space-y-3">
         {rows.map((row, index) => <WorkBoardQueueRowItem key={row.itemId} row={row} queuePaused={paused} index={index} order={order}
-          busy={busy} disabled={busy || dragged !== null} mobile={mobile} onOpen={onOpen} onMove={onMove}
+          busy={busy} disabled={busy || dragged !== null} mobile={mobile} directory={directory} onOpen={onOpen} onMove={onMove}
           onTogglePause={onTogglePause} onForce={onForce} onCancel={onCancel} />)}
       </div>
     </SortableContext>
@@ -1267,6 +1277,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             error={queueActionError}
             dragged={drag?.type === 'queue' ? drag.id : null}
             mobile={mobile}
+            directory={directory}
             waitingForOf={waitingForOf}
             onOpen={sessionId => open(sessionId, directory)}
             onMove={moveQueued}

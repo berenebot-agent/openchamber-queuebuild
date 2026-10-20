@@ -223,3 +223,90 @@ test('right-clicking a card opens the same menu its three-dot trigger shows', as
     }
   }
 });
+
+test('a queued row opens the same entries from its three-dot menu and its right click', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = domGlobals(dom);
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  const { createRoot } = await import('react-dom/client');
+  opencodeClient.reconnectToRuntimeBaseUrl();
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = new URL(String(input instanceof Request ? input.url : input), 'http://localhost');
+    if (url.pathname.endsWith('/event')) return new Response(new ReadableStream(), { headers: { 'content-type': 'text/event-stream' } });
+    if (url.pathname.endsWith('/session/session1')) return Response.json({ data: { ...sessionRecord('Queued build'), location: { directory: '/repo' } } });
+    if (url.pathname.endsWith('/location')) return Response.json({ directory: '/repo', project: { id: 'project', directory: '/repo', canonical: '/repo' } });
+    return Response.json({ data: [] });
+  });
+  const sdk = OpenCode.make({ baseUrl: 'http://localhost', fetch: (input, init) => globalThis.fetch(input, init) });
+  const { WorkBoardQueueMenu, WorkBoardQueueContextMenu } = await import('./WorkBoardCardMenu');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const { SyncProvider } = await import('@/sync/sync-context');
+  const sessions = useGlobalSessionsStore.getState();
+  useGlobalSessionsStore.setState({ activeSessions: [], archivedSessions: [], status: 'ready', entityById: new Map() });
+  useGlobalSessionsStore.getState().upsertSession(sessionRecord('Queued build'));
+  const calls: string[] = [];
+  const menu = {
+    sessionId: 'session1', directory: '/repo', title: 'Queued build', disabled: false,
+    paused: false, first: false, last: false,
+    onMove: (delta: number) => calls.push(`move${delta}`),
+    onTogglePause: () => calls.push('pause'),
+    onForce: () => calls.push('force'),
+    onCancel: () => calls.push('cancel'),
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  let root: Root | undefined;
+  const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(item => item.textContent).filter(Boolean);
+  const clickItem = async (label: string) => {
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === label);
+    if (!item) throw new Error(`Missing menu item: ${label}`);
+    await act(async () => { item.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
+  };
+  try {
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(<I18nProvider><SyncProvider sdk={sdk} directory="/repo">
+        <WorkBoardQueueMenu menu={menu} />
+        <WorkBoardQueueContextMenu menu={menu} trigger={<div data-testid="row" />}>
+          <span>Queued build</span>
+        </WorkBoardQueueContextMenu>
+      </SyncProvider></I18nProvider>);
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+    // The row's own queue actions first, then the session actions a card's menu
+    // shows: one list, so a queued build is managed the way a card is.
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Queued build"]');
+    if (!trigger) throw new Error('Missing queue row menu trigger');
+    await act(async () => { trigger.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
+    expect(items()).toEqual([
+      'Move up', 'Move down', 'Pause', 'Force', 'Cancel',
+      'Rename', 'Rename with AI', 'Copy session ID', 'Export Markdown', 'Track as in work', 'Archive', 'Delete',
+    ]);
+    await clickItem('Move up');
+    expect(calls).toEqual(['move-1']);
+    // The right click opens the same list on the row itself.
+    const row = container.querySelector<HTMLElement>('[data-testid="row"]');
+    if (!row) throw new Error('Missing queue row');
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 12, clientY: 24 }));
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+    expect(items()).toEqual([
+      'Move up', 'Move down', 'Pause', 'Force', 'Cancel',
+      'Rename', 'Rename with AI', 'Copy session ID', 'Export Markdown', 'Track as in work', 'Archive', 'Delete',
+    ]);
+    await clickItem('Cancel');
+    expect(calls).toEqual(['move-1', 'cancel']);
+  } finally {
+    if (root) await act(async () => root!.unmount());
+    fetchSpy.mockRestore();
+    useGlobalSessionsStore.setState(sessions);
+    opencodeClient.reconnectToRuntimeBaseUrl();
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
