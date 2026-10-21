@@ -113,6 +113,13 @@ and Delete goes through the global delete dialog), and Export Markdown saves the
 conversation. Archiving or deleting leaves the card where it is; its brief is the
 only copy of it.
 
+Archiving or deleting a card's session leaves the board on screen. The session
+that goes away may be the one the chat behind the board still holds, and the
+chat then opens a draft of its own to fill the empty space. That draft is the
+chat's fallback, not the user asking to leave, so the board stays where it is
+(`components/layout/mainSurfaceDismissal.ts` owns the rule). The user is still
+working on the board, and the card they acted on is still on it.
+
 Moving a card to or from Done also syncs the linked session's Done/In-work
 state (`setSessionWorkState`). That write is separate and best-effort: the card
 is placed even when the session write fails, and the failure is reported on its

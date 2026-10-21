@@ -969,6 +969,13 @@ draft default resolver, including after asynchronous catalog activation.
 Their explicit project directory remains the draft target. Manual composer
 choices still take precedence once made. Closing a draft clears its origin.
 
+A draft the chat opened by itself carries `automatic`. The chat opens one when
+nothing is selected, so the empty space behind a full-page surface has a
+composer in it. That is the chat filling a gap, not the user asking for a new
+session, and a surface over the chat reads the flag to stay where it is
+(`components/layout/mainSurfaceDismissal.ts`). A user-opened draft carries no
+flag, and closing a draft clears it.
+
 `session-ui-store.ts` persists the side of the composer's target selector the user last worked on under `oc.chatInput.lastDraftTarget`, so a plain new session reopens there instead of always landing on Chat. The record holds a project id, a directory, and `target`, which is `"chat"`, `"project"`, or `null`.
 
 `null` is what a record written before `target` existed reads as, and it leaves the Chat default in place rather than guessing a side from the directory. A recorded project that no longer exists falls back to Chat the same way. Only a picker choice writes `"chat"` or `"project"`.

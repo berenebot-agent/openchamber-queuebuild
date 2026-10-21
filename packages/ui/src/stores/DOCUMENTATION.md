@@ -6,7 +6,10 @@
 
 The fork's work board uses `useUIStore.isWorkBoardOpen` for its full-page
 navigation alongside the source board and archive. Opening another main page or
-selecting a chat closes it. The open flag is not persisted. `useRouter` reflects
+selecting a chat closes it. The chat opening a draft of its own does not: that
+draft is its fallback for an empty chat, so the page over it stays
+(`components/layout/mainSurfaceDismissal.ts`). The open flag is not persisted.
+`useRouter` reflects
 it into the URL as `?board=<projectId>`, which is what survives a reload: the
 board is a page, so its open state and its active project live in the route,
 while the store holds the in-memory copy the app renders from. Nothing else

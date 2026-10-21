@@ -15,6 +15,7 @@ import { followZonePlacementOfOtherWindows } from './zoneSync';
 import { ContextPanelRail } from './ContextPanelRail';
 import { GuestHosts } from './GuestHosts';
 import { PluginPane } from './PluginPane';
+import { surfaceShouldDismiss } from './mainSurfaceDismissal';
 import { useGuestPages } from '@/hooks/useGuestSurfaces';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
@@ -164,11 +165,7 @@ export const MainLayout: React.FC = () => {
     React.useEffect(() => {
         const closeSurfacePages = () => useUIStore.getState().closeMainSurfaces();
         const unsubscribeSession = useSessionUIStore.subscribe((state, prev) => {
-            const sessionSelected = Boolean(state.currentSessionId) && state.currentSessionId !== prev.currentSessionId;
-            // Draft identity change covers re-opening a draft while one is
-            // already open (the boolean alone never transitions then).
-            const draftOpened = Boolean(state.newSessionDraft?.open) && state.newSessionDraft !== prev.newSessionDraft;
-            if (sessionSelected || draftOpened) {
+            if (surfaceShouldDismiss(state, prev)) {
                 closeSurfacePages();
             }
         });

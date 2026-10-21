@@ -431,6 +431,14 @@ export type NewSessionDraftState = {
    * the draft and is cleared with it.
    */
   origin?: NewSessionDraftOrigin
+  /**
+   * True when the chat opened this draft by itself because nothing was
+   * selected, rather than the user asking for a new session. A full-page
+   * surface reads it to tell the two apart: a user-opened draft is navigation
+   * and closes the surface behind it, an automatic one only fills the empty
+   * chat and must leave it alone.
+   */
+  automatic?: boolean
 }
 
 export type NewSessionDraftOrigin = "workBoard" | "workBoardPlan" | "workBoardBuild"
@@ -463,7 +471,7 @@ export type SessionUIState = {
   clearMaterializedDraftSession: (sessionId: string) => void
   prepareForRuntimeSwitch: (apiBaseUrl?: string | null) => void
   restoreForRuntimeSwitch: (apiBaseUrl?: string | null, previousRuntimeKey?: string | null) => void
-  openNewSessionDraft: (options?: Partial<NewSessionDraftState> & { automatic?: boolean }) => void
+  openNewSessionDraft: (options?: Partial<NewSessionDraftState>) => void
   prepareChatDraftDirectory: () => Promise<string | null>
   closeNewSessionDraft: () => void
   setNewSessionDraftTarget: (target: { projectId?: string | null; selectedProjectId?: string | null; directoryOverride?: string | null }, options?: { force?: boolean }) => void
@@ -1543,6 +1551,10 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       targetFolderId: options?.targetFolderId,
       projectContextPins: options?.projectContextPins,
       origin: options?.origin,
+      // The chat's own fallback draft, opened because nothing was selected.
+      // A surface behind it must stay: this is not the user asking to leave
+      // where they are. A user-opened draft carries no flag.
+      automatic: options?.automatic ? true : undefined,
     }
 
     set({
@@ -1624,6 +1636,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       && currentDraft.targetFolderId === undefined
       && currentDraft.permissionMode === undefined
       && currentDraft.origin === undefined
+      && currentDraft.automatic === undefined
     ) {
       return
     }
@@ -1642,6 +1655,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       initialPrompt: undefined,
       syntheticParts: undefined,
       targetFolderId: undefined,
+      automatic: undefined,
     }
     set({
       newSessionDraft: nextDraft,
