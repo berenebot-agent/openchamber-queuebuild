@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useChatSessionSelection } from './chatColumnSession';
 import { useSelectionStore } from '@/sync/selection-store';
@@ -10,13 +11,19 @@ import { isAutoModel } from '@/lib/routing/autoModel';
 interface MobileAgentButtonProps {
     onCycleAgent: () => void;
     onOpenAgentPanel: () => void;
+    /** The composer is in To-do mode: the button names the mode, not the agent. */
+    todoMode?: boolean;
     className?: string;
 }
 
 const LONG_PRESS_MS = 500;
 
+/** The To-do mode is not an agent, so it wears the warning colour like the desktop picker. */
+const TODO_COLOR = { color: 'var(--status-warning)' };
+
 // NOTE: Use pointer events instead of onClick to keep soft keyboard open on mobile
-export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAgent, onOpenAgentPanel, className }) => {
+export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAgent, onOpenAgentPanel, todoMode = false, className }) => {
+    const { t } = useI18n();
     const getAgentColor = useAgentColors();
     const currentAgentName = useConfigStore((state) => state.currentAgentName);
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
@@ -29,8 +36,10 @@ export const MobileAgentButton: React.FC<MobileAgentButtonProps> = ({ onCycleAge
 
     const agents = getVisibleAgents();
     const uiAgentName = currentSessionId ? (sessionAgentName || currentAgentName) : currentAgentName;
-    const agentLabel = getAgentDisplayName(agents, uiAgentName);
-    const agentColor = getAgentColor(uiAgentName);
+    // The To-do step of the cycle is a mode, not an agent: the button has to
+    // say so, or the cycle looks like it stopped working.
+    const agentLabel = todoMode ? t('workBoard.todo') : getAgentDisplayName(agents, uiAgentName);
+    const agentColor = todoMode ? TODO_COLOR : getAgentColor(uiAgentName);
 
     const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const isLongPressRef = React.useRef(false);

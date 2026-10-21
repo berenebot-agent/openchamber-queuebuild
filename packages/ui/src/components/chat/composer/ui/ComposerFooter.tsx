@@ -170,6 +170,9 @@ function ComposerFooterView(props: ComposerFooterProps) {
     const dictationEnabled = useConfigStore((state) => state.dictationEnabled);
     const [dictationSupported] = React.useState(() => !isVSCodeRuntime() && isDictationCaptureSupported());
     const showDictation = dictationEnabled && dictationSupported;
+    // The send action parks the draft while the composer is in To-do mode, so
+    // it says so instead of naming itself "Send message".
+    const todoSendLabel = todoMode ? t(todoUpdating ? 'workBoard.updateTodo' : 'workBoard.saveTodo') : undefined;
 
     return (
         <div
@@ -224,6 +227,14 @@ function ComposerFooterView(props: ComposerFooterProps) {
                         </div>
                         <div className="flex items-center min-w-0 gap-x-1 justify-end">
                             {waitingForOpenCode ? <OpenCodeStartupNote /> : null}
+                            {/* The mobile composer has no agent picker, so the
+                                note beside the send button is what says the
+                                send parks the draft. */}
+                            {todoSendLabel ? (
+                                <span className="min-w-0 truncate self-center typography-micro text-[var(--status-warning)]">
+                                    {todoSendLabel}
+                                </span>
+                            ) : null}
                             <div className="flex items-center gap-x-1 flex-shrink-0">
                                 {!isBtw && showDictation ? <button
                                     type="button"
@@ -250,13 +261,14 @@ function ComposerFooterView(props: ComposerFooterProps) {
                                     footerIconButtonClass={footerIconButtonClass}
                                     sendIconSizeClass={sendIconSizeClass}
                                     stopIconSizeClass={stopIconSizeClass}
-                                    canSend={canSend}
+                                    canSend={canSend && (!todoMode || todoAvailable)}
                                     canAbort={canAbort}
                                     hasContent={hasContent}
                                     currentSessionId={currentSessionId}
                                     newSessionDraftOpen={newSessionDraftOpen}
                                     onPrimaryAction={onPrimaryAction}
                                     onAbort={onAbort}
+                                    sendLabel={todoSendLabel}
                                 />
                             </div>
                         </div>
@@ -350,7 +362,7 @@ function ComposerFooterView(props: ComposerFooterProps) {
                             newSessionDraftOpen={newSessionDraftOpen}
                             onPrimaryAction={onPrimaryAction}
                             onAbort={onAbort}
-                            sendLabel={todoMode ? t(todoUpdating ? 'workBoard.updateTodo' : 'workBoard.saveTodo') : undefined}
+                            sendLabel={todoSendLabel}
                         />}
                     </div>
                 </>

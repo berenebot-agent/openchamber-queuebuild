@@ -9,9 +9,9 @@ belongs to one of them.
 
 ## Save to To-do
 
-Web and desktop composers, including pinned columns, offer a virtual To-do
-mode in the agent picker for text or file attachments. Tab cycles through the
-available primary or favorite agents and To-do, skipping To-do while parking
+Web, desktop and mobile composers, including pinned columns, offer a virtual
+To-do mode in the agent picker for text or file attachments. Tab cycles through
+the available primary or favorite agents and To-do, skipping To-do while parking
 is unavailable. Auto hides this picker and disables the shortcut.
 An existing session can be parked only while idle, with no queued messages,
 active Build lease, or auto-review run, and with a healthy queue snapshot.
@@ -23,11 +23,17 @@ through the server's parking operation. It clears only a composer whose runtime,
 draft identity, text, and files still match the captured save after acceptance.
 Edits made during a save stay in the composer. Linked reference chips and pinned
 project context are outside this capture; they remain in the composer.
-The dedicated mobile and VS Code composers do not offer this action.
-Their composers do not start To-do queue polling. Auto, BTW, parallel mode,
+The dedicated VS Code composer does not offer this action and does not start
+To-do queue polling. Auto, BTW, parallel mode,
 and new-session drafts also skip this parking-status poll. Queue snapshot
 requests reject stale responses after disable, unmount, or runtime change.
 See `docs/WORK_BOARD.md` and `components/workBoard` for promotion and recovery.
+
+The mobile composer has no agent picker of its own: the button under the draft
+is the agent name and the To-do step at once, and the long press opens the same
+agent panel the desktop dropdown uses, To-do entry included. Both say **To-do**
+while the mode is on, and the expanded composer names its send action **Save to
+To-do**, so a parked draft never passes for a sent one.
 
 The same mode also carries the edit a To-do card opens (`useSavedTodoComposer.ts`).
 Opening a card asks the composer for its session — or the open new-session draft

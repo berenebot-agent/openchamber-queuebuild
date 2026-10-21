@@ -54,6 +54,8 @@ export interface MobilePillComposerProps {
     onOpenAttachSheet: () => void;
     onStartDictation: () => void;
     onAbort: () => void;
+    /** Names the send action when it is not a plain send (To-do mode). */
+    sendLabel?: string;
 }
 
 export function MobilePillComposer(props: MobilePillComposerProps) {
@@ -82,6 +84,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         onOpenAttachSheet,
         onStartDictation,
         onAbort,
+        sendLabel,
     } = props;
     const canPrimaryAction = hasContent && Boolean(currentSessionId || newSessionDraftOpen);
     const showFollowUpAction = canPrimaryAction && canAbort;
@@ -207,8 +210,8 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                         size="icon"
                         className="text-primary hover:text-primary"
                         onClick={onPrimaryAction}
-                        title={t('chat.chatInput.actions.sendMessageAria')}
-                        aria-label={t('chat.chatInput.actions.sendMessageAria')}
+                        title={sendLabel ?? t('chat.chatInput.actions.sendMessageAria')}
+                        aria-label={sendLabel ?? t('chat.chatInput.actions.sendMessageAria')}
                     >
                         <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />
                     </Button>

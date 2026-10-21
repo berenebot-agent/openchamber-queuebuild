@@ -4246,10 +4246,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             <MemoMobileAgentButton
                 onOpenAgentPanel={handleOpenAgentPanel}
                 onCycleAgent={handleCycleAgent}
+                todoMode={todoMode}
                 className="flex-shrink-0 px-0"
             />
         </div>
     ) : null;
+
+    // The mobile send action parks the draft while the composer is in To-do
+    // mode, so it names that action instead of "Send message".
+    const mobileTodoSendLabel = todoMode && !isBtwActive && !parallelActive
+        ? t(savedTodo.active ? 'workBoard.updateTodo' : 'workBoard.saveTodo')
+        : undefined;
 
     /** The dictation engine listens for this globally; the composer only asks. */
     const toggleDictation = React.useCallback(() => {
@@ -4514,6 +4521,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         onOpenAttachSheet={openMobileAttachSheet}
                         onStartDictation={toggleDictation}
                         onAbort={handleAbort}
+                        sendLabel={mobileTodoSendLabel}
                     />
                 ) : (
                 <>
@@ -4774,12 +4782,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 </div>
                 {/* Hidden host for the model/agent/variant bottom sheets. Kept
                     outside the pill conditional so an open panel survives (and
-                    stays visible over) the collapsed composer. */}
+                    stays visible over) the collapsed composer. It also carries
+                    the To-do mode, so the mobile agent panel offers the same
+                    step the cycle does. */}
                 {isMobile && !isBtwActive ? (
                     <MemoModelControls
                         className="hidden"
                         mobilePanel={mobileControlsPanel}
                         onMobilePanelChange={setMobileControlsPanel}
+                        todoMode={todoMode}
+                        onTodoModeChange={todoSupported ? setTodoMode : undefined}
+                        todoAvailable={todoAvailable}
                     />
                 ) : null}
             </div>

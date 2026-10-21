@@ -12,7 +12,7 @@ import { useMessageQueueStore, type FollowUpBehavior } from '@/stores/messageQue
 
 import { MobilePillComposer } from './MobilePillComposer';
 
-const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: boolean; canAbort?: boolean; dictationEnabled?: boolean; followUpBehavior?: FollowUpBehavior }) => {
+const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: boolean; canAbort?: boolean; dictationEnabled?: boolean; followUpBehavior?: FollowUpBehavior; sendLabel?: string }) => {
     const win = new Window({ url: 'http://localhost' });
     Object.defineProperty(win.navigator, 'mediaDevices', {
         value: { getUserMedia: () => Promise.resolve() },
@@ -51,6 +51,7 @@ const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: b
                 onOpenAttachSheet={() => {}}
                 onStartDictation={() => {}}
                 onAbort={() => {}}
+                sendLabel={options.sendLabel}
             />
         </I18nProvider>
         </ThemeSystemProvider>
@@ -58,7 +59,9 @@ const renderPill = async (options: { hasContent: boolean; newSessionDraftOpen: b
         if (options.hasContent) {
             // While a turn runs the follow-up action takes the same path as an
             // idle send; the composer decides there whether to queue or steer.
-            const label = options.canAbort && (options.followUpBehavior ?? 'queue') === 'queue' ? 'Queue message' : 'Send message';
+            // A To-do composer names its send action instead.
+            const label = options.sendLabel
+                ?? (options.canAbort && (options.followUpBehavior ?? 'queue') === 'queue' ? 'Queue message' : 'Send message');
             const action = container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
             expect(action).not.toBeNull();
             await act(async () => { action?.click(); });
@@ -150,5 +153,12 @@ describe('MobilePillComposer', () => {
         const markup = await renderPill({ hasContent: false, newSessionDraftOpen: false, dictationEnabled: false });
 
         expect(markup).not.toContain('aria-label="Start dictation"');
+    });
+
+    test('names the send action while the composer parks the draft', async () => {
+        const markup = await renderPill({ hasContent: true, newSessionDraftOpen: false, sendLabel: 'Save to To-do' });
+
+        expect(markup).toContain('aria-label="Save to To-do"');
+        expect(markup).not.toContain('aria-label="Send message"');
     });
 });

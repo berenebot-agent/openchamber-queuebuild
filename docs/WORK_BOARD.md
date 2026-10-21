@@ -127,6 +127,11 @@ to finish before parking an existing session. The composer clears only after
 the server confirms the save. If the session becomes busy while To-do is
 selected, its notes stay in the composer and cannot be queued for execution.
 
+On mobile the button under the draft carries the agent name and the To-do step
+at once: it reads **To-do** while the mode is on, its long press opens the same
+picker, and the send action reads **Save to To-do**, so a parked draft never
+passes for a sent one.
+
 A save returns to that project's board, where the card is now in the To-do lane,
 and confirms with a **Saved to To-do** toast. The board itself opens no dialog
 over the card.

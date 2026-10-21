@@ -304,6 +304,46 @@ const countComposerRenders = async (
   }
 };
 
+/**
+ * Mounts the mobile composer in its collapsed pill, where the agent button
+ * lives. The pill has no editor, so this is a mount of its own.
+ */
+const mountMobileComposer = async (exercise: (container: HTMLElement) => Promise<void>) => {
+  const { useUIStore } = await import('@/stores/useUIStore');
+  const wasMobile = useUIStore.getState().isMobile;
+  useUIStore.setState({ isMobile: true });
+  useDirectoryStore.setState({ currentDirectory: '/workspace' });
+  useSessionUIStore.setState({
+    currentSessionId: 'ses_typing',
+    currentSessionDirectory: '/workspace',
+    newSessionDraft: { ...useSessionUIStore.getState().newSessionDraft, open: false },
+  });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => {
+      root.render(
+        <RuntimeAPIContext.Provider value={runtimeAPIs}>
+          <ThemeSystemProvider>
+            <I18nProvider>
+              <SyncProvider sdk={sdk} directory="/workspace">
+                <ChatInput />
+              </SyncProvider>
+            </I18nProvider>
+          </ThemeSystemProvider>
+        </RuntimeAPIContext.Provider>,
+      );
+    });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    await exercise(container);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    useUIStore.setState({ isMobile: wasMobile });
+  }
+};
+
 /** Mounts a fresh composer, types KEYSTROKES characters, and reports the per-keystroke cost. */
 const measureTyping = async (scenario: 'session' | 'draft', exercise?: (container: HTMLElement, view: ComposerEditorView) => Promise<void>): Promise<TypingCost> => {
   const run = await countComposerRenders(scenario, async (view) => {
@@ -439,6 +479,25 @@ test('Auto model ignores the agent shortcut instead of entering an invisible To-
     await act(async () => { view.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true, cancelable: true })); });
     expect(container.querySelector('[aria-label="Save to To-do"]')).toBeNull();
     expect(useConfigStore.getState().currentAgentName).toBe('review');
+  });
+});
+
+test('the mobile composer names the To-do step of the agent cycle', async () => {
+  await mountMobileComposer(async (container) => {
+    await act(async () => {
+      useConfigStore.setState({ currentProviderId: 'provider', currentModelId: 'model', currentAgentName: 'review', agents: [
+        { id: 'review', name: 'review', displayName: 'Review', mode: 'primary', hidden: false, request: { settings: {}, headers: {}, body: {} }, permissions: [] },
+      ] });
+    });
+    // The mobile button is the agent name and the To-do step at once: the
+    // cycle has to say which one it is on, or it looks broken.
+    const agentButton = container.querySelector<HTMLElement>('button[title="Review"]');
+    expect(agentButton).not.toBeNull();
+    await act(async () => { agentButton!.dispatchEvent(new Event('pointerup', { bubbles: true })); });
+    expect(container.querySelector('button[title="To-do"]')).not.toBeNull();
+    // The long press opens the agent panel, which offers the same step.
+    await act(async () => { agentButton!.dispatchEvent(new Event('pointerdown', { bubbles: true })); await new Promise((resolve) => setTimeout(resolve, 600)); });
+    expect(document.querySelector('#mobile-overlay-root')?.textContent).toContain('To-do');
   });
 });
 
