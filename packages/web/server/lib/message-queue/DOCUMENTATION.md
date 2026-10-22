@@ -527,19 +527,35 @@ A Build prompt from the lease-holding session is rejected with a storage error
 while this review is active. The frozen item stays unchanged, so Continue cannot
 discard the newly submitted prompt; retry the prompt after repairing storage.
 
-### Forcing a build outside the queue
+### Forcing a build
 
 A waiting build can be started now, outside the queue lane, with
-`POST /api/build-queue/force` (`{ directory, sessionId, itemId }`). The project's
-lease, its dispatch order and the Git policy are all skipped: the item is sent to
-its own idle session through the same `sendItem` path and then removed from the
-queue. It takes no lease, so the gate stays free and the rest of the queue keeps
-dispatching.
+`POST /api/build-queue/force` (`{ directory, sessionId, itemId, mode? }`). The
+project's lease, its dispatch order and the Git policy are all skipped: the item
+is sent to its own idle session through the same `sendItem` path and then removed
+from the queue. It takes no lease, so the gate stays free and the rest of the
+queue keeps dispatching.
+
+`mode` says what the queue does with the build afterwards. A force without one
+is a force outside the queue:
+
+- `separate` leaves the queue to ignore the build. The next build starts as soon
+  as the lane is free.
+- `queue` counts the build towards the queue. It still starts now, beside the
+  build already running, but the project starts no further build until it
+  finishes. The dispatch order and the Git policy stay skipped, so the build
+  really does start now.
+
+A counted force is a `forcedBuilds` entry that carries the flag, and the
+dispatch gate waits for it: while one runs, the project starts no build. The
+force's own monitor releases the queue when its turn ends, the way the lane's
+lease does. A force outside the queue holds nothing, and a counted force that
+loses its session releases the queue with it.
 
 The forced prompt carries no serialized-build instruction: `sendItem` skips
 `BUILD_INSTRUCTION` for it, since the model is not running inside the queue. The
-work board shows it above the waiting rows, marked as outside the queue, until
-its session's own turn is done.
+work board shows it above the waiting rows, marked as outside the queue or as
+counting towards it, until its session's own turn is done.
 
 Every force is reserved before its prompt leaves, and that reservation is written
 to the queue file first: a request arriving while the probes run, or a second one
@@ -557,8 +573,9 @@ the marker and returns the item to the queue; cancelling the queued item drops
 the reservation with it. A `retry` is not accepted for a force.
 
 `GET /api/build-queue` reports running forces and unresolved reservations
-together in `forced`, separate from the lease in `active`. A resolved force
-clears when the session's turn completes or the session is deleted.
+together in `forced`, separate from the lease in `active`. A running force
+carries `counts`, the mode it was forced with. A resolved force clears when the
+session's turn completes or the session is deleted.
 
 The build snapshot is also the board's display source for a queued or running
 build. Each `queued` row, and each `active` and `forced` entry, carries the
@@ -615,7 +632,7 @@ allowlists.
 | `PUT .../sessions/:id/order` | `{ itemIds }` must be a complete permutation |
 | `PUT /api/build-queue/sessions/:id/items/:itemId/pause` | `{ paused: boolean }`; pending managed builds only |
 | `PUT /api/build-queue/pause` | `{ directory, paused: boolean }`; persists the directory's whole-queue hold without changing individual pauses |
-| `POST /api/build-queue/force` | `{ directory, sessionId, itemId }`; start a waiting build now, outside the lease and Git policy, and remove it from the queue |
+| `POST /api/build-queue/force` | `{ directory, sessionId, itemId, mode? }`; start a waiting build now, outside the lease and Git policy, and remove it from the queue. `mode: 'queue'` makes the queue wait for the build; `mode: 'separate'` (the default) leaves the queue to ignore it |
 | `DELETE .../sessions/:id` | Clear; the in-flight item and every managed Build item stay (the project queue owns those; use `/api/build-queue` to cancel one) |
 | `PUT .../sessions/:id/hold` | `{ held, ttlMs? }` |
 

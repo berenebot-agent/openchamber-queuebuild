@@ -102,6 +102,14 @@ draft through `input-store.adoptPrompt` (appended, never replacing the draft),
 then says so with an info toast. Only the text and files travel: a queued build
 captures no chips. A build whose session cannot be resolved still cancels.
 
+Forcing a waiting build confirms first, and the confirmation asks how the queue
+treats the build. The build starts in either case, beside the build already
+running: `Force build, queue waits` counts it towards the queue, so the project
+starts no further build until it finishes, and `Force build, queue moves on`
+leaves the queue to ignore it. The choice travels to the server as the force
+route's `mode`. The running row says which of the two it is, `Counts towards
+the queue` or `Outside queue`.
+
 Placements are stamped by the server's clock, and each one carries the card
 version the client read, so a change made on another device between the read and
 the write is a 409 the board reports instead of an overwrite.

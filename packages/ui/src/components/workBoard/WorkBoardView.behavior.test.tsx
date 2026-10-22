@@ -515,6 +515,104 @@ test('the build queue column runs one ordered list with its own row controls', a
   }
 });
 
+test('the force confirmation asks how the queue treats the build', async () => {
+  const dom = new Window({ url: 'http://localhost' });
+  const globals = domGlobals(dom);
+  const previous = Object.keys(globals).map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const);
+  for (const [name, value] of Object.entries(globals)) Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  Object.defineProperty(dom.document, 'visibilityState', { value: 'visible', configurable: true });
+  const { WorkBoardView } = await import('./WorkBoardView');
+  const { I18nProvider } = await import('@/lib/i18n');
+  const projects = useProjectsStore.getState();
+  const ui = useUIStore.getState();
+  const config = useConfigStore.getState();
+  const sessions = useGlobalSessionsStore.getState();
+  const notifications = useNotificationStore.getState();
+  const sessionUI = useSessionUIStore.getState();
+  const sessionStatus = useGlobalSessionStatusStore.getState();
+  const sessionDisplay = useSessionDisplayStore.getState();
+  useProjectsStore.setState({ projects: [{ id: 'project', path: '/repo', label: 'Repository', addedAt: 1 }], activeProjectId: 'project', hasServerSnapshot: true });
+  useUIStore.setState({ workBoardProjectTabsByRuntime: { [getRuntimeKey()]: { projectIds: ['project'], activeProjectId: 'project' } } });
+  useConfigStore.setState({ agents: [] });
+  useGlobalSessionsStore.setState({ activeSessions: [], status: 'ready' });
+  useNotificationStore.setState({ list: [], index: { session: { unseenCount: {}, unseenHasError: {} }, project: { unseenCount: {}, unseenHasError: {} } } });
+  useSessionDisplayStore.setState({ animatedActivityIndicators: false });
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+  // One waiting build, one forced build the queue waits for and one it does not.
+  const snapshot = makeSnapshot({
+    queue: {
+      rows: [
+        { itemId: 'queued1', sessionId: 's1', directory: '/repo', content: 'First build', paused: false, position: 0, model: null },
+      ],
+      order: ['queued1'],
+      forced: [
+        { sessionId: 's2', startedAt: 2, itemId: null, needsReview: false, action: null, content: null, model: null, counts: true },
+        { sessionId: 's3', startedAt: 3, itemId: null, needsReview: false, action: null, content: null, model: null, counts: false },
+      ],
+    },
+  });
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('/api/build-queue/settings')) return Response.json({ enabled: true });
+    if (url.includes('/api/build-queue')) {
+      if (init?.method) requests.push({ url, method: init.method, body: init.body ? JSON.parse(String(init.body)) : null });
+      return Response.json({ revision: 1, issues: [], active: [], queued: [] });
+    }
+    if (url.includes('/api/work-board/snapshot')) return Response.json(snapshot);
+    if (url.includes('/api/work-board')) return Response.json({ cards: [] });
+    return Response.json({});
+  });
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const click = async (label: string) => {
+    const target = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    if (!target) throw new Error(`Missing control: ${label}`);
+    await act(async () => { target.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+  };
+  const dialogButton = async (label: string) => {
+    const target = [...document.querySelectorAll<HTMLButtonElement>('[data-slot="dialog-content"] button')]
+      .find(button => button.textContent === label);
+    if (!target) throw new Error(`Missing dialog button: ${label}`);
+    await act(async () => { target.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+  };
+  try {
+    await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
+    // The board says which forced build the queue waits for.
+    const queue = container.querySelector('section[aria-label="Build queue"]')!;
+    expect(queue.textContent).toContain('Counts towards the queue');
+    expect(queue.textContent).toContain('Outside queue');
+
+    // The confirmation offers both choices, and the queue's own button opens it.
+    await click('Force Session s1');
+    const dialog = document.querySelector('[data-slot="dialog-content"]')!;
+    expect(dialog.textContent).toContain('Force build, queue waits');
+    expect(dialog.textContent).toContain('Force build, queue moves on');
+
+    await dialogButton('Force build, queue waits');
+    expect(requests.at(-1)?.method).toBe('POST');
+    expect(requests.at(-1)?.url.endsWith('/api/build-queue/force')).toBe(true);
+    expect(requests.at(-1)?.body).toEqual({ directory: '/repo', sessionId: 's1', itemId: 'queued1', mode: 'queue' });
+
+    // The other choice starts the build too, and the queue moves on without it.
+    await click('Force Session s1');
+    await dialogButton('Force build, queue moves on');
+    expect(requests.at(-1)?.body).toEqual({ directory: '/repo', sessionId: 's1', itemId: 'queued1', mode: 'separate' });
+  } finally {
+    await act(async () => root.unmount());
+    fetchSpy.mockRestore();
+    useProjectsStore.setState(projects); useUIStore.setState(ui); useConfigStore.setState(config);
+    useGlobalSessionsStore.setState(sessions); useNotificationStore.setState(notifications);
+    useSessionUIStore.setState(sessionUI); useGlobalSessionStatusStore.setState(sessionStatus);
+    useSessionDisplayStore.setState(sessionDisplay);
+    await dom.happyDOM.close();
+    for (const [name, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    }
+  }
+});
+
 test('returning from a chat opens the board on that session\'s project', async () => {
   const dom = new Window({ url: 'http://localhost' });
   const globals = domGlobals(dom);

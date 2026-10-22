@@ -144,6 +144,9 @@ const queueStateSchema = z.object({
     // recovery the runtime offers; a plain forced build carries nulls.
     itemId: z.string().nullable(), needsReview: z.boolean(), action: z.string().nullable(),
     content: z.string().nullable(), model: queuedModelSchema.nullable(),
+    // The build counts towards the queue, so the queue waits for it. A server
+    // that does not say so is read as a build outside the queue.
+    counts: z.boolean().default(false),
   })),
   issue: z.string().nullable(),
   preparation: z.object({ directory: z.string(), phase: z.string() }).nullable(),

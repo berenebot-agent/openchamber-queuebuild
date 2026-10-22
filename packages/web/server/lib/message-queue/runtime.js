@@ -376,10 +376,12 @@ export function createMessageQueueRuntime({
   const preparationFailures = new Map();
   const buildCommits = new Map();
   const buildMonitors = new Map();
-  // Sessions a user forced into build outside the queue lane. Display and
-  // tracking only: they hold no lease, wait for no order, and never gate
-  // dispatch. Cleared once the session's own turn is done.
-  const forcedBuilds = new Map(); // sessionId → { directory, startedAt }
+  // Sessions a user forced into build outside the queue lane. They hold no
+  // lease and wait for no order. A force outside the queue is display and
+  // tracking only and never gates dispatch; a force into the queue counts
+  // towards it, so the queue waits for that build. Cleared once the session's
+  // own turn is done.
+  const forcedBuilds = new Map(); // sessionId → { directory, startedAt, counts? }
   const forcedMonitors = new Map(); // sessionId → timeout
   // A Force whose prompt may or may not have been accepted, held durably from
   // before the dispatch until either the prompt is confirmed or a human
@@ -593,6 +595,15 @@ export function createMessageQueueRuntime({
   const runnableBuilds = (directory) => pendingBuilds(directory)
     .filter(entry => !pausedDirectories.has(directoryKey(entry.directory)) && !resumingDirectories.has(directoryKey(entry.directory))
       && !entry.item.buildPaused && !reservedForItem(entry.sessionId, entry.item.id));
+  /**
+   * A build forced into the queue still counts towards it: it runs beside the
+   * lane, but the queue waits for it to finish before the next build starts.
+   * A build forced outside the queue is not counted, so it holds nothing.
+   */
+  const countingForceFor = (directory) => {
+    const key = directoryKey(directory);
+    return Array.from(forcedBuilds.values()).some(entry => entry.counts === true && directoryKey(entry.directory) === key);
+  };
   const buildSnapshot = () => ({
     revision,
     pausedDirectories: [...pausedDirectories],
@@ -606,6 +617,8 @@ export function createMessageQueueRuntime({
         startedAt: value.startedAt,
         content: value.content ?? null,
         model: value.model ?? null,
+        // The build counts towards the queue, so the queue waits for it.
+        counts: value.counts === true,
       })),
       // An unresolved Force is not a running build: it carries the item it
       // targeted and the recovery the board offers for it.
@@ -618,6 +631,7 @@ export function createMessageQueueRuntime({
         action: value.needsReview !== false ? 'resolve' : null,
         content: value.content ?? null,
         model: value.model ?? null,
+        counts: false,
       })),
     ],
     queued: pendingBuilds().map(({ sessionId, directory, item }, index) => ({ id: item.id, sessionId, directory, content: item.content.slice(0, BUILD_SNAPSHOT_CHAR_LIMIT), createdAt: item.createdAt, order: index, paused: item.buildPaused === true, model: queuedModelOf(item) })),
@@ -1393,12 +1407,19 @@ export function createMessageQueueRuntime({
    * its own idle session, removed from the queue, and tracked separately so the
    * gate stays free and the rest of the queue keeps flowing. It never gates
    * dispatch and is never parked for review, because the queue does not own it.
+   *
+   * `mode: 'queue'` counts the build towards the queue: it starts now and
+   * beside the running build, but the queue waits for it to finish before the
+   * next build starts. `mode: 'separate'` leaves the queue to ignore it, which
+   * is what a force without a mode does.
    */
-  const forceDispatch = async (directoryInput, sessionIdInput, itemIdInput) => {
+  const forceDispatch = async (directoryInput, sessionIdInput, itemIdInput, modeInput) => {
     const directory = asNonEmptyString(directoryInput);
     const sessionId = requireSessionId(sessionIdInput);
     const itemId = asNonEmptyString(itemIdInput);
+    const mode = modeInput === undefined || modeInput === null ? 'separate' : modeInput;
     if (!directory || !itemId) throw new TypeError('directory and itemId are required');
+    if (mode !== 'queue' && mode !== 'separate') throw new TypeError('mode must be "queue" or "separate"');
     await load();
     const queue = queues.get(sessionId);
     if (!queue || queue.directory !== directory) throw httpError('Build not found in this project', 404);
@@ -1459,6 +1480,9 @@ export function createMessageQueueRuntime({
     forcedBuilds.set(sessionId, {
       directory, startedAt: reservation.startedAt,
       content: current.content.slice(0, BUILD_SNAPSHOT_CHAR_LIMIT), model: queuedModelOf(current),
+      // A build forced into the queue counts towards it, so the queue waits
+      // for it before the next build starts.
+      counts: mode === 'queue',
     });
     commit(sessionId);
     wakeProject(directory);
@@ -1710,6 +1734,9 @@ export function createMessageQueueRuntime({
       // Only the oldest head among all sessions for this project may start.
       // The lease is claimed synchronously after the asynchronous probes.
       if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory)) return;
+      // A build forced into the queue runs beside the lane but still counts
+      // towards it, so the next build waits for it to finish.
+      if (countingForceFor(current.directory)) return;
       if (runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
       // Nothing in this lane, but a Build of this project may be running outside
       // it — started before the queue was on, or by a path the queue does not
@@ -2122,9 +2149,13 @@ export function createMessageQueueRuntime({
         wakeProject(directory);
       }
       if (forcedBuilds.has(deletedSessionId)) {
+        const forced = forcedBuilds.get(deletedSessionId);
         forcedBuilds.delete(deletedSessionId);
         clearTimeout(forcedMonitors.get(deletedSessionId));
         forcedMonitors.delete(deletedSessionId);
+        // A build forced into the queue held the queue back, so the project
+        // wakes now that the session is gone.
+        if (forced?.counts) wakeProject(forced.directory);
       }
       // The session is gone, so its uncertain Force can never be resolved in
       // that chat; the queued item is dropped with the session below.
@@ -2609,7 +2640,7 @@ export function registerMessageQueueRoutes(app, runtime) {
     catch (error) { respondError(res, error, 'Failed to resolve build queue'); }
   });
   app.post('/api/build-queue/force', async (req, res) => {
-    try { res.json(await runtime.forceDispatch(req.body?.directory, req.body?.sessionId, req.body?.itemId)); }
+    try { res.json(await runtime.forceDispatch(req.body?.directory, req.body?.sessionId, req.body?.itemId, req.body?.mode)); }
     catch (error) { respondError(res, error, 'Failed to force build'); }
   });
   app.put('/api/build-queue/order', async (req, res) => {

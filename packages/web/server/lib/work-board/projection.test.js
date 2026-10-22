@@ -369,12 +369,12 @@ describe('work board projection', () => {
       active: [], queued: [], issues: [],
       forced: [
         { sessionId: 's1', directory: '/repo', startedAt: 2, itemId: 'item1', needsReview: true, action: 'resolve', content: 'fix it', model: { providerID: 'anthropic', id: 'claude' } },
-        { sessionId: 's2', directory: '/repo', startedAt: 3 },
+        { sessionId: 's2', directory: '/repo', startedAt: 3, counts: true },
       ],
     } }).snapshot('/repo');
     expect(snapshot.queue.forced).toEqual([
-      { sessionId: 's1', startedAt: 2, itemId: 'item1', needsReview: true, action: 'resolve', content: 'fix it', model: { providerID: 'anthropic', id: 'claude' } },
-      { sessionId: 's2', startedAt: 3, itemId: null, needsReview: false, action: null, content: null, model: null },
+      { sessionId: 's1', startedAt: 2, itemId: 'item1', needsReview: true, action: 'resolve', content: 'fix it', model: { providerID: 'anthropic', id: 'claude' }, counts: false },
+      { sessionId: 's2', startedAt: 3, itemId: null, needsReview: false, action: null, content: null, model: null, counts: true },
     ]);
   });
 

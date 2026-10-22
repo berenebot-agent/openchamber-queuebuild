@@ -1205,6 +1205,7 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
   const SECOND = 'ses_queue_test_2';
+  const THIRD = 'ses_queue_test_3';
   const promptCalls = (openCode) => openCode.state.sent.filter(entry => entry.path.endsWith('/prompt'));
   const runningShell = (sessionID, directory = DIRECTORY, startedAt = Date.now()) => ({
     id: `sh_${sessionID}`, status: 'running', directory, metadata: { sessionID }, time: { started: startedAt },
@@ -1425,6 +1426,69 @@ describe('project-wide build queue', () => {
     openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
     await settle(80);
     expect(runtime.buildSnapshot().forced).toHaveLength(0);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('counts a build forced into the queue, so the queue waits for it', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 40, buildRecheckMs: 20 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(60);
+    const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await runtime.enqueue(THIRD, DIRECTORY, item({ content: 'third', text: 'third', buildQueue: true }));
+    await settle(30);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+    // The second build starts now, beside the one already running, and it
+    // counts towards the queue.
+    await runtime.forceDispatch(DIRECTORY, SECOND, waiting.itemId, 'queue');
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    expect(runtime.buildSnapshot().forced[0].counts).toBe(true);
+
+    // The forced build is still working, and the lease ends.
+    openCode.state.active[SECOND] = { type: 'running' };
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(200);
+    // The queue waits for the build it counts, so the third one has not started.
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+
+    // The forced build's own turn ends, and the queue moves on.
+    delete openCode.state.active[SECOND];
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(200);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second', 'third']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('leaves the queue alone when a build is forced outside it', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 40, buildRecheckMs: 20 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(60);
+    const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await runtime.enqueue(THIRD, DIRECTORY, item({ content: 'third', text: 'third', buildQueue: true }));
+    await settle(30);
+
+    await runtime.forceDispatch(DIRECTORY, SECOND, waiting.itemId);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    expect(runtime.buildSnapshot().forced[0].counts).toBe(false);
+
+    // The forced build is still working when the lease ends, and the queue does
+    // not wait for it.
+    openCode.state.active[SECOND] = { type: 'running' };
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(200);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second', 'third']);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('refuses a force whose mode it does not know', async () => {
+    const { runtime } = createRuntime({ checkBuildGit: async () => null });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await expect(runtime.forceDispatch(DIRECTORY, SECOND, waiting.itemId, 'beside')).rejects.toThrow(/mode/);
     runtime.stop();
     await runtime.flush();
   });

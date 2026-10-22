@@ -35,7 +35,7 @@ export type WorkBoardQueueWrite =
   | { directory: string; ids: string[] }
   | { paused: boolean }
   | { directory: string; paused: boolean }
-  | { directory: string; sessionId: string; itemId: string }
+  | { directory: string; sessionId: string; itemId: string; mode?: 'queue' | 'separate' }
   | { directory: string; itemId?: string; action: 'skip' | 'retry' };
 
 /**
@@ -144,6 +144,8 @@ export type WorkBoardActiveEntry = {
   forced: boolean;
   needsReview?: boolean;
   itemId?: string | null;
+  /** The build counts towards the queue, so the queue waits for it. */
+  counts?: boolean;
   /** What the build was submitted with; absent for a card-derived row. */
   model?: WorkBoardQueuedModel | null;
   content?: string | null;
@@ -156,7 +158,7 @@ export type WorkBoardActiveEntry = {
  * row and carries the marker; the dedupe stops the same session showing twice.
  */
 export function workBoardActiveEntries(
-  forced: readonly { sessionId: string; title: string; needsReview?: boolean; itemId?: string | null; model?: WorkBoardQueuedModel | null; content?: string | null }[],
+  forced: readonly { sessionId: string; title: string; needsReview?: boolean; itemId?: string | null; counts?: boolean; model?: WorkBoardQueuedModel | null; content?: string | null }[],
   live: readonly { sessionId: string; title: string; checking: boolean; unavailable: boolean }[],
 ): WorkBoardActiveEntry[] {
   const entries = new Map<string, WorkBoardActiveEntry>();
@@ -166,6 +168,7 @@ export function workBoardActiveEntries(
     };
     if (entry.needsReview) active.needsReview = true;
     if (entry.itemId) active.itemId = entry.itemId;
+    if (entry.counts) active.counts = true;
     if (entry.model) active.model = entry.model;
     if (entry.content) active.content = entry.content;
     entries.set(entry.sessionId, active);

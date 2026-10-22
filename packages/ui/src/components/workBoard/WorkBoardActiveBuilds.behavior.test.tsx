@@ -322,7 +322,7 @@ test('an unconfirmed forced build shows its recovery instead of reading as runni
   const requests: Array<{ url: string; method: string; body: unknown }> = [];
   const snapshot = makeSnapshot({
     queue: {
-      forced: [{ sessionId: 'forced-1', startedAt: 2, itemId: 'item-1', needsReview: true, action: 'resolve', content: null, model: null }],
+      forced: [{ sessionId: 'forced-1', startedAt: 2, itemId: 'item-1', needsReview: true, action: 'resolve', content: null, model: null, counts: false }],
     },
   });
   const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {

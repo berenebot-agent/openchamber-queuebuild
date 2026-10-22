@@ -149,6 +149,9 @@ function queueForDirectory(queue, directory) {
       itemId: item.itemId ?? null, needsReview: Boolean(item.needsReview),
       action: item.needsReview ? (item.action ?? 'resolve') : null,
       content: item.content ?? null, model: item.model ?? null,
+      // A build forced into the queue counts towards it, so the queue waits
+      // for it before the next build starts.
+      counts: item.counts === true,
     })),
     issue: issue ?? null,
     preparation: (queue?.preparation ?? []).find(item => matches(item.directory)) ?? null,
