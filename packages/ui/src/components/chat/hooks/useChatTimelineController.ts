@@ -72,6 +72,10 @@ const resolveHistoryScrollThreshold = (clientHeight: number): number => Math.max
     clientHeight * HISTORY_SCROLL_VIEWPORT_FACTOR,
 )
 const HISTORY_RENDER_WAIT_TIMEOUT_MS = 250
+// A phone waits for the scroll to go quiet before it reads history: the
+// prepend then lands on a resting viewport, not on a running scroll
+// animation that would overwrite it.
+const MOBILE_HISTORY_SETTLE_MS = 180
 // Render commits (or 250ms timeouts) to wait for a concurrent history load.
 const HISTORY_LOAD_WAIT_LIMIT = 40
 const HISTORY_INTERACTION_GUARD_MS = 2000
@@ -701,20 +705,12 @@ export const useChatTimelineController = ({
         return false;
     }, [fetchOlderHistory, waitForNextRenderCommitOrTimeout]);
 
-    const handleHistoryScroll = React.useCallback(() => {
-        // Mobile never loads history from scroll position: any prepend racing
-        // an active touch gesture can be hijacked by the native scroll
-        // animation. The user scrolls to the natural top and taps an explicit
-        // "load older" button instead — the insert then happens from a resting
-        // state, which is fully deterministic.
-        if (isMobileSurfaceRuntime()) return;
+    // The reader wants history when the viewport is near the top and the
+    // transcript is not already complete. Shared by the desktop scroll
+    // trigger and the phone's settled one.
+    const loadOlderFromScroll = React.useCallback(() => {
         const container = scrollRef.current;
         if (!container) return;
-        const previousTop = lastHistoryScrollTopRef.current;
-        lastHistoryScrollTopRef.current = container.scrollTop;
-        // Prepend compensation moves the viewport down. It is not another
-        // request for history; neither is a burst of scroll events while settling.
-        if (previousTop === null || container.scrollTop >= previousTop || historyInteractionRef.current) return;
         if (isPinnedRef.current) return;
         if (container.scrollTop >= resolveHistoryScrollThreshold(container.clientHeight)) return;
         if (!historySignalsRef.current.canLoadEarlier) return;
@@ -722,6 +718,46 @@ export const useChatTimelineController = ({
 
         void loadEarlier({ userInitiated: true });
     }, [loadEarlier, scrollRef]);
+
+    // A phone loads history from the scroll position too, but only once the
+    // scroll has come to rest: a prepend that lands while the native scroll
+    // animation is still running is overwritten by it. The timer gives the
+    // insert the resting state the load-older button has by definition.
+    const mobileHistorySettleTimerRef = React.useRef<number | null>(null);
+    const clearMobileHistorySettleTimer = React.useCallback(() => {
+        if (mobileHistorySettleTimerRef.current === null) return;
+        window.clearTimeout(mobileHistorySettleTimerRef.current);
+        mobileHistorySettleTimerRef.current = null;
+    }, []);
+
+    const handleHistoryScroll = React.useCallback(() => {
+        const container = scrollRef.current;
+        if (!container) return;
+        const previousTop = lastHistoryScrollTopRef.current;
+        lastHistoryScrollTopRef.current = container.scrollTop;
+        // Prepend compensation moves the viewport down. It is not another
+        // request for history; neither is a burst of scroll events while settling.
+        const movedUp = previousTop !== null && container.scrollTop < previousTop;
+        if (isMobileSurfaceRuntime()) {
+            if (!movedUp) return;
+            clearMobileHistorySettleTimer();
+            mobileHistorySettleTimerRef.current = window.setTimeout(() => {
+                mobileHistorySettleTimerRef.current = null;
+                // A prepend that just happened moves the viewport down; that
+                // is not another request for history.
+                if (historyInteractionRef.current) return;
+                loadOlderFromScroll();
+            }, MOBILE_HISTORY_SETTLE_MS);
+            return;
+        }
+        if (!movedUp || historyInteractionRef.current) return;
+
+        loadOlderFromScroll();
+    }, [clearMobileHistorySettleTimer, loadOlderFromScroll, scrollRef]);
+
+    React.useEffect(() => {
+        return clearMobileHistorySettleTimer;
+    }, [clearMobileHistorySettleTimer]);
 
     // A cold window shorter than the viewport cannot be scrolled to request
     // history. Fill it with one batch per opened session; the load-older
@@ -740,6 +776,19 @@ export const useChatTimelineController = ({
         });
         return () => window.cancelAnimationFrame(frame);
     }, [historySignals.canLoadEarlier, isLoadingOlder, isPinned, loadEarlier, pendingRevealWork, renderedMessages.length, scrollRef, sessionKey]);
+
+    // A transcript with no rows is not what the reader asked for: the window
+    // that loaded held nothing the timeline can show. One more batch brings
+    // the turn that opens it, without waiting for a press. Every surface does
+    // this, the phone included: there the button is the only other way in.
+    const autoRecoveredSessionKeyRef = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        if (!sessionKey || autoRecoveredSessionKeyRef.current === sessionKey) return;
+        if (renderedMessages.length > 0) return;
+        if (!historySignals.canLoadEarlier || isLoadingOlder || pendingRevealWork) return;
+        autoRecoveredSessionKeyRef.current = sessionKey;
+        void loadEarlier();
+    }, [historySignals.canLoadEarlier, isLoadingOlder, loadEarlier, pendingRevealWork, renderedMessages.length, sessionKey]);
 
     const scrollToTurn = React.useCallback(async (
         turnId: string,

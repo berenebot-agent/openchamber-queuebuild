@@ -342,3 +342,98 @@ describe('useChatTimelineController identity lifecycle', () => {
         }
     });
 });
+
+describe('history loading from the timeline', () => {
+    const userMessage = (id: string, created: number): ChatMessageEntry => {
+        const info: Message = { id, sessionID: 'session', role: 'user', time: { created } };
+        return { info, parts: [] };
+    };
+
+    // Real scheduling inside act: the loader waits for the render that
+    // publishes each page, which act would hold back until its scope ends.
+    const scrollHarness = (options: {
+        surface: 'desktop' | 'mobile';
+        messages: ChatMessageEntry[];
+    }) => {
+        const dom = installMinimalDom();
+        Object.defineProperty(globalThis, '__OPENCHAMBER_SURFACE__', { configurable: true, writable: true, value: options.surface });
+        const root = createRoot(dom.container);
+        // SAFETY: the controller reads scrollTop and clientHeight from the
+        // scroll node and writes nothing else on it.
+        const scroll = { scrollTop: 0, clientHeight: 600, scrollHeight: 5000 } as HTMLDivElement;
+        const scrollRef = { current: scroll };
+        const messages = options.messages;
+        let calls = 0;
+        let controller!: UseChatTimelineControllerResult;
+        const Harness = () => {
+            controller = useChatTimelineController({
+                sessionId: 'session', sessionKey: 'runtime\n/repo\nsession', messages,
+                historyMeta: { limit: messages.length, complete: false, loading: false },
+                scrollRef, messageListRef: { current: null }, isPinned: false, showScrollButton: false,
+                loadMoreMessages: async () => { calls += 1; },
+                goToBottom: () => undefined, releaseAutoFollow: () => undefined,
+            });
+            return null;
+        };
+        return {
+            get controller() { return controller; },
+            get calls() { return calls; },
+            scroll,
+            ready: async () => {
+                await act(async () => { root.render(React.createElement(Harness)); });
+            },
+            dispose: async () => {
+                await act(async () => { root.unmount(); });
+                Reflect.deleteProperty(globalThis, '__OPENCHAMBER_SURFACE__');
+                dom.restore();
+            },
+        };
+    };
+
+    test('a phone loads older history once the scroll settles near the top', async () => {
+        const harness = scrollHarness({ surface: 'mobile', messages: [userMessage('msg_9', 9)] });
+        try {
+            await harness.ready();
+            await act(async () => {
+                harness.scroll.scrollTop = 100;
+                harness.controller.handleHistoryScroll();
+                harness.scroll.scrollTop = 0;
+                harness.controller.handleHistoryScroll();
+            });
+            // The insert waits for the scroll to come to rest, so the native
+            // scroll animation cannot overwrite it.
+            expect(harness.calls).toBe(0);
+            await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)); });
+            expect(harness.calls).toBe(1);
+        } finally {
+            await harness.dispose();
+        }
+    });
+
+    test('the desktop loads older history while the reader scrolls up', async () => {
+        const harness = scrollHarness({ surface: 'desktop', messages: [userMessage('msg_9', 9)] });
+        try {
+            await harness.ready();
+            await act(async () => {
+                harness.scroll.scrollTop = 100;
+                harness.controller.handleHistoryScroll();
+                harness.scroll.scrollTop = 0;
+                harness.controller.handleHistoryScroll();
+            });
+            expect(harness.calls).toBe(1);
+        } finally {
+            await harness.dispose();
+        }
+    });
+
+    test('a transcript with no rows loads one batch on its own', async () => {
+        const harness = scrollHarness({ surface: 'mobile', messages: [] });
+        try {
+            await harness.ready();
+            await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)); });
+            expect(harness.calls).toBe(1);
+        } finally {
+            await harness.dispose();
+        }
+    });
+});

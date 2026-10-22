@@ -992,7 +992,12 @@ export class SessionMessageLoader {
     const firstLimit = Math.max(entry.snapshot.limit, storeMessageCount, getInitialPageSize())
     const firstPage = await this.fetchPage(target, firstLimit, undefined, "initial-page", performance)
     if (!isCurrent()) return
-    const acceptedPage = await this.extendWindow(target, firstPage, coldNavigation
+    // A phone opens on the latest turn. The ten-turn window reads several
+    // pages back before the first publish, and the reader waits behind an
+    // empty transcript until it lands. The window still reaches the newest
+    // prompt, so the last turn is never cut off, and older turns arrive when
+    // the reader scrolls up.
+    const acceptedPage = await this.extendWindow(target, firstPage, coldNavigation && !isMobileSurfaceRuntime()
       ? { isSatisfied: (window) => hasInitialTurns(window.session), targetTurns: INITIAL_USER_TURNS }
       : { isSatisfied: (window) => hasUserMessage(window.session), targetTurns: 1 }, isCurrent, performance)
     if (!acceptedPage) return

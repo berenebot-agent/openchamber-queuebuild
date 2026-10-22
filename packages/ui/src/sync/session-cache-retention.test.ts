@@ -361,21 +361,33 @@ describe("session cache retention", () => {
 
   // One extension sized from the prompt density of the first page, with 20%
   // headroom, capped by the surface's record ceiling. 13-record turns: desktop
-  // reads 100 + 72 (13 turns), mobile 50 + 150 (15 turns, at its 200 ceiling).
-  for (const [surface, expected, limits] of [["desktop", 172, [100, 72]], ["mobile", 200, [50, 150]]] as const) {
-    test(`${surface}: cold navigation expands toward ten turns and publishes once`, async () => {
-      const env = setup(surface, (id) => transcript(id, 20, 12))
-      const store = env.childStores.ensureChild("/repo", { bootstrap: false })
-      const publications: number[] = []
-      cleanups.push(store.subscribe((state, previous) => {
-        if (state.message.a !== previous.message.a) publications.push(state.message.a?.length ?? 0)
-      }))
-      await env.select("a")
-      expect(env.requests.map((request) => request.limit)).toEqual([...limits])
-      expect(publications).toEqual([expected])
-      expect(env.loader.getSnapshot(env.target("a")).complete).toBe(false)
-    })
-  }
+  // reads 100 + 72 (13 turns). A phone opens on the newest page alone: 50
+  // records, and the turns before it load when the reader scrolls up.
+  test("desktop: cold navigation expands toward ten turns and publishes once", async () => {
+    const env = setup("desktop", (id) => transcript(id, 20, 12))
+    const store = env.childStores.ensureChild("/repo", { bootstrap: false })
+    const publications: number[] = []
+    cleanups.push(store.subscribe((state, previous) => {
+      if (state.message.a !== previous.message.a) publications.push(state.message.a?.length ?? 0)
+    }))
+    await env.select("a")
+    expect(env.requests.map((request) => request.limit)).toEqual([100, 72])
+    expect(publications).toEqual([172])
+    expect(env.loader.getSnapshot(env.target("a")).complete).toBe(false)
+  })
+
+  test("mobile: cold navigation opens on the newest page and publishes once", async () => {
+    const env = setup("mobile", (id) => transcript(id, 20, 12))
+    const store = env.childStores.ensureChild("/repo", { bootstrap: false })
+    const publications: number[] = []
+    cleanups.push(store.subscribe((state, previous) => {
+      if (state.message.a !== previous.message.a) publications.push(state.message.a?.length ?? 0)
+    }))
+    await env.select("a")
+    expect(env.requests.map((request) => request.limit)).toEqual([50])
+    expect(publications).toEqual([50])
+    expect(env.loader.getSnapshot(env.target("a")).complete).toBe(false)
+  })
 
   for (const surface of ["desktop", "mobile"] as const) {
     test(`${surface}: a last turn longer than the window is read back to its prompt and published once`, async () => {
@@ -511,6 +523,11 @@ describe("evicted history after background events", () => {
     const ids = env.messages("s0")?.map((message) => message.id) ?? []
     expect(ids.at(-1)).toBe("msg_s0_late")
     expect(ids.length).toBeGreaterThan(1)
-    expect(env.loader.getSnapshot(env.target("s0"))).toMatchObject({ status: "ready", resolved: true, complete: true })
+    // A phone holds the newest page; the turns before it are one scroll away.
+    expect(env.loader.getSnapshot(env.target("s0"))).toMatchObject({ status: "ready", resolved: true, complete: false })
+    const held = ids.length
+    await env.loader.loadOlder(env.target("s0"))
+    expect(env.messages("s0")?.length).toBeGreaterThan(held)
+    expect(env.loader.getSnapshot(env.target("s0")).complete).toBe(true)
   })
 })
