@@ -4,27 +4,21 @@ import { SettingsFieldRow, SETTINGS_SELECT_ROW_TRIGGER_CLASS } from '@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/components/ui';
 import { useI18n } from '@/lib/i18n';
-import { updateQueueRepository, type QueueGitPolicy } from '@/lib/workBoardApi';
+import { updateQueueRepository } from '@/lib/workBoardApi';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useGitStore, useIsGitRepo, useNestedRepos } from '@/stores/useGitStore';
 import { queueRepositoryNote, queueRepositoryOptions, samePath } from './buildQueueRepositoryModel';
 
-/** Only these policies run the queue's Git checks, so only they use a repository. */
-const gitPolicies: readonly QueueGitPolicy[] = ['pause', 'commit'];
-
 /**
- * The repository this project's build queue checks before each build. A project
- * whose folder holds the checkout needs no choice; a project whose repository
- * sits in a subfolder picks one of the repositories found under it.
+ * The repository this project's build queue uses for Git checks. The selection
+ * stays available under Continue so it is ready if the policy changes later.
  *
- * Shown only while the effective queue behavior is Pause or Commit: Allow
- * continue never touches Git. Picking the project folder clears the choice, and
- * the queue then resolves the repository from the directory it dispatches.
+ * Picking the project folder clears the choice, and the queue then resolves the
+ * repository from the directory it dispatches.
  */
-export function ProjectBuildQueueRepositoryRow({ directory, policy, repository, effectiveRepository, onSaved }: {
+export function ProjectBuildQueueRepositoryRow({ directory, repository, effectiveRepository, onSaved }: {
   directory: string;
-  policy: QueueGitPolicy;
   repository: string | null;
   effectiveRepository: string | null;
   onSaved: () => Promise<void> | void;
@@ -40,7 +34,7 @@ export function ProjectBuildQueueRepositoryRow({ directory, policy, repository, 
   })));
   const [current, setCurrent] = React.useState<string | null>(repository);
   const [busy, setBusy] = React.useState(false);
-  const shown = !isVSCode && gitPolicies.includes(policy);
+  const shown = !isVSCode;
 
   React.useEffect(() => setCurrent(repository), [repository]);
 
