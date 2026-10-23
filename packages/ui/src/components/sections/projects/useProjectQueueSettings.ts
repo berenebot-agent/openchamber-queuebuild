@@ -8,6 +8,8 @@ export interface ProjectQueueSettings {
   policyOverride: QueueGitPolicy | null;
   /** The repository the queue runs its Git checks against, or `null` for the project folder. */
   repository: string | null;
+  /** The resolved checkout used when no project-specific repository is stored. */
+  effectiveRepository: string | null;
 }
 
 /**
@@ -23,7 +25,7 @@ export function useProjectQueueSettings(directory: string, enabled: boolean) {
     if (!enabled || !directory) return;
     try {
       const next = await fetchQueueSettings(directory);
-      setSettings({ policy: next.policy, policyOverride: next.policyOverride, repository: next.repository });
+      setSettings({ policy: next.policy, policyOverride: next.policyOverride, repository: next.repository, effectiveRepository: next.effectiveRepository });
     } catch {
       // Keep the last known read; a failed read is not "no choice".
     }

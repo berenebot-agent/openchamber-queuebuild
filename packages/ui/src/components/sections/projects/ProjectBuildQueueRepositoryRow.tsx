@@ -22,10 +22,11 @@ const gitPolicies: readonly QueueGitPolicy[] = ['pause', 'commit'];
  * continue never touches Git. Picking the project folder clears the choice, and
  * the queue then resolves the repository from the directory it dispatches.
  */
-export function ProjectBuildQueueRepositoryRow({ directory, policy, repository, onSaved }: {
+export function ProjectBuildQueueRepositoryRow({ directory, policy, repository, effectiveRepository, onSaved }: {
   directory: string;
   policy: QueueGitPolicy;
   repository: string | null;
+  effectiveRepository: string | null;
   onSaved: () => Promise<void> | void;
 }) {
   const { t } = useI18n();
@@ -80,7 +81,7 @@ export function ProjectBuildQueueRepositoryRow({ directory, policy, repository, 
           : null;
   // The project folder's own repository is what the queue resolves without a
   // choice, so it reads as selected when the project never chose one.
-  const selected = current ?? (rootIsGitRepo === true ? directory : '');
+  const selected = current ?? effectiveRepository ?? (rootIsGitRepo === true ? directory : '');
 
   return (
     <SettingsFieldRow

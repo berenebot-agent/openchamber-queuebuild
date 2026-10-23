@@ -29,7 +29,7 @@ import { buildGoalIntroText, createSessionGoal } from '../session-goal/create.js
 const QUEUE_FILE_NAME = 'message-queue.json';
 const QUEUE_FILE_VERSION = 2;
 const BUILD_RECHECK_MS = 5000;
-const BUILD_INSTRUCTION = 'This build is serialized with other builds in this repository. Implement the requested work, run appropriate tests, and commit only your own changes when complete. Do not stage unrelated files, force reset, or silently discard changes. If you cannot safely commit, explicitly explain why; the next queued build will wait for a clean working tree.';
+const BUILD_INSTRUCTION = 'This build is serialized with other builds in this repository.';
 
 // Where the instance keeps `settings.json`; the build queue's Git gate is read
 // from it off the disk at dispatch, the same way the other server modules that
@@ -234,6 +234,7 @@ const parseStoredItem = (value) => {
     if (raw.buildQueue === true) {
       item.buildOrder = asCount(raw.buildOrder) ?? 0;
       if (raw.buildPaused === true) item.buildPaused = true;
+      if (raw.buildWaited === true) item.buildWaited = true;
     }
     return item;
   } catch {
@@ -334,6 +335,7 @@ export function createMessageQueueRuntime({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
   sessionKnowledgeRuntime = null,
+  sessionTreeRuntime = null,
   broadcastGlobalUiEvent,
   onPromptSent,
   beforeScheduledTaskSend,
@@ -352,6 +354,7 @@ export function createMessageQueueRuntime({
   retryDelayMs = getQueuedSendRetryDelayMs,
   checkBuildGit = null,
   prepareBuildCommit = null,
+  resolveRepositoryRoot = null,
   buildMonitorDelayMs = 2500,
   buildRecheckMs = BUILD_RECHECK_MS,
   buildCompletionGraceMs = 30000,
@@ -883,8 +886,13 @@ export function createMessageQueueRuntime({
       text: asText(asRecord(part)?.text),
       resume: false,
     })).filter((part) => part.text);
+    // Read after queue preparation, never at admission: another build can change the checkout while this waits.
+    const buildStartup = isBuildItem(item) ? [
+      await sessionTreeRuntime?.describe(sessionId, directory).catch(() => '') ?? '',
+      !forced && item.buildWaited ? BUILD_INSTRUCTION : '',
+    ].filter(Boolean).join('\n\n') : '';
     const preamble = [
-      ...(isBuildItem(item) && !forced ? [{ text: BUILD_INSTRUCTION, resume: false }] : []),
+      ...(buildStartup ? [{ text: buildStartup, resume: false }] : []),
       ...leading,
       ...contextMessages,
     ];
@@ -1655,6 +1663,12 @@ export function createMessageQueueRuntime({
     return false;
   };
 
+  const markBuildWaiting = (sessionId, item) => {
+    if (!isBuildItem(item) || item.buildWaited) return;
+    item.buildWaited = true;
+    commit(sessionId);
+  };
+
   async function tick(sessionId) {
     if (stopped) return;
     const queue = queues.get(sessionId);
@@ -1668,6 +1682,7 @@ export function createMessageQueueRuntime({
     // own session is what the user is being asked about.
     const frozenOwner = buildLaneFrozenFor(queue.directory, sessionId);
     if (frozenOwner) {
+      markBuildWaiting(sessionId, queue.items[0]);
       armDispatch(sessionId, buildRecheckMs);
       return;
     }
@@ -1679,7 +1694,10 @@ export function createMessageQueueRuntime({
     }
 
     const head = queue.items[0];
-    if (isBuildItem(head) && (pausedDirectories.has(directoryKey(queue.directory)) || head.buildPaused || reservedForItem(sessionId, head.id))) return;
+    if (isBuildItem(head) && (pausedDirectories.has(directoryKey(queue.directory)) || head.buildPaused || reservedForItem(sessionId, head.id))) {
+      markBuildWaiting(sessionId, head);
+      return;
+    }
     const failure = failures.get(sessionId);
     if (failure && failure.itemId !== head.id) failures.delete(sessionId);
     else if (failure && failure.nextAttemptAt > now()) {
@@ -1710,6 +1728,7 @@ export function createMessageQueueRuntime({
     // resumes it — so it can end without that event arriving; the recheck
     // keeps delivery from waiting on an event that never comes.
     if (!idle) {
+      markBuildWaiting(sessionId, head);
       armDispatch(sessionId, SUBAGENT_RECHECK_MS);
       return;
     }
@@ -1720,6 +1739,7 @@ export function createMessageQueueRuntime({
     // re-arms through its idle event; the recheck covers a missed one.
     const subagentsWorking = await hasWorkingSubagents(sessionId, queue.directory);
     if (subagentsWorking !== false) {
+      if (subagentsWorking) markBuildWaiting(sessionId, head);
       armDispatch(sessionId, subagentsWorking === null ? retryDelayMs(1) : SUBAGENT_RECHECK_MS);
       return;
     }
@@ -1733,11 +1753,17 @@ export function createMessageQueueRuntime({
     if (isBuildItem(item)) {
       // Only the oldest head among all sessions for this project may start.
       // The lease is claimed synchronously after the asynchronous probes.
-      if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory)) return;
+      if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory)) {
+        if (activeBuilds.get(current.directory)?.itemId !== item.id
+          && preparingBuilds.get(current.directory)?.itemId !== item.id) markBuildWaiting(sessionId, item);
+        return;
+      }
       // A build forced into the queue runs beside the lane but still counts
       // towards it, so the next build waits for it to finish.
-      if (countingForceFor(current.directory)) return;
-      if (runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
+      if (countingForceFor(current.directory) || runnableBuilds(current.directory)[0]?.item.id !== item.id) {
+        markBuildWaiting(sessionId, item);
+        return;
+      }
       // Nothing in this lane, but a Build of this project may be running outside
       // it — started before the queue was on, or by a path the queue does not
       // cover. Adopt that turn as this lane's active build instead of starting a
@@ -1751,6 +1777,7 @@ export function createMessageQueueRuntime({
         // the build may have finished while the list was being read.
         if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory)) return;
         if (liveSessionId) {
+          markBuildWaiting(sessionId, item);
       activeBuilds.set(current.directory, { sessionId: liveSessionId, startedAt: now(), phase: 'running', adopted: true });
           commit(sessionId);
           scheduleBuildMonitor(current.directory);
@@ -1761,6 +1788,7 @@ export function createMessageQueueRuntime({
       // Claim preparation before awaiting Git or the model. The dispatch lease
       // follows preparation and remains durable before the prompt is sent.
       const policy = await effectiveBuildGitPolicy(current.directory);
+      await sessionTreeRuntime?.settle(sessionId, current.directory);
       if (policy !== 'commit') preparationFailures.delete(current.directory);
       if (policy === 'commit') {
         if (preparationFailures.get(current.directory) === item.id) {
@@ -1804,6 +1832,7 @@ export function createMessageQueueRuntime({
             return;
           }
         } catch (error) {
+          markBuildWaiting(sessionId, item);
           if (pausedDirectories.has(directoryKey(current.directory)) || resumingDirectories.has(directoryKey(current.directory))) return;
           preparationFailures.set(current.directory, item.id);
           setBuildProblem(current.directory, error.message || 'Automatic commit preparation failed. Retry from the Work Board.');
@@ -1818,7 +1847,7 @@ export function createMessageQueueRuntime({
       } else if (policy === 'pause') {
         const repository = await queueRepositoryFor(current.directory);
         const problem = checkBuildGit ? await checkBuildGit(repository || current.directory) : await inspectGit(repository || current.directory);
-        if (problem) { setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
+        if (problem) { markBuildWaiting(sessionId, item); setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
       } else if (buildProblems.has(current.directory)) {
         setBuildProblem(current.directory, null);
       }
@@ -2013,6 +2042,9 @@ export function createMessageQueueRuntime({
     const existing = queues.get(sessionId);
     const items = [...(existing?.items ?? []), item].slice(-MAX_ITEMS_PER_SESSION);
     setQueueItems(sessionId, directory, items);
+    if (isBuildItem(item) && (activeBuilds.has(directory) || preparingBuilds.has(directory)
+      || countingForceFor(directory) || pausedDirectories.has(directoryKey(directory))
+      || runnableBuilds(directory)[0]?.item.id !== item.id)) item.buildWaited = true;
     directories.set(sessionId, directory);
     if (queues.size > MAX_SESSIONS) {
       const oldest = Array.from(queues.entries())
@@ -2413,6 +2445,7 @@ export function createMessageQueueRuntime({
       policy: policyOverride ?? buildGitPolicy(),
       policyOverride,
       repository,
+      effectiveRepository: await queueRepositoryFor(identity.directory),
     };
   };
 
@@ -2479,12 +2512,18 @@ export function createMessageQueueRuntime({
     const projectId = asNonEmptyString(identity?.projectId);
     if (!projectConfigRuntime || !projectId) return null;
     const stored = await projectConfigRuntime.readBuildQueueRepository(projectId).catch(() => null);
-    if (!stored) return null;
     const projectPath = projectPathFromId(projectId);
-    if (!projectPath) return null;
-    const relative = path.relative(path.resolve(projectPath), path.resolve(directory));
-    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
-    return stored;
+    if (stored) {
+      if (!projectPath) return null;
+      const relative = path.relative(path.resolve(projectPath), path.resolve(directory));
+      if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+      return stored;
+    }
+    try {
+      return resolveRepositoryRoot ? await resolveRepositoryRoot(directory) : null;
+    } catch {
+      return null;
+    }
   };
 
   const writeQueueSettings = async (identityInput, enabled) => withAdmission(async () => {
@@ -2570,6 +2609,7 @@ export function createMessageQueueRuntime({
     writeQueueSettings,
     writeQueuePolicy,
     writeQueueRepository,
+    queueRepositoryFor,
     cancelScheduledTask,
     parkSession,
     remove,

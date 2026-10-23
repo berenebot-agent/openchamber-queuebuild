@@ -33,6 +33,28 @@ session-knowledge runtime; routes registered in
 JSON bodies enabled in `opencode/core-routes.js`; stopped by
 `opencode/shutdown-runtime.js`.
 
+## Build startup context
+
+At dispatch, after any Git preparation, the queue asks `session-tree` for HEAD,
+branch, current dirty paths and changed paths since this session's last complete
+turn. The result is one synthetic before the user's prompt, never a tree read or
+injection at queue admission. Missing baselines omit the delta; failed tree reads
+omit the summary without blocking the prompt. Existing standing knowledge sync
+and user-attached context remain separate and unchanged.
+
+The queue's `queueRepositoryFor` resolver supplies both Git preparation and the
+settings response's `effectiveRepository`: a stored project choice wins;
+otherwise Git resolves the checkout root from the session directory. This also
+lets the settings pane show a checkout nested under a workspace folder.
+
+Only builds actually held by another build, the project's ordering, a pause or
+a preparation blocker append: "This build is serialized with other builds in
+this repository." Immediate starts and forced dispatches omit that sentence.
+The internal `buildWaited` flag survives queue persistence and restart, and cannot
+be set by a new client submission. The normal dispatch debounce and a build's own
+preparation do not count as waiting. The old tests/commit paragraph is removed;
+repository and user instructions continue to govern tests and Git safety.
+
 ## Queue enablement
 
 The queue is a property of the **project**, stored in its own config file

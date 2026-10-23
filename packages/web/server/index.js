@@ -92,6 +92,7 @@ import { createContextObligatoryRuntime } from './lib/context-obligatory/runtime
 import { createSessionWarmingRuntime } from './lib/session-warming/runtime.js';
 import { createLinearSessionStatusRuntime } from './lib/linear/status-runtime.js';
 import { createSessionKnowledgeRuntime } from './lib/session-knowledge/runtime.js';
+import { createSessionTreeRuntime } from './lib/session-tree/runtime.js';
 import { createMessageSearchRuntime } from './lib/message-search/runtime.js';
 import { createScheduledTasksRuntime } from './lib/scheduled-tasks/runtime.js';
 import { resolveSessionDefaults } from './lib/scheduled-tasks/session-defaults.js';
@@ -137,7 +138,7 @@ import { permissionDefaultOf, readSpacePermissionDefault } from './lib/spaces/sp
 import { dockerHostOf } from './lib/spaces/places/ssh-host.js';
 import { SPACE_IDLE_EXIT_CODE } from './lib/spaces/layout.js';
 import { createSwitchController, registerSpaceRoutes } from './lib/spaces/routes.js';
-import { configureGitEnvironment, getCheckedOutBranch, resolvePrimaryWorktreeRoot, prepareBuildCommit } from './lib/git/service.js';
+import { configureGitEnvironment, getCheckedOutBranch, getRepositoryRoot, resolvePrimaryWorktreeRoot, prepareBuildCommit } from './lib/git/service.js';
 import { createEnvironmentStore } from './lib/environment/store.js';
 import { createEnvironmentRuntime } from './lib/environment/runtime.js';
 import { readOpenCodeServiceEnv } from './lib/environment/opencode-service-env.js';
@@ -1034,6 +1035,11 @@ const openCodeSessionClient = (directory) => createOpenCodeClient({
   directory,
 });
 
+const sessionTreeRuntime = createSessionTreeRuntime({
+  activityProbe: createSessionActivityProbe({ buildOpenCodeUrl, getOpenCodeAuthHeaders }),
+  resolveRepository: directory => messageQueueRuntime.queueRepositoryFor(directory),
+});
+
 /**
  * Owns what a session must be told about the project's knowledge. Every sender
  * asks it — the UI over HTTP, scheduled tasks and agent-dispatched sessions in
@@ -1144,6 +1150,7 @@ notificationTriggerRuntime.setGetIsSessionAutoAccepting(
 // Queued follow-up messages are delivered by the server so a closed tab or a
 // dropped connection no longer strands them (VS Code keeps its UI-side queue).
 const messageQueueRuntime = createMessageQueueRuntime({
+  resolveRepositoryRoot: getRepositoryRoot,
   prepareBuildCommit: (directory, { sendConfig, ...options }) => prepareBuildCommit(directory, {
     ...options,
     generateMessage: async ({ directory: project, summary, diff }) => {
@@ -1164,6 +1171,7 @@ const messageQueueRuntime = createMessageQueueRuntime({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
   sessionKnowledgeRuntime,
+  sessionTreeRuntime,
   // OpenCode's event SSE proxy cannot carry OpenChamber-owned events. Use the
   // shared control stream for SSE clients and the existing WS fan-out.
   broadcastGlobalUiEvent: broadcastOpenChamberUiEvent,
@@ -1277,6 +1285,7 @@ globalMessageStreamHub.subscribeEvent((event) => {
       agentToolRuntime?.abortSession?.(payload.properties.sessionID);
     }
     sessionLineage.observe(payload);
+    sessionTreeRuntime.processPayload(payload, directory || payload.properties?.directory || '');
     sessionAssistRuntime.processPayload(payload, directory || payload.properties?.directory || '');
     sessionWorkRuntime.processPayload(payload, directory || payload.properties?.directory || '');
     sessionGoalRuntime.processPayload(payload, directory || payload.properties?.directory || '');
@@ -1611,6 +1620,7 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
     // A restart reloads plugins: provider ports, credentials and the provider
     // list itself can all differ from what was cached.
     resetOpenCodeRuntimeProviders();
+    sessionTreeRuntime.reset();
     try {
       messageStreamRuntime?.rebindUpstream();
     } catch (error) {

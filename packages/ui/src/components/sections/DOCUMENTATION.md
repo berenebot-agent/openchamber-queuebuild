@@ -14,8 +14,10 @@ Projects page: `projects/ProjectBuildQueueRow.tsx` (Follow default / On / Off),
 `projects/ProjectBuildQueuePolicyRow.tsx` (Follow default / the three Git
 policies; `projects/useProjectQueueSettings.ts` reads the policy and repository
 once so a policy change reveals the repository row), and
-`projects/ProjectBuildQueueRepositoryRow.tsx`: a dropdown of the repositories
-found under the project folder, shown only for the Pause and Commit policies.
+`projects/ProjectBuildQueueRepositoryRow.tsx`: a dropdown of repositories found
+under the project folder, shown only for the Pause and Commit policies. With no
+stored project choice, it shows the server-resolved effective checkout, including
+a repository nested under a workspace folder.
 Those three rows sit under the project's Work board section
 (`data-settings-item="projects.work-board"`), which is where the board's own
 Settings button lands. Queue job controls remain on the Work Board. VS Code-only

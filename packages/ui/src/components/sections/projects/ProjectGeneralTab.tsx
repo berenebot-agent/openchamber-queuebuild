@@ -249,6 +249,7 @@ const ProjectBuildQueueRows: React.FC<{ directory: string }> = ({ directory }) =
           directory={directory}
           policy={settings.policy}
           repository={settings.repository}
+          effectiveRepository={settings.effectiveRepository}
           onSaved={reload}
         />
       ) : null}

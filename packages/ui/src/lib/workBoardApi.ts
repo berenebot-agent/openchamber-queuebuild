@@ -203,13 +203,14 @@ export async function updateQueueSettings(directory: string, enabled: boolean | 
 }
 
 /** The project's effective enablement and the choice it stores, if any. */
-export async function fetchQueueSettings(directory: string): Promise<{ enabled: boolean; override: boolean | null; policy: QueueGitPolicy; policyOverride: QueueGitPolicy | null; repository: string | null }> {
+export async function fetchQueueSettings(directory: string): Promise<{ enabled: boolean; override: boolean | null; policy: QueueGitPolicy; policyOverride: QueueGitPolicy | null; repository: string | null; effectiveRepository: string | null }> {
   return z.object({
     enabled: z.boolean(),
     override: z.boolean().nullable(),
     // A server that predates the choice answers without the field, which is
     // "no choice", not a failed read.
     repository: z.string().nullish().transform(value => value ?? null),
+    effectiveRepository: z.string().nullish().transform(value => value ?? null),
     // Likewise for the policy: an older server answers without it, and the row
     // then falls back to the instance value it already holds.
     policy: z.enum(['continue', 'commit', 'pause']).nullish(),
@@ -218,6 +219,7 @@ export async function fetchQueueSettings(directory: string): Promise<{ enabled: 
     enabled: value.enabled,
     override: value.override,
     repository: value.repository,
+    effectiveRepository: value.effectiveRepository,
     policy: value.policy ?? 'pause',
     policyOverride: value.policyOverride ?? null,
   })).parse(await request(`/api/build-queue/settings?directory=${encodeURIComponent(directory)}`));

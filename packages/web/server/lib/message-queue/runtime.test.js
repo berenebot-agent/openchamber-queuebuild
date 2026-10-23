@@ -116,7 +116,7 @@ const createOpenCode = () => {
   return { state, fetchImpl };
 };
 
-const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, persistSessionGoal, checkBuildGit, prepareBuildCommit, buildMonitorDelayMs, buildRecheckMs, buildCompletionGraceMs, settingsFilePath, projectConfigRuntime, resolveProjectIdentity } = {}) => {
+const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), knowledge = null, tree = { describe: async () => 'Build starts from commit `123456789` on "main". Working tree clean.', settle: async () => {} }, retryDelayMs, resolveAutoSelection, now, beforeScheduledTaskSend, onScheduledTaskResult, persistSessionGoal, checkBuildGit, prepareBuildCommit, resolveRepositoryRoot, buildMonitorDelayMs, buildRecheckMs, buildCompletionGraceMs, settingsFilePath, projectConfigRuntime, resolveProjectIdentity } = {}) => {
   let eventHandler = () => {};
   let statusHandler = () => {};
   const broadcasts = [];
@@ -129,6 +129,7 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
     buildOpenCodeUrl: (fetchPath) => `http://opencode.test${fetchPath}`,
     getOpenCodeAuthHeaders: () => ({}),
     sessionKnowledgeRuntime: knowledge,
+    sessionTreeRuntime: tree,
     broadcastGlobalUiEvent: (event) => broadcasts.push(event),
     onPromptSent: (sessionId) => promptSent.push(sessionId),
     dataDir,
@@ -143,6 +144,7 @@ const createRuntime = ({ dataDir = makeDataDir(), openCode = createOpenCode(), k
   if (now) options.now = now;
   if (checkBuildGit) options.checkBuildGit = checkBuildGit;
   if (prepareBuildCommit) options.prepareBuildCommit = prepareBuildCommit;
+  if (resolveRepositoryRoot) options.resolveRepositoryRoot = resolveRepositoryRoot;
   if (buildMonitorDelayMs !== undefined) options.buildMonitorDelayMs = buildMonitorDelayMs;
   if (buildRecheckMs !== undefined) options.buildRecheckMs = buildRecheckMs;
   if (buildCompletionGraceMs !== undefined) options.buildCompletionGraceMs = buildCompletionGraceMs;
@@ -1130,6 +1132,59 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('reads startup context only at dispatch, after preparation, without a queue sentence for an immediate start', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'commit' }));
+    let head = 'before';
+    const tree = { settle: vi.fn(async () => {}), describe: vi.fn(async () => `Build starts from commit ${head}. Working tree clean.`) };
+    const { runtime, openCode } = createRuntime({ settingsFilePath, tree, prepareBuildCommit: async () => {
+      expect(tree.settle).toHaveBeenCalledWith(SESSION, DIRECTORY);
+      head = 'after-preparation';
+      return null;
+    } });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    expect(tree.describe).not.toHaveBeenCalled();
+    expect(openCode.state.sent).toEqual([]);
+    await settle(80);
+    expect(openCode.state.sent[0].body.text).toBe('Build starts from commit after-preparation. Working tree clean.');
+    expect(openCode.state.sent[1].path).toContain('/prompt');
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('combines fresh tree facts and the short queue sentence after a real wait, including a restart', async () => {
+    const dataDir = makeDataDir();
+    const settingsFilePath = path.join(dataDir, 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue' }));
+    const first = createRuntime({ dataDir, settingsFilePath });
+    await first.runtime.setQueuePaused(DIRECTORY, true);
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(50);
+    expect(first.openCode.state.sent).toEqual([]);
+    first.runtime.stop();
+    await first.runtime.flush();
+    const tree = { settle: async () => {}, describe: vi.fn(async () => 'Build starts from commit fresh. Working tree clean.') };
+    const second = createRuntime({ dataDir, settingsFilePath, tree });
+    await second.runtime.setQueuePaused(DIRECTORY, false);
+    await settle(100);
+    expect(second.openCode.state.sent[0].body.text).toBe('Build starts from commit fresh. Working tree clean.\n\nThis build is serialized with other builds in this repository.');
+    expect(second.openCode.state.sent.filter(call => call.path.endsWith('/synthetic'))).toHaveLength(1);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
+  it('still sends the user prompt when tree context fails', async () => {
+    const settingsFilePath = path.join(makeDataDir(), 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue' }));
+    const { runtime, openCode } = createRuntime({ settingsFilePath, tree: { settle: async () => {}, describe: async () => { throw new Error('Git unavailable'); } } });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(openCode.state.sent).toHaveLength(1);
+    expect(openCode.state.sent[0].path).toContain('/prompt');
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('uses the explicit continue policy even when the legacy requirement is on', async () => {
     const settingsFilePath = path.join(makeDataDir(), 'settings.json');
     fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue', buildQueueRequireCleanGit: true }));
@@ -1409,7 +1464,7 @@ describe('project-wide build queue', () => {
     const forcedSynthetics = openCode.state.sent.filter(entry => entry.path.includes(SECOND) && entry.path.endsWith('/synthetic'));
     expect(forcedSynthetics.some(entry => entry.body.text.includes('serialized with other builds'))).toBe(false);
     const leaseSynthetics = openCode.state.sent.filter(entry => entry.path.includes(SESSION) && entry.path.endsWith('/synthetic'));
-    expect(leaseSynthetics.some(entry => entry.body.text.includes('serialized with other builds'))).toBe(true);
+    expect(leaseSynthetics.some(entry => entry.body.text.includes('serialized with other builds'))).toBe(false);
     runtime.stop();
     await runtime.flush();
   });
@@ -1875,7 +1930,7 @@ describe('project-wide build queue', () => {
     dirty = false;
     await settle(130);
     expect(promptCalls(openCode)).toHaveLength(1);
-    expect(openCode.state.sent.find(call => call.path.endsWith('/synthetic'))?.body.text).toMatch(/commit only your own changes/i);
+    expect(openCode.state.sent.find(call => call.path.endsWith('/synthetic'))?.body.text).toContain('Build starts from commit');
     runtime.stop();
     await runtime.flush();
   });
@@ -2797,14 +2852,14 @@ describe('queue settings', () => {
   it('answers enabled by default, and off only after an explicit off', async () => {
     const projectConfigRuntime = settingsRuntime();
     const { runtime } = createRuntime({ projectConfigRuntime, resolveProjectIdentity: identityOf });
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null, effectiveRepository: null });
     await runtime.writeQueueSettings({ directory: DIRECTORY }, false);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: false, policy: 'pause', policyOverride: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: false, policy: 'pause', policyOverride: null, repository: null, effectiveRepository: null });
     await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, policy: 'pause', policyOverride: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, policy: 'pause', policyOverride: null, repository: null, effectiveRepository: null });
     // Null clears the project's choice; it follows the instance default again.
     await runtime.writeQueueSettings({ directory: DIRECTORY }, null);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null, effectiveRepository: null });
     expect(projectConfigRuntime.state.written).toEqual([false, true, null]);
     runtime.stop();
     await runtime.flush();
@@ -2826,7 +2881,7 @@ describe('queue settings', () => {
 
   it('answers enabled when the setting cannot be stored at all', async () => {
     const { runtime } = createRuntime({ resolveProjectIdentity: identityOf });
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: null, repository: null, effectiveRepository: null });
     runtime.stop();
     await runtime.flush();
   });
@@ -2836,10 +2891,10 @@ describe('queue settings', () => {
     fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueDefaultEnabled: false }));
     const { runtime } = createRuntime({ settingsFilePath, projectConfigRuntime: settingsRuntime(), resolveProjectIdentity: identityOf });
     // No stored choice, so the project reads the default, which is off here.
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: null, policy: 'pause', policyOverride: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: false, override: null, policy: 'pause', policyOverride: null, repository: null, effectiveRepository: null });
     // An explicit on beats the default and is kept as the project's own choice.
     await runtime.writeQueueSettings({ directory: DIRECTORY }, true);
-    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, policy: 'pause', policyOverride: null, repository: null });
+    expect(await runtime.readQueueSettings({ directory: DIRECTORY })).toEqual({ enabled: true, override: true, policy: 'pause', policyOverride: null, repository: null, effectiveRepository: null });
     runtime.stop();
     await runtime.flush();
   });
@@ -2851,11 +2906,11 @@ describe('queue settings', () => {
     const { runtime } = createRuntime({ settingsFilePath, projectConfigRuntime, resolveProjectIdentity: identityOf });
     // No project choice: the instance policy stands.
     expect(await runtime.readQueueSettings({ directory: DIRECTORY }))
-      .toEqual({ enabled: true, override: null, policy: 'continue', policyOverride: null, repository: null });
+      .toEqual({ enabled: true, override: null, policy: 'continue', policyOverride: null, repository: null, effectiveRepository: null });
     await expect(runtime.writeQueuePolicy({ directory: DIRECTORY }, 'pause'))
       .resolves.toEqual({ policy: 'pause', policyOverride: 'pause' });
     expect(await runtime.readQueueSettings({ directory: DIRECTORY }))
-      .toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: 'pause', repository: null });
+      .toEqual({ enabled: true, override: null, policy: 'pause', policyOverride: 'pause', repository: null, effectiveRepository: null });
     // Null clears the project's choice back to the instance policy.
     await expect(runtime.writeQueuePolicy({ directory: DIRECTORY }, null))
       .resolves.toEqual({ policy: 'continue', policyOverride: null });
@@ -2946,6 +3001,22 @@ describe('queue repository choice', () => {
     expect(await runtime.readQueueSettings({ directory: root })).toMatchObject({ repository: nested });
     await expect(runtime.writeQueueRepository({ directory: root }, null)).resolves.toEqual({ repository: null });
     expect(await runtime.readQueueSettings({ directory: root })).toMatchObject({ repository: null });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('shows and uses the resolved checkout when a workspace contains a nested repository', async () => {
+    const { root, nested } = makeProject();
+    const { runtime } = createRuntime({
+      projectConfigRuntime: projectConfigRuntime(),
+      resolveProjectIdentity: () => ({ directory: root, projectId: createProjectIdFromPath(root) }),
+      resolveRepositoryRoot: async directory => directory === root ? nested : null,
+    });
+    await expect(runtime.queueRepositoryFor(root)).resolves.toBe(nested);
+    await expect(runtime.readQueueSettings({ directory: root })).resolves.toMatchObject({
+      repository: null,
+      effectiveRepository: nested,
+    });
     runtime.stop();
     await runtime.flush();
   });
@@ -3228,7 +3299,7 @@ describe('prompt admission', () => {
     await runtime.admitBuildPrompt({ sessionId: SESSION, directory: DIRECTORY, item: spoofed });
     await settle(80);
     const synthetics = openCode.state.sent.filter((entry) => entry.path.endsWith('/synthetic'));
-    expect(synthetics.some((entry) => entry.body.text.includes('serialized with other builds'))).toBe(true);
+    expect(synthetics.some((entry) => entry.body.text.includes('Build starts from commit'))).toBe(true);
     runtime.stop();
     await runtime.flush();
   });
