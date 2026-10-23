@@ -42,6 +42,15 @@ injection at queue admission. Missing baselines omit the delta; failed tree read
 omit the summary without blocking the prompt. Existing standing knowledge sync
 and user-attached context remain separate and unchanged.
 
+The session that held the last build lease in a directory is recorded there, in
+`lastBuildOwners` beside the leases and persisted with them. A Build dispatched to
+that same session omits the checkout summary: it left that tree itself, whether
+the build exited, was stopped, was reprompted or resumed after a restart. The
+owner is recorded when a queued Build claims its lease, not when it is enqueued,
+so a Build that waits or fails preparation does not become the owner. A summary
+is still produced when another session held the last lease. A queue wait keeps
+its serialization sentence even when the checkout summary is omitted.
+
 The queue's `queueRepositoryFor` resolver supplies both Git preparation and the
 settings response's `effectiveRepository`: a stored project choice wins;
 otherwise Git resolves the checkout root from the session directory. This also

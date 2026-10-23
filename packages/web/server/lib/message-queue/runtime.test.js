@@ -1173,6 +1173,70 @@ describe('project-wide build queue', () => {
     await second.runtime.flush();
   });
 
+  it('does not re-read the checkout for the session that held the last build lease', async () => {
+    // A build that exited, was stopped or was reprompted knows the tree it left.
+    const dataDir = makeDataDir();
+    const settingsFilePath = path.join(dataDir, 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue' }));
+    const first = createRuntime({ dataDir, settingsFilePath });
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(first.openCode.state.sent.some(call => call.path.endsWith('/prompt'))).toBe(true);
+    first.runtime.stop();
+    await first.runtime.flush();
+    // The turn finished with its lease held; a restart restores it as the owner.
+    expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'message-queue.json'), 'utf8')).lastBuildOwners)
+      .toEqual({ [DIRECTORY]: SESSION });
+
+    const tree = { settle: async () => {}, describe: vi.fn(async () => 'Build starts from commit fresh. Working tree clean.') };
+    const second = createRuntime({ dataDir, settingsFilePath, tree });
+    await second.runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(200);
+    expect(tree.describe).not.toHaveBeenCalled();
+    expect(second.openCode.state.sent.filter(call => call.path.endsWith('/synthetic'))).toEqual([]);
+    expect(second.openCode.state.sent.some(call => call.path.endsWith('/prompt'))).toBe(true);
+    second.runtime.stop();
+    await second.runtime.flush();
+  });
+
+  it('records the owner only when the build claims the lease, and keeps the queue sentence', async () => {
+    const dataDir = makeDataDir();
+    const settingsFilePath = path.join(dataDir, 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue' }));
+    const tree = { settle: async () => {}, describe: vi.fn(async () => 'Build starts from commit fresh. Working tree clean.') };
+    const { runtime, openCode } = createRuntime({ dataDir, settingsFilePath, tree });
+    await runtime.setQueuePaused(DIRECTORY, true);
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    const stored = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'message-queue.json'), 'utf8'));
+    expect(stored().lastBuildOwners).toEqual({});
+    await runtime.setQueuePaused(DIRECTORY, false);
+    await settle(100);
+    expect(stored().lastBuildOwners).toEqual({ [DIRECTORY]: SESSION });
+    // The tree facts were read once for the first holder; the wait is still stated.
+    expect(openCode.state.sent[0].body.text).toBe('Build starts from commit fresh. Working tree clean.\n\nThis build is serialized with other builds in this repository.');
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does inject the checkout when another session held the last build lease', async () => {
+    const dataDir = makeDataDir();
+    const settingsFilePath = path.join(dataDir, 'settings.json');
+    fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue' }));
+    fs.writeFileSync(path.join(dataDir, 'message-queue.json'), JSON.stringify({
+      version: 2, revision: 4, nextBuildOrder: 3, pausedDirectories: [],
+      activeBuilds: {}, forceReservations: {}, lastBuildOwners: { [DIRECTORY]: 'ses_previous_owner' }, sessions: {},
+    }));
+    const tree = { settle: async () => {}, describe: vi.fn(async () => 'Build starts from commit fresh. Working tree clean.') };
+    const { runtime, openCode } = createRuntime({ dataDir, settingsFilePath, tree });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ buildQueue: true }));
+    await settle(80);
+    expect(tree.describe).toHaveBeenCalledWith(SESSION, DIRECTORY);
+    expect(openCode.state.sent[0].body.text).toBe('Build starts from commit fresh. Working tree clean.');
+    expect(openCode.state.sent[1].path).toContain('/prompt');
+    runtime.stop();
+    await runtime.flush();
+  });
+
   it('still sends the user prompt when tree context fails', async () => {
     const settingsFilePath = path.join(makeDataDir(), 'settings.json');
     fs.writeFileSync(settingsFilePath, JSON.stringify({ buildQueueGitPolicy: 'continue' }));

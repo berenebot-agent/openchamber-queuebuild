@@ -374,6 +374,9 @@ export function createMessageQueueRuntime({
   const queues = new Map();
   // One build lease per project directory, held through the entire agent turn.
   const activeBuilds = new Map();
+  // The session that last held each directory's build lease. A resumed build
+  // owned the checkout it left behind, so it needs no startup summary of it.
+  const lastBuildOwners = new Map();
   const buildProblems = new Map();
   const preparingBuilds = new Map();
   const preparationFailures = new Map();
@@ -431,6 +434,7 @@ export function createMessageQueueRuntime({
     // park a lane whose turn is already over.
     activeBuilds: Object.fromEntries(Array.from(activeBuilds).filter(([, lease]) => !lease.adopted)),
     forceReservations: Object.fromEntries(forceReservations),
+    lastBuildOwners: Object.fromEntries(lastBuildOwners),
     sessions: Object.fromEntries(
       Array.from(queues.entries()).map(([sessionId, queue]) => [sessionId, { directory: queue.directory, items: queue.items }]),
     ),
@@ -441,7 +445,7 @@ export function createMessageQueueRuntime({
     try {
       raw = await fs.promises.readFile(filePath, 'utf8');
     } catch (error) {
-      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, nextBuildOrder: 1 };
+      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, lastBuildOwners: {}, nextBuildOrder: 1 };
       throw error;
     }
     let parsed;
@@ -453,7 +457,7 @@ export function createMessageQueueRuntime({
       const backup = `${filePath}.corrupt-${now()}`;
       await fs.promises.rename(filePath, backup).catch(() => undefined);
       console.warn(`[message-queue] queue file was unreadable and moved to ${backup}: ${error?.message ?? error}`);
-      return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, nextBuildOrder: 1 };
+      return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, lastBuildOwners: {}, nextBuildOrder: 1 };
     }
     const stored = asRecord(parsed) ?? {};
     const paused = stored.pausedDirectories === undefined ? [] : stored.pausedDirectories;
@@ -469,7 +473,7 @@ export function createMessageQueueRuntime({
       if (!directory || items.length === 0) continue;
       sessions[sessionId] = { directory, items };
     }
-    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey) };
+    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, lastBuildOwners: asRecord(stored.lastBuildOwners) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey) };
   };
 
   const load = () => {
@@ -486,6 +490,9 @@ export function createMessageQueueRuntime({
               const hasQueuedItem = queues.get(value.sessionId)?.items.some(item => item.id === value.itemId);
               activeBuilds.set(directory, { ...value, observedBusy: false, restored: true, ...(hasQueuedItem ? { needsReview: true, reviewReason: 'restart-during-dispatch' } : {}) });
             }
+          }
+          for (const [directory, sessionId] of Object.entries(stored.lastBuildOwners)) {
+            if (asNonEmptyString(directory) && isValidSessionId(sessionId)) lastBuildOwners.set(directoryKey(directory), sessionId);
           }
           // A reservation restored from disk is a Force whose prompt may have
           // been accepted. It is never re-sent and never cleared alone: the item
@@ -800,7 +807,7 @@ export function createMessageQueueRuntime({
       : [withMetadata];
   };
 
-  const sendItem = async (sessionId, directory, item, buildSelection, { forced = false } = {}) => {
+  const sendItem = async (sessionId, directory, item, buildSelection, { forced = false, resumesOwnCheckout = false } = {}) => {
     const { providerID, modelID, variant } = item.sendConfig;
     let agent = item.sendConfig.agent;
     // Older admitted prompts without captured selection keep the session's.
@@ -887,8 +894,9 @@ export function createMessageQueueRuntime({
       resume: false,
     })).filter((part) => part.text);
     // Read after queue preparation, never at admission: another build can change the checkout while this waits.
+    // The last lease owner already knows the checkout it left, so it is told nothing about it.
     const buildStartup = isBuildItem(item) ? [
-      await sessionTreeRuntime?.describe(sessionId, directory).catch(() => '') ?? '',
+      resumesOwnCheckout ? '' : await sessionTreeRuntime?.describe(sessionId, directory).catch(() => '') ?? '',
       !forced && item.buildWaited ? BUILD_INSTRUCTION : '',
     ].filter(Boolean).join('\n\n') : '';
     const preamble = [
@@ -1749,6 +1757,8 @@ export function createMessageQueueRuntime({
     const item = current?.items[0];
     if (!item || item.id !== head.id || sending.has(sessionId) || parkingSessions.has(sessionId)) return;
     let buildSelection;
+    // Decided before this build claims the lease, which records its own owner.
+    const resumesOwnCheckout = isBuildItem(item) && lastBuildOwners.get(directoryKey(current.directory)) === sessionId;
 
     if (isBuildItem(item)) {
       // Only the oldest head among all sessions for this project may start.
@@ -1859,6 +1869,7 @@ export function createMessageQueueRuntime({
         // prompt that started it and the model it runs on.
         content: item.content.slice(0, BUILD_SNAPSHOT_CHAR_LIMIT), model: queuedModelOf(item),
       });
+      lastBuildOwners.set(directoryKey(current.directory), sessionId);
       commit(sessionId);
       // The dispatch lease must be durable BEFORE the prompt can be accepted.
       // Otherwise a crash could replay a build without any record of it.
@@ -1919,7 +1930,7 @@ export function createMessageQueueRuntime({
           return;
         }
       }
-      await sendItem(sessionId, current.directory, item, buildSelection);
+      await sendItem(sessionId, current.directory, item, buildSelection, { resumesOwnCheckout: isBuildItem(item) && resumesOwnCheckout });
       const after = queues.get(sessionId);
       if (after) setQueueItems(sessionId, after.directory, after.items.filter((entry) => entry.id !== item.id), 'sent');
       // The admission is settled: a replay of the client's prompt id would now
