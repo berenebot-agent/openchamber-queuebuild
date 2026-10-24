@@ -36,6 +36,7 @@ export type WorkBoardQueueWrite =
   | { paused: boolean }
   | { directory: string; paused: boolean }
   | { directory: string; sessionId: string; itemId: string; mode?: 'queue' | 'separate' }
+  | { directory: string; sessionId: string; mode: 'queue' | 'separate' }
   | { directory: string; itemId?: string; action: 'skip' | 'retry' };
 
 /**
@@ -131,8 +132,8 @@ export type WorkBoardQueueRow = {
 
 /**
  * A build the queue column shows above the gap without a lease: a build the
- * user forced to start outside the queue, or one the board knows is running
- * from card activity alone. `forced` carries the marker for the first kind, and
+ * user forced outside the queue, or one the board knows is running from card
+ * activity alone. `forced` carries the server marker for the first kind, and
  * an ambiguous forced build — one whose prompt may not have started — also
  * carries `needsReview` and the item the recovery acts on.
  */
@@ -152,10 +153,10 @@ export type WorkBoardActiveEntry = {
 };
 
 /**
- * The queue column's non-lease active rows: forced builds from the server
+ * The queue column's non-lease active rows: tracked builds from the server
  * snapshot above live builds the board knows from card activity, one row per
- * session. A forced build has a server entry, so it wins over the card-derived
- * row and carries the marker; the dedupe stops the same session showing twice.
+ * session. A server entry wins over the card-derived row and carries its queue
+ * participation; the dedupe stops the same session showing twice.
  */
 export function workBoardActiveEntries(
   forced: readonly { sessionId: string; title: string; needsReview?: boolean; itemId?: string | null; counts?: boolean; model?: WorkBoardQueuedModel | null; content?: string | null }[],
@@ -277,6 +278,7 @@ export function workBoardBuildBadges(
   queue: {
     active: readonly { directory: string; needsReview?: boolean }[];
     queued: readonly { directory: string }[];
+    forced?: readonly { directory: string; counts?: boolean }[];
     issues?: readonly { directory: string; issue: string }[];
     pausedDirectories?: readonly string[];
   } | null,
@@ -291,6 +293,11 @@ export function workBoardBuildBadges(
   const running = new Map<string, number>();
   for (const lease of queue.active) {
     const key = workBoardDirectoryKey(lease.directory);
+    running.set(key, (running.get(key) ?? 0) + 1);
+  }
+  for (const build of queue.forced ?? []) {
+    if (!build.counts) continue;
+    const key = workBoardDirectoryKey(build.directory);
     running.set(key, (running.get(key) ?? 0) + 1);
   }
   const waiting = new Map<string, number>();

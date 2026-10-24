@@ -154,6 +154,25 @@ test('an adopted live build needs no queued item id', async () => {
   });
 });
 
+test('a counted live build remains a queue badge entry', async () => {
+  await withMockEventSource(async () => {
+    const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({
+      revision: 1, active: [], queued: [], issues: [],
+      forced: [{ directory: '/repo', sessionId: 'included', startedAt: 1, counts: true }],
+    }));
+    const probe = await mount(function Probe() {
+      const { snapshot } = useBuildQueueSnapshot();
+      return <span>{String(snapshot?.forced?.[0]?.counts ?? 'unknown')}</span>;
+    });
+    try {
+      expect(probe.container.textContent).toBe('true');
+    } finally {
+      await probe.unmount();
+      fetch.mockRestore();
+    }
+  });
+});
+
 test('a malformed payload is an error, never an empty queue', async () => {
   await withMockEventSource(async () => {
     const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ revision: 1, active: [] }));

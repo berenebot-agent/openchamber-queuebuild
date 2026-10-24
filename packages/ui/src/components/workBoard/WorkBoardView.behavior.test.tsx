@@ -576,12 +576,22 @@ test('the force confirmation asks how the queue treats the build', async () => {
     if (!target) throw new Error(`Missing dialog button: ${label}`);
     await act(async () => { target.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
   };
+  const menuItem = async (label: string) => {
+    const target = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find(element => element.textContent === label);
+    if (!target) throw new Error(`Missing menu item: ${label}`);
+    await act(async () => { target.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
+  };
   try {
     await act(async () => { root.render(<I18nProvider><WorkBoardView /></I18nProvider>); await new Promise(resolve => setTimeout(resolve, 40)); });
     // The board says which forced build the queue waits for.
     const queue = container.querySelector('section[aria-label="Build queue"]')!;
     expect(queue.textContent).toContain('Counts towards the queue');
     expect(queue.textContent).toContain('Outside queue');
+    const counted = queue.querySelector('button[aria-label="Open the build running now: Session s2"]')!;
+    const outside = queue.querySelector('button[aria-label="Open the build running now: Session s3"]')!;
+    expect(counted.className).toContain('var(--status-info)');
+    expect(outside.className).toContain('var(--status-warning)');
 
     // The confirmation offers both choices, and the queue's own button opens it.
     await click('Force Session s1');
@@ -598,6 +608,16 @@ test('the force confirmation asks how the queue treats the build', async () => {
     await click('Force Session s1');
     await dialogButton('Force build, queue moves on');
     expect(requests.at(-1)?.body).toEqual({ directory: '/repo', sessionId: 's1', itemId: 'queued1', mode: 'separate' });
+
+    // A counted run can leave the queue, and an independent live run can join it.
+    await click('Actions for Session s2');
+    await menuItem('Extract from queue (Q moves on)');
+    expect(requests.at(-1)?.url.endsWith('/api/build-queue/participation')).toBe(true);
+    expect(requests.at(-1)).toMatchObject({ method: 'PUT', body: { directory: '/repo', sessionId: 's2', mode: 'separate' } });
+    await click('Actions for Session s3');
+    await menuItem('Include in queue (queue waits)');
+    expect(requests.at(-1)?.url.endsWith('/api/build-queue/participation')).toBe(true);
+    expect(requests.at(-1)).toMatchObject({ method: 'PUT', body: { directory: '/repo', sessionId: 's3', mode: 'queue' } });
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore();

@@ -382,13 +382,14 @@ export function createMessageQueueRuntime({
   const preparationFailures = new Map();
   const buildCommits = new Map();
   const buildMonitors = new Map();
-  // Sessions a user forced into build outside the queue lane. They hold no
-  // lease and wait for no order. A force outside the queue is display and
-  // tracking only and never gates dispatch; a force into the queue counts
-  // towards it, so the queue waits for that build. Cleared once the session's
-  // own turn is done.
+  // Running Builds without a queue lease: forced starts, live builds the user
+  // moved on from, and live builds the user included in the queue. Only entries
+  // with counts set hold up the next dispatch. User-selected participation is
+  // persisted so a restart does not undo the choice.
   const forcedBuilds = new Map(); // sessionId → { directory, startedAt, counts? }
   const forcedMonitors = new Map(); // sessionId → timeout
+  const buildModeTransitions = new Set(); // directory keys being changed; block dispatch until durable
+  const buildModeSessions = new Set(); // one concurrent state change per session
   // A Force whose prompt may or may not have been accepted, held durably from
   // before the dispatch until either the prompt is confirmed or a human
   // resolves it. A reservation never gates dispatch and is never re-forced.
@@ -433,6 +434,15 @@ export function createMessageQueueRuntime({
     // item; a restart re-detects that live build, so writing it here would only
     // park a lane whose turn is already over.
     activeBuilds: Object.fromEntries(Array.from(activeBuilds).filter(([, lease]) => !lease.adopted)),
+    buildParticipation: Object.fromEntries(Array.from(forcedBuilds)
+      .filter(([, entry]) => entry.userManaged)
+      .map(([sessionId, entry]) => [sessionId, {
+        directory: entry.directory,
+        startedAt: entry.startedAt,
+        counts: entry.counts === true,
+        content: entry.content ?? null,
+        model: entry.model ?? null,
+      }])),
     forceReservations: Object.fromEntries(forceReservations),
     lastBuildOwners: Object.fromEntries(lastBuildOwners),
     sessions: Object.fromEntries(
@@ -445,7 +455,7 @@ export function createMessageQueueRuntime({
     try {
       raw = await fs.promises.readFile(filePath, 'utf8');
     } catch (error) {
-      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, lastBuildOwners: {}, nextBuildOrder: 1 };
+      if (asRecord(error)?.code === 'ENOENT') return { sessions: {}, revision: 0, activeBuilds: {}, buildParticipation: {}, forceReservations: {}, lastBuildOwners: {}, nextBuildOrder: 1 };
       throw error;
     }
     let parsed;
@@ -457,7 +467,7 @@ export function createMessageQueueRuntime({
       const backup = `${filePath}.corrupt-${now()}`;
       await fs.promises.rename(filePath, backup).catch(() => undefined);
       console.warn(`[message-queue] queue file was unreadable and moved to ${backup}: ${error?.message ?? error}`);
-      return { sessions: {}, revision: 0, activeBuilds: {}, forceReservations: {}, lastBuildOwners: {}, nextBuildOrder: 1 };
+      return { sessions: {}, revision: 0, activeBuilds: {}, buildParticipation: {}, forceReservations: {}, lastBuildOwners: {}, nextBuildOrder: 1 };
     }
     const stored = asRecord(parsed) ?? {};
     const paused = stored.pausedDirectories === undefined ? [] : stored.pausedDirectories;
@@ -473,7 +483,7 @@ export function createMessageQueueRuntime({
       if (!directory || items.length === 0) continue;
       sessions[sessionId] = { directory, items };
     }
-    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, lastBuildOwners: asRecord(stored.lastBuildOwners) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey) };
+    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, buildParticipation: asRecord(stored.buildParticipation) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, lastBuildOwners: asRecord(stored.lastBuildOwners) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey) };
   };
 
   const load = () => {
@@ -493,6 +503,26 @@ export function createMessageQueueRuntime({
           }
           for (const [directory, sessionId] of Object.entries(stored.lastBuildOwners)) {
             if (asNonEmptyString(directory) && isValidSessionId(sessionId)) lastBuildOwners.set(directoryKey(directory), sessionId);
+          }
+          for (const [sessionId, value] of Object.entries(stored.buildParticipation)) {
+            const entry = asRecord(value);
+            const directory = asNonEmptyString(entry?.directory);
+            if (!isValidSessionId(sessionId) || !directory || (entry?.counts !== true && entry?.counts !== false)) continue;
+            const rawModel = asRecord(entry.model);
+            const providerID = asNonEmptyString(rawModel?.providerID);
+            const modelID = asNonEmptyString(rawModel?.id);
+            const variant = asNonEmptyString(rawModel?.variant);
+            const model = providerID && modelID
+              ? { providerID, id: modelID, variant: variant || undefined }
+              : null;
+            forcedBuilds.set(sessionId, {
+              directory,
+              startedAt: asCount(entry.startedAt) ?? now(),
+              counts: entry.counts,
+              content: asText(entry.content).slice(0, BUILD_SNAPSHOT_CHAR_LIMIT) || null,
+              model,
+              userManaged: true,
+            });
           }
           // A reservation restored from disk is a Force whose prompt may have
           // been accepted. It is never re-sent and never cleared alone: the item
@@ -612,7 +642,8 @@ export function createMessageQueueRuntime({
    */
   const countingForceFor = (directory) => {
     const key = directoryKey(directory);
-    return Array.from(forcedBuilds.values()).some(entry => entry.counts === true && directoryKey(entry.directory) === key);
+    return buildModeTransitions.has(key)
+      || Array.from(forcedBuilds.values()).some(entry => entry.counts === true && directoryKey(entry.directory) === key);
   };
   const buildSnapshot = () => ({
     revision,
@@ -1064,6 +1095,20 @@ export function createMessageQueueRuntime({
     });
     return live ? asNonEmptyString(live.id) : null;
   };
+  const assertRunningBuildSession = async (sessionId, directory) => {
+    const idle = await isSessionIdle(sessionId, directory);
+    if (idle === null) throw httpError('The session status is unavailable; refresh the build queue and try again', 409);
+    if (idle) throw httpError('This build has already finished', 409);
+    const listed = asList(asRecord(await openCodeFetch('/api/session', {
+      headers: { 'x-opencode-directory': encodeURIComponent(directory) },
+    }).catch(() => null))?.data);
+    if (!listed) throw httpError('The session list is unavailable; refresh the build queue and try again', 409);
+    const session = listed.map(asRecord).find(entry => entry?.id === sessionId);
+    if (!session || session.parentID || !isBuildAgentName(asNonEmptyString(session.agent) ?? '')
+      || directoryKey(asNonEmptyString(asRecord(session.location)?.directory) ?? '') !== directoryKey(directory)) {
+      throw httpError('This session is no longer a Build run in this project', 409);
+    }
+  };
   const wakeProject = (directory) => {
     const key = directoryKey(directory);
     for (const [sessionId, queue] of queues) {
@@ -1499,11 +1544,112 @@ export function createMessageQueueRuntime({
       // A build forced into the queue counts towards it, so the queue waits
       // for it before the next build starts.
       counts: mode === 'queue',
+      userManaged: true,
     });
     commit(sessionId);
     wakeProject(directory);
     scheduleForcedMonitor(sessionId);
     return buildSnapshot();
+  };
+
+  const setBuildQueueParticipation = async (directoryInput, sessionIdInput, modeInput) => {
+    const directory = asNonEmptyString(directoryInput);
+    const sessionId = requireSessionId(sessionIdInput);
+    if (!directory || !directoryKey(directory)) throw new TypeError('directory is required');
+    if (modeInput !== 'queue' && modeInput !== 'separate') throw new TypeError('mode must be "queue" or "separate"');
+    await load();
+
+    const key = directoryKey(directory);
+    const leaseEntry = () => Array.from(activeBuilds).find(([, lease]) => lease.sessionId === sessionId);
+    let currentLeaseEntry = leaseEntry();
+    let currentForced = forcedBuilds.get(sessionId);
+    if (currentLeaseEntry && directoryKey(currentLeaseEntry[0]) !== key) throw httpError('This build belongs to another project', 409);
+    if (currentForced && directoryKey(currentForced.directory) !== key) throw httpError('This build belongs to another project', 409);
+    if (sending.has(sessionId) || forceReservations.has(sessionId)) throw httpError('This build is still being sent', 409);
+    if (currentLeaseEntry && currentForced) throw httpError('The build queue changed. Refresh it before continuing.', 409);
+
+    if (currentLeaseEntry && modeInput === 'queue') return buildSnapshot();
+    if (currentForced && (modeInput === 'queue') === (currentForced.counts === true)) return buildSnapshot();
+    if (modeInput === 'separate' && !currentLeaseEntry && !currentForced) {
+      throw httpError('This build is already outside the queue', 409);
+    }
+    if (currentLeaseEntry && (currentLeaseEntry[1].needsReview || currentLeaseEntry[1].phase === 'dispatching')) {
+      throw httpError('This build cannot change queue state while its dispatch needs review', 409);
+    }
+    if (buildModeTransitions.has(key) || buildModeSessions.has(sessionId)) throw httpError('Another build queue change is in progress', 409);
+
+    const previousLeaseEntry = currentLeaseEntry;
+    const previousForcedEntry = currentForced;
+    const previousForced = currentForced ? { ...currentForced } : null;
+    buildModeTransitions.add(key);
+    buildModeSessions.add(sessionId);
+    try {
+      // A card-derived live Build has no server marker yet, so verify the live
+      // session and its directory/agent before letting it block this queue.
+      if (!currentLeaseEntry && !currentForced) await assertRunningBuildSession(sessionId, directory);
+      else if (currentLeaseEntry) await assertRunningBuildSession(sessionId, currentLeaseEntry[0]);
+      else if (now() - currentForced.startedAt >= buildMonitorDelayMs) await assertRunningBuildSession(sessionId, currentForced.directory);
+
+      currentLeaseEntry = leaseEntry();
+      currentForced = forcedBuilds.get(sessionId);
+      if (currentLeaseEntry?.[0] !== previousLeaseEntry?.[0] || currentLeaseEntry?.[1] !== previousLeaseEntry?.[1]
+        || currentForced !== previousForcedEntry) {
+        throw httpError('The build queue changed. Refresh it before continuing.', 409);
+      }
+      if (modeInput === 'queue' && (currentLeaseEntry || currentForced?.counts === true)) return buildSnapshot();
+      if (modeInput === 'separate' && currentForced?.counts === false) return buildSnapshot();
+
+      if (modeInput === 'separate' && currentLeaseEntry) {
+        const [leaseDirectory, lease] = currentLeaseEntry;
+        clearTimeout(buildMonitors.get(leaseDirectory));
+        buildMonitors.delete(leaseDirectory);
+        activeBuilds.delete(leaseDirectory);
+        forcedBuilds.set(sessionId, {
+          directory: leaseDirectory,
+          startedAt: lease.startedAt,
+          content: lease.content ?? null,
+          model: lease.model ?? null,
+          counts: false,
+          userManaged: true,
+        });
+      } else if (currentForced) {
+        currentForced.counts = modeInput === 'queue';
+        currentForced.userManaged = true;
+      } else {
+        forcedBuilds.set(sessionId, {
+          directory,
+          startedAt: now(),
+          content: null,
+          model: null,
+          counts: true,
+          userManaged: true,
+        });
+      }
+
+      commit(sessionId);
+      await writePromise;
+      if (persistenceError) {
+        if (previousLeaseEntry) {
+          forcedBuilds.delete(sessionId);
+          activeBuilds.set(previousLeaseEntry[0], previousLeaseEntry[1]);
+          scheduleBuildMonitor(previousLeaseEntry[0]);
+        } else if (previousForced) {
+          forcedBuilds.set(sessionId, previousForced);
+        } else {
+          forcedBuilds.delete(sessionId);
+        }
+        commit(sessionId);
+        await writePromise;
+        throw httpError('Cannot persist the build queue state. Check server storage before retrying.', 503);
+      }
+
+      scheduleForcedMonitor(sessionId);
+      return buildSnapshot();
+    } finally {
+      buildModeTransitions.delete(key);
+      buildModeSessions.delete(sessionId);
+      wakeProject(directory);
+    }
   };
 
   /**
@@ -1785,7 +1931,7 @@ export function createMessageQueueRuntime({
         if (liveSessionId === undefined) { armDispatch(sessionId, buildRecheckMs); return; }
         // Re-check after the awaits: another tick may have claimed the lane, or
         // the build may have finished while the list was being read.
-        if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory)) return;
+        if (activeBuilds.has(current.directory) || preparingBuilds.has(current.directory) || countingForceFor(current.directory)) return;
         if (liveSessionId) {
           markBuildWaiting(sessionId, item);
       activeBuilds.set(current.directory, { sessionId: liveSessionId, startedAt: now(), phase: 'running', adopted: true });
@@ -1806,13 +1952,14 @@ export function createMessageQueueRuntime({
           return;
         }
         const repository = await queueRepositoryFor(current.directory);
-        if (runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
+        if (countingForceFor(current.directory) || runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
         const preparation = { itemId: item.id, phase: 'initializing' };
         preparingBuilds.set(current.directory, preparation);
         setBuildProblem(current.directory, null);
         const isCurrent = () => !stopped && queues.get(sessionId)?.items[0]?.id === item.id
           && queues.get(sessionId)?.items[0]?.buildPaused !== true
-          && runnableBuilds(current.directory)[0]?.item.id === item.id && !activeBuilds.has(current.directory);
+          && runnableBuilds(current.directory)[0]?.item.id === item.id && !activeBuilds.has(current.directory)
+          && !countingForceFor(current.directory);
         try {
           if (!prepareBuildCommit) throw new Error('Automatic commit preparation is unavailable on this server.');
           const config = item.sendConfig;
@@ -1861,7 +2008,8 @@ export function createMessageQueueRuntime({
       } else if (buildProblems.has(current.directory)) {
         setBuildProblem(current.directory, null);
       }
-      if (parkingSessions.has(sessionId) || activeBuilds.has(current.directory) || queues.get(sessionId)?.items[0]?.id !== item.id || runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
+      if (parkingSessions.has(sessionId) || activeBuilds.has(current.directory) || countingForceFor(current.directory)
+        || queues.get(sessionId)?.items[0]?.id !== item.id || runnableBuilds(current.directory)[0]?.item.id !== item.id) return;
       setBuildProblem(current.directory, null);
       activeBuilds.set(current.directory, {
         sessionId, itemId: item.id, startedAt: now(), phase: 'dispatching',
@@ -1896,7 +2044,7 @@ export function createMessageQueueRuntime({
     const held = isHeld(sessionId);
     const latestQueue = queues.get(sessionId);
     const stillHead = latestQueue?.items[0]?.id === item.id;
-    const stillOldestBuild = !isBuildItem(item) || runnableBuilds(current.directory)[0]?.item.id === item.id;
+    const stillOldestBuild = !isBuildItem(item) || (!countingForceFor(current.directory) && runnableBuilds(current.directory)[0]?.item.id === item.id);
     const leaseBeforeSend = activeBuilds.get(current.directory);
     const releaseBuildLease = () => {
       if (!isBuildItem(item) || leaseBeforeSend?.itemId !== item.id) return;
@@ -1905,7 +2053,7 @@ export function createMessageQueueRuntime({
       wakeProject(current.directory);
     };
     if (finalIdle !== true || finalSubagents !== false || held || stopped || parkingSessions.has(sessionId)
-      || sending.has(sessionId) || !stillHead || !stillOldestBuild) {
+      || sending.has(sessionId) || !stillHead || !stillOldestBuild || (isBuildItem(item) && countingForceFor(current.directory))) {
       releaseBuildLease();
       if (latestQueue?.items.length && !held && !stopped) {
         armDispatch(sessionId, finalSubagents === true ? SUBAGENT_RECHECK_MS : retryDelayMs(1));
@@ -1977,6 +2125,7 @@ export function createMessageQueueRuntime({
 
   const reconcileAll = () => {
     for (const directory of activeBuilds.keys()) scheduleBuildMonitor(directory);
+    for (const sessionId of forcedBuilds.keys()) scheduleForcedMonitor(sessionId);
     for (const sessionId of queues.keys()) {
       if (!timers.has(sessionId)) armDispatch(sessionId, dispatchQuietMs);
     }
@@ -2196,9 +2345,8 @@ export function createMessageQueueRuntime({
         forcedBuilds.delete(deletedSessionId);
         clearTimeout(forcedMonitors.get(deletedSessionId));
         forcedMonitors.delete(deletedSessionId);
-        // A build forced into the queue held the queue back, so the project
-        // wakes now that the session is gone.
-        if (forced?.counts) wakeProject(forced.directory);
+        commit(deletedSessionId);
+        wakeProject(forced.directory);
       }
       // The session is gone, so its uncertain Force can never be resolved in
       // that chat; the queued item is dropped with the session below.
@@ -2596,6 +2744,7 @@ export function createMessageQueueRuntime({
     if (sending.has(sessionId)) return true;
     if (forceReservations.has(sessionId)) return true;
     for (const lease of activeBuilds.values()) if (lease.sessionId === sessionId) return true;
+    if (forcedBuilds.get(sessionId)?.counts === true) return true;
     return false;
   };
 
@@ -2606,6 +2755,7 @@ export function createMessageQueueRuntime({
     reorderBuilds,
     setBuildPaused,
     setQueuePaused,
+    setBuildQueueParticipation,
     resolveBuild,
     forceDispatch,
     sessionSnapshot,
@@ -2693,6 +2843,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.post('/api/build-queue/force', async (req, res) => {
     try { res.json(await runtime.forceDispatch(req.body?.directory, req.body?.sessionId, req.body?.itemId, req.body?.mode)); }
     catch (error) { respondError(res, error, 'Failed to force build'); }
+  });
+  app.put('/api/build-queue/participation', async (req, res) => {
+    try { res.json(await runtime.setBuildQueueParticipation(req.body?.directory, req.body?.sessionId, req.body?.mode)); }
+    catch (error) { respondError(res, error, 'Failed to update the running build queue state'); }
   });
   app.put('/api/build-queue/order', async (req, res) => {
     try { res.json(await runtime.reorderBuilds(req.body?.directory, req.body?.ids)); }

@@ -355,6 +355,39 @@ export function WorkBoardQueueContextMenu({ menu, trigger, children }: {
   </>;
 }
 
+export function WorkBoardActiveBuildMenu({ title, mode, disabled, mobile = false, onChange, children }: {
+  title: string;
+  mode: 'queue' | 'separate';
+  disabled: boolean;
+  mobile?: boolean;
+  onChange: (mode: 'queue' | 'separate') => void;
+  children: React.ReactNode;
+}) {
+  const { t } = useI18n();
+  const action = mode === 'queue' ? 'separate' : 'queue';
+  const label = t(mode === 'queue' ? 'workBoard.extractFromQueue' : 'workBoard.includeInQueue');
+  const items = (Item: React.ElementType) => <Item disabled={disabled} onClick={() => onChange(action)}>{label}</Item>;
+  return <div className="group relative">
+    <ContextMenu disabled={disabled || mobile}>
+      <ContextMenuTrigger render={<div className="rounded-md" />}>{children}</ContextMenuTrigger>
+      <ContextMenuContent>{items(ContextMenuItem)}</ContextMenuContent>
+    </ContextMenu>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" disabled={disabled}
+          className={mobile
+            ? 'absolute end-1 top-1 flex size-10 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:text-foreground'
+            : 'absolute end-1 top-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100'}
+          title={t('workBoard.cardActions', { title })}
+          aria-label={t('workBoard.cardActions', { title })}>
+          <Icon name="more" className={mobile ? 'size-5' : 'size-3.5'} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">{items(DropdownMenuItem)}</DropdownMenuContent>
+    </DropdownMenu>
+  </div>;
+}
+
 /**
  * Export as Markdown, loading the conversation through the sync runtime the
  * chat surfaces use. It is a component of its own because that runtime lives in

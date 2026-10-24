@@ -420,8 +420,9 @@ ends. Detection reads `/api/session/active` for the running ids and the
 directory-scoped `GET /api/session` (the encoded `x-opencode-directory` header,
 as in the admission routes) for the agent and location; a build session whose
 turn is over but whose background job still runs (`GET /api/shell`) is a live
-build too, because it resumes. A session the user forced is excluded, because a
-Force exists to run beside the queue. A directory
+build too, because it resumes. A session the user explicitly moved outside the
+queue is excluded, because that choice lets the queue run beside it. A counted
+build the user included blocks the next dispatch. A directory
 whose list cannot be read is unknown, never "no live build", so dispatch waits
 and retries rather than guessing. An adopted lane is in-memory only — a restart
 re-detects the live build — and it never parks for review or reruns anything: it
@@ -592,7 +593,8 @@ Every force is reserved before its prompt leaves, and that reservation is writte
 to the queue file first: a request arriving while the probes run, or a second one
 after them, is refused (`409`), so one item cannot be dispatched twice, and a
 crash cannot replay a prompt with no record of it. A confirmed send moves the
-reservation to the in-memory `forced` list. A send that cannot be confirmed
+reservation to `forcedBuilds`, and its selected queue mode is stored in
+`buildParticipation`. A send that cannot be confirmed
 leaves both the item queued and the reservation in place, flagged
 `needsReview: true` with its `itemId` and `action: 'resolve'`; that state survives
 a restart (`reviewReason: 'restart-during-force'`) and is never retried
@@ -607,6 +609,24 @@ the reservation with it. A `retry` is not accepted for a force.
 together in `forced`, separate from the lease in `active`. A running force
 carries `counts`, the mode it was forced with. A resolved force clears when the
 session's turn completes or the session is deleted.
+
+### Changing a running build's queue membership
+
+`PUT /api/build-queue/participation` accepts `{ directory, sessionId, mode }`
+for a running Build session. `mode: 'separate'` extracts a lease holder or
+uncounted live build: the run continues, the lease is released, and the queue
+may start its next build. `mode: 'queue'` makes an outside run count towards the
+queue, so no further build starts until it finishes. A counted run can coexist
+with a lease that was already active; the gate waits for both before another
+dispatch. This changes queue accounting only and never stops, resends, or
+changes the prompt already running.
+
+The server verifies that an untracked session is live, belongs to the requested
+directory, and uses the Build agent. A stale menu action or a run that has
+already ended returns 409. The selected mode is stored in `buildParticipation`
+with the queue file and restored after restart, so a restart does not turn an
+included build into an outside run or reclaim an extracted lease. The monitor
+removes that entry when the run finishes or the session is deleted.
 
 The build snapshot is also the board's display source for a queued or running
 build. Each `queued` row, and each `active` and `forced` entry, carries the
@@ -664,6 +684,7 @@ allowlists.
 | `PUT /api/build-queue/sessions/:id/items/:itemId/pause` | `{ paused: boolean }`; pending managed builds only |
 | `PUT /api/build-queue/pause` | `{ directory, paused: boolean }`; persists the directory's whole-queue hold without changing individual pauses |
 | `POST /api/build-queue/force` | `{ directory, sessionId, itemId, mode? }`; start a waiting build now, outside the lease and Git policy, and remove it from the queue. `mode: 'queue'` makes the queue wait for the build; `mode: 'separate'` (the default) leaves the queue to ignore it |
+| `PUT /api/build-queue/participation` | `{ directory, sessionId, mode }`; change a running Build session between `queue` (the queue waits) and `separate` (the queue moves on) without interrupting its run |
 | `DELETE .../sessions/:id` | Clear; the in-flight item and every managed Build item stay (the project queue owns those; use `/api/build-queue` to cancel one) |
 | `PUT .../sessions/:id/hold` | `{ held, ttlMs? }` |
 

@@ -36,7 +36,7 @@ import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectI
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
-import { WorkBoardCardMenu, WorkBoardCardContextMenu, WorkBoardQueueMenu, WorkBoardQueueContextMenu, type WorkBoardCardMenuProps, type WorkBoardQueueMenuProps } from './WorkBoardCardMenu';
+import { WorkBoardCardMenu, WorkBoardCardContextMenu, WorkBoardQueueMenu, WorkBoardQueueContextMenu, WorkBoardActiveBuildMenu, type WorkBoardCardMenuProps, type WorkBoardQueueMenuProps } from './WorkBoardCardMenu';
 import { readMobileWorkBoardLane, rememberMobileWorkBoardLane } from './workBoardMobileLane';
 import { readRecentWorkBoardProjects, rememberWorkBoardProjectAccess } from './workBoardRecentProjects';
 import { WorkBoardMobileProjectPicker } from './WorkBoardMobileProjectPicker';
@@ -259,13 +259,13 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
 }
 
 /**
- * The Build queue lane. The running lease and builds started outside the queue
- * sit above the gap. Waiting items keep the queue's dispatch order and controls.
+ * The Build queue lane. Running builds sit above the gap, and waiting items keep
+ * the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onSetParticipation, onNewBuild }: {
   rows: WorkBoardQueueRow[];
   paused: boolean;
-  active: { sessionId: string; needsReview?: boolean; startedAt: number; model?: WorkBoardQueuedModel | null; content?: string | null } | undefined;
+  active: { sessionId: string; needsReview?: boolean; phase?: 'dispatching' | 'running'; startedAt: number; model?: WorkBoardQueuedModel | null; content?: string | null } | undefined;
   activeTitle: string;
   entries: WorkBoardActiveEntry[];
   order: string[];
@@ -281,6 +281,7 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, orde
   onForce: (row: { itemId: string; sessionId: string }) => void;
   onCancel: (row: { itemId: string; sessionId: string }) => void;
   onResolveForced: (row: { itemId: string; sessionId: string }) => void;
+  onSetParticipation: (sessionId: string, mode: 'queue' | 'separate') => void;
   onNewBuild: () => void;
 }) {
   const { t } = useI18n();
@@ -289,9 +290,12 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, orde
     {/* The running build and the builds outside the queue are peers, so they
         take the same 12px gap the waiting rows below use. */}
     {(active || entries.length > 0) && <div className="space-y-3">
-      {active && <WorkBoardActiveBuild title={activeTitle} needsReview={Boolean(active.needsReview)} waitingFor={waitingForOf(active.sessionId)} model={active.model} content={active.content} onOpen={() => onOpen(active.sessionId)} />}
+      {active && <WorkBoardActiveBuild title={activeTitle} sessionId={active.sessionId} needsReview={Boolean(active.needsReview)}
+        queueMode="queue" onSetQueueMode={active.phase === 'dispatching' || active.needsReview ? undefined : onSetParticipation}
+        mobile={mobile} waitingFor={waitingForOf(active.sessionId)} model={active.model} content={active.content} onOpen={() => onOpen(active.sessionId)} />}
       {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title}
         needsReview={Boolean(entry.needsReview)} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced}
+        sessionId={entry.sessionId} queueMode={entry.counts ? 'queue' : 'separate'} onSetQueueMode={onSetParticipation} mobile={mobile}
         counts={entry.counts}
         waitingFor={waitingForOf(entry.sessionId)} model={entry.model} content={entry.content}
         onOpen={() => onOpen(entry.sessionId)}
@@ -321,23 +325,25 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, orde
 }
 
 /**
- * The build the project is running now. A lease awaiting review keeps the error
- * treatment — the server will not release it on its own — while a lease that is
- * actually running gets the moving band, so "working" and "stuck" never look
- * the same.
+ * The build the project is running now. Queue participation sets its blue or
+ * amber treatment. A lease awaiting review keeps the error state.
  *
  * A build started outside the queue with an unconfirmed prompt (`resolve`) is
  * ambiguous: it may or may not have started, so it takes the error treatment and
  * carries its own recovery, rather than reading as a plain running build.
  */
-function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailable = false, forced = false, counts = false, waitingFor, resolve, model, content, busy = false, onResolve, onOpen }: {
+function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false, unavailable = false, forced = false, counts = false, queueMode, onSetQueueMode, mobile = false, waitingFor, resolve, model, content, busy = false, onResolve, onOpen }: {
   title: string;
+  sessionId: string;
   needsReview: boolean;
   checking?: boolean;
   unavailable?: boolean;
   forced?: boolean;
   /** A forced build that counts towards the queue, so the queue waits for it. */
   counts?: boolean;
+  queueMode?: 'queue' | 'separate';
+  onSetQueueMode?: (sessionId: string, mode: 'queue' | 'separate') => void;
+  mobile?: boolean;
   waitingFor?: WorkBoardWaitingKind;
   resolve?: { sessionId: string; itemId: string };
   model?: WorkBoardQueuedModel | null;
@@ -365,30 +371,37 @@ function WorkBoardActiveBuild({ title, needsReview, checking = false, unavailabl
   // "Active" pill, and the ask named in place of "Building now". A review, a
   // forced build and an unread status are their own states above it.
   const waiting = !needsReview && !checking && !unavailable && !forced ? waitingFor : undefined;
-  return <WorkBoardQueueTooltip model={model} content={content}>
+  const queueIncluded = queueMode === 'queue';
+  const canChangeMode = Boolean(queueMode && onSetQueueMode && !checking && !unavailable);
+  const surface = needsReview
+    ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
+    : !queueIncluded
+      ? 'border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-warning)_18%,var(--surface-elevated))]'
+      : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]';
+  const row = <WorkBoardQueueTooltip model={model} content={content}>
     <button type="button" onClick={onOpen}
     className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
-      + (needsReview
-        ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
-        : forced || waiting
-          ? 'border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-warning)_18%,var(--surface-elevated))]'
-          : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]')}
+      + surface + (canChangeMode ? ' pe-9' : '')}
     aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })}>
     {!needsReview && !checking && !forced && !waiting && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
     <span className="relative flex min-w-0 items-center gap-2">
-      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : forced || waiting ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
-          <Icon name={needsReview ? 'alert' : forced ? 'rocket' : waiting ? ANSWER_PRESENTATION[waiting].icon : 'terminal-box'} className="size-3.5" />
+      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : !queueIncluded || waiting ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
+        <Icon name={needsReview ? 'alert' : forced ? 'rocket' : waiting ? ANSWER_PRESENTATION[waiting].icon : 'terminal-box'} className="size-3.5" />
       </span>
       <span className="min-w-0 flex-1">
         <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
-        <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : waiting ? ANSWER_PRESENTATION[waiting].labelKey : forced ? (counts ? 'workBoard.countsInQueue' : 'workBoard.outsideQueue') : 'workBoard.buildingNow')}</span>
+        <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : waiting ? ANSWER_PRESENTATION[waiting].labelKey : queueMode === 'separate' ? 'workBoard.outsideQueue' : forced ? (counts ? 'workBoard.countsInQueue' : 'workBoard.outsideQueue') : 'workBoard.buildingNow')}</span>
       </span>
-      {!needsReview && !checking && !waiting && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (forced ? 'text-[var(--status-warning-text)]' : 'text-[var(--status-info)]')}>
+      {!needsReview && !checking && !waiting && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (queueIncluded ? 'text-[var(--status-info)]' : 'text-[var(--status-warning-text)]')}>
         <Spinner className="size-3 text-[var(--status-success)]" />{t('workBoard.active')}
       </span>}
-      </span>
+    </span>
     </button>
   </WorkBoardQueueTooltip>;
+  return canChangeMode && queueMode && onSetQueueMode
+    ? <WorkBoardActiveBuildMenu title={title} mode={queueMode} disabled={busy} mobile={mobile}
+        onChange={mode => onSetQueueMode(sessionId, mode)}>{row}</WorkBoardActiveBuildMenu>
+    : row;
 }
 
 /**
@@ -1026,6 +1039,10 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     setForceConfirm(null);
     void queueMutate('/api/build-queue/force', 'POST', body);
   };
+  const setBuildParticipation = (sessionId: string, mode: 'queue' | 'separate') => {
+    if (!directory) return;
+    void queueMutate('/api/build-queue/participation', 'PUT', { directory, sessionId, mode });
+  };
   // A forced build whose prompt was not confirmed is resolved like a parked
   // lease: acknowledge it and release the lane. The item it targeted pins the
   // request to the build the user is looking at.
@@ -1123,7 +1140,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // The queue's live builds feed the queue column and the lane tabs, and the
   // mobile tabs show the same number as the lane they open, so both read one
   // count. The queue snapshot owns managed rows; a live build without a queue
-  // entry must also render, once per session, with no queue mutations.
+  // entry renders once per session with its queue-participation action.
   const queueLiveBuilds = new Map<string, { sessionId: string; title: string; checking: boolean; unavailable: boolean }>();
   for (const card of orderedLanes.get('queue') ?? []) {
     if (card.sessionId && !queueStateFor(card)) {
@@ -1291,6 +1308,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             onForce={forceQueued}
             onCancel={cancelQueued}
             onResolveForced={resolveForcedBuild}
+            onSetParticipation={setBuildParticipation}
             onNewBuild={() => newCard('queue')}
           /> : <SortableContext items={inLane.map(card => card.id)} strategy={verticalListSortingStrategy}>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">

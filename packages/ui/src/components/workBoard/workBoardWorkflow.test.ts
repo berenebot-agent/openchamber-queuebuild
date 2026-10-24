@@ -108,6 +108,7 @@ describe('project build badges', () => {
   type BadgeQueue = {
     active: { directory: string; needsReview?: boolean }[];
     queued: { directory: string }[];
+    forced?: { directory: string; counts?: boolean }[];
     issues?: { directory: string; issue: string }[];
   };
   const queue: BadgeQueue = {
@@ -120,6 +121,15 @@ describe('project build badges', () => {
     expect(badges.get('a')).toEqual({ count: 3, error: false });
     // A project with an empty queue has no badge at all, not a zero.
     expect(badges.has('b')).toBe(false);
+  });
+  test('counts included live builds and ignores builds outside the queue', () => {
+    const badges = workBoardBuildBadges([{ id: 'a', path: '/repo' }], {
+      active: [], queued: [], forced: [
+        { directory: '/repo', counts: true },
+        { directory: '/repo', counts: false },
+      ],
+    }, false);
+    expect(badges.get('a')).toEqual({ count: 1, error: false });
   });
   test('normalises trailing slashes and backslashes before matching', () => {
     const badges = workBoardBuildBadges([{ id: 'a', path: '/repo/' }], { active: [], queued: [{ directory: '\\repo' }] }, false);

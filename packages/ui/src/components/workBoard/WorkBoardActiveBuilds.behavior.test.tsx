@@ -17,10 +17,9 @@ import { rememberMobileWorkBoardLane } from './workBoardMobileLane';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Live builds the board has no queue entry for. The server projection places
- * them in the queue lane with their own status; the board renders them once per
- * session, with no queue mutation controls, and a Plan turn running gets the
- * green band instead of the blue one.
+ * Live builds the board has no queue entry for. The board renders them once per
+ * session as outside the queue, with an action to include them. A Plan turn
+ * running gets the green band instead of the blue one.
  */
 test('live builds without queue entries remain visible and reconcile without duplicates', async () => {
   const dom = new Window({ url: 'http://localhost' });
@@ -97,9 +96,13 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(lane('Build queue').textContent).toContain('direct-a');
     expect(lane('Build queue').textContent).toContain('direct-b');
     expect(lane('Build queue').querySelector('h2')?.textContent).toBe('Build queue2');
-    // A live build the queue does not manage offers no queue mutation controls.
+    // A live build outside the queue offers inclusion, while keeping the queue
+    // row's own create and cancel controls away.
     expect(lane('Build queue').querySelector('button[aria-label="New Build session"]')).toBeNull();
     expect(lane('Build queue').querySelector('button[aria-label^="Cancel "]')).toBeNull();
+    expect(lane('Build queue').querySelector('button[aria-label="Actions for direct-a"]')).not.toBeNull();
+    expect(lane('Build queue').querySelector('button[aria-label="Actions for direct-b"]')).not.toBeNull();
+    expect(lane('Build queue').querySelector('button[aria-label^="Open the build running now:"]')?.className).toContain('var(--status-warning)');
     expect(lane('Plan').textContent).toContain('planning');
     // A running plan turn gets the same moving band as a running build, but in
     // green: the plan card carries the plan stripe and the build card does not.

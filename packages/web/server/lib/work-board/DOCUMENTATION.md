@@ -90,10 +90,11 @@ A card's lane is the queue first, then the user's own placement, then the sessio
 
 The Build queue column renders server queue entries and live Build sessions in
 the board's scope that have no queue entry. Queue entries take presentation
-precedence for their session; a live-only build has no queue mutation controls.
-A live Build the queue adopted as the project's active build is a lease, so it
-renders as the running build and holds the lane until its turn ends. The column
-count follows rendered rows, including entries without board cards.
+precedence for their session; a live-only build offers the queue-participation
+action in the board. A live Build the queue adopted as the project's active
+build is a lease, so it renders as the running build and holds the lane until
+its turn ends. The column count follows rendered rows, including entries without
+board cards.
 An adopted build owns no queued item: the raw build snapshot omits `itemId`,
 and the board projection sends `queue.active.itemId: null`. Both UI readers
 accept this state; it offers no item-specific recovery controls.

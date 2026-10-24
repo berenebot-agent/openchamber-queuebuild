@@ -29,6 +29,7 @@ const buildQueueForcedSchema = z.object({
   directory: z.string(),
   sessionId: z.string(),
   startedAt: z.number(),
+  counts: z.boolean().default(false),
 });
 
 const buildQueueSnapshotSchema = z.object({

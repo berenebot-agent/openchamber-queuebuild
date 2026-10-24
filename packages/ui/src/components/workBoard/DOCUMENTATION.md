@@ -145,6 +145,15 @@ alone and keeps the row's name as its accessible one. A phone has neither right
 click nor a free long press, so its row keeps the touch-sized menu alone, and
 the desktop row keeps its own inline controls beside the three-dot.
 
+### The running build's menu
+
+A running build has one queue-participation action in its three-dot menu and its
+desktop right-click menu. A lease holder or included build offers `Extract from
+queue (Q moves on)`. An outside build offers `Include in queue (queue waits)`.
+The run continues either way. Queue-counted builds render blue, and separate
+builds render amber; blue does not imply exclusive lease ownership. On a phone,
+the three-dot menu is the action path.
+
 ### Why the queued row's menu holds both lists and not only the session's
 
 A card's menu holds two lists: the card's own board actions, then the session
@@ -161,7 +170,8 @@ may or may not have started. The projection names that state (`needsReview`, the
 targeted `itemId`, a recovery `action`); the board shows it with the error
 treatment and a recovery control (`Continue queue` → the queue's resolve route).
 It is never rendered as an ordinary running build, and never left without a way
-to resolve it. A plain forced build stays display-only.
+to resolve it. A confirmed forced build can change its queue participation while
+it runs.
 
 ## Project queue toggle
 

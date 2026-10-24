@@ -40,4 +40,12 @@ describe('work board translations', () => {
       if (locale !== 'en') expect(message).not.toBe(workBoardI18n.en['workBoard.cancelBuildKeptDraft']);
     }
   });
+  test('translates active-build queue actions in every supported locale', () => {
+    for (const locale of locales) {
+      for (const key of ['workBoard.includeInQueue', 'workBoard.extractFromQueue'] as const) {
+        expect(workBoardI18n[locale][key]).toBeTruthy();
+        if (locale !== 'en') expect(workBoardI18n[locale][key]).not.toBe(workBoardI18n.en[key]);
+      }
+    }
+  });
 });

@@ -1581,6 +1581,92 @@ describe('project-wide build queue', () => {
     await runtime.flush();
   });
 
+  it('extracts a running lease without stopping it and lets the next build start', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 180, buildRecheckMs: 20 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(50);
+    openCode.state.active[SESSION] = { type: 'running' };
+    openCode.state.sessions = [{ id: SESSION, agent: 'build', location: { directory: DIRECTORY } }];
+    await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+
+    const snapshot = await runtime.setBuildQueueParticipation(DIRECTORY, SESSION, 'separate');
+    expect(snapshot.active).toHaveLength(0);
+    expect(snapshot.forced).toMatchObject([{ sessionId: SESSION, counts: false, content: 'first' }]);
+    await settle(80);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    expect(openCode.state.active[SESSION]).toEqual({ type: 'running' });
+    expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SECOND]);
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('restores the lease when persisting an extraction fails', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 180, buildRecheckMs: 20 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(50);
+    openCode.state.active[SESSION] = { type: 'running' };
+    openCode.state.sessions = [{ id: SESSION, agent: 'build', location: { directory: DIRECTORY } }];
+    const write = vi.spyOn(fs.promises, 'writeFile').mockRejectedValueOnce(new Error('disk full'));
+    try {
+      await expect(runtime.setBuildQueueParticipation(DIRECTORY, SESSION, 'separate')).rejects.toMatchObject({ status: 503 });
+      expect(runtime.buildSnapshot().active.map(lease => lease.sessionId)).toEqual([SESSION]);
+      expect(runtime.buildSnapshot().forced).toHaveLength(0);
+    } finally {
+      write.mockRestore();
+      runtime.stop();
+      await runtime.flush();
+    }
+  });
+
+  it('includes and extracts an outside Build while another lease runs', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 100, buildRecheckMs: 20 });
+    await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(50);
+    openCode.state.active[SESSION] = { type: 'running' };
+    openCode.state.active[SECOND] = { type: 'running' };
+    openCode.state.sessions = [SESSION, SECOND].map(id => ({ id, agent: 'build', location: { directory: DIRECTORY } }));
+    await runtime.enqueue(THIRD, DIRECTORY, item({ content: 'third', text: 'third', buildQueue: true }));
+
+    const included = await runtime.setBuildQueueParticipation(DIRECTORY, SECOND, 'queue');
+    expect(included.active.map(lease => lease.sessionId)).toEqual([SESSION]);
+    expect(included.forced).toMatchObject([{ sessionId: SECOND, counts: true }]);
+
+    delete openCode.state.active[SESSION];
+    openCode.state.tail = [{ type: 'assistant', time: { completed: Date.now() } }];
+    await settle(150);
+    expect(runtime.buildSnapshot().active).toHaveLength(0);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first']);
+
+    const separated = await runtime.setBuildQueueParticipation(DIRECTORY, SECOND, 'separate');
+    expect(separated.forced).toMatchObject([{ sessionId: SECOND, counts: false }]);
+    await settle(80);
+    expect(promptCalls(openCode).map(call => call.body.text)).toEqual(['first', 'third']);
+    expect(openCode.state.active[SECOND]).toEqual({ type: 'running' });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it("persists a user's queue choice across restart without readopting an extracted run", async () => {
+    const first = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 250, buildRecheckMs: 20 });
+    await first.runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
+    await settle(50);
+    first.openCode.state.active[SESSION] = { type: 'running' };
+    first.openCode.state.sessions = [{ id: SESSION, agent: 'build', location: { directory: DIRECTORY } }];
+    await first.runtime.setBuildQueueParticipation(DIRECTORY, SESSION, 'separate');
+    await first.runtime.flush();
+    first.runtime.stop();
+
+    const restarted = createRuntime({ dataDir: first.dataDir, openCode: first.openCode, checkBuildGit: async () => null, buildMonitorDelayMs: 250, buildRecheckMs: 20 });
+    await restarted.runtime.load();
+    expect(restarted.runtime.buildSnapshot().forced).toMatchObject([{ sessionId: SESSION, counts: false, content: 'first' }]);
+    restarted.runtime.start();
+    await restarted.runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
+    await settle(80);
+    expect(promptCalls(restarted.openCode).map(call => call.body.text)).toEqual(['first', 'second']);
+    restarted.runtime.stop();
+    await restarted.runtime.flush();
+  });
+
   it('leaves the queue alone when a build is forced outside it', async () => {
     const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null, buildMonitorDelayMs: 40, buildRecheckMs: 20 });
     await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
@@ -1608,6 +1694,16 @@ describe('project-wide build queue', () => {
     await runtime.enqueue(SESSION, DIRECTORY, item({ content: 'first', text: 'first', buildQueue: true }));
     const waiting = await runtime.enqueue(SECOND, DIRECTORY, item({ content: 'second', text: 'second', buildQueue: true }));
     await expect(runtime.forceDispatch(DIRECTORY, SECOND, waiting.itemId, 'beside')).rejects.toThrow(/mode/);
+    await expect(runtime.setBuildQueueParticipation(DIRECTORY, SECOND, 'separate')).rejects.toMatchObject({ status: 409 });
+    runtime.stop();
+    await runtime.flush();
+  });
+
+  it('does not include a Build session that has already ended', async () => {
+    const { runtime, openCode } = createRuntime({ checkBuildGit: async () => null });
+    openCode.state.sessions = [{ id: SECOND, agent: 'build', location: { directory: DIRECTORY } }];
+    await expect(runtime.setBuildQueueParticipation(DIRECTORY, SECOND, 'queue')).rejects.toMatchObject({ status: 409 });
+    expect(runtime.buildSnapshot().forced).toHaveLength(0);
     runtime.stop();
     await runtime.flush();
   });
@@ -2243,6 +2339,7 @@ describe('project-wide build queue', () => {
       expect(paused.body.pausedDirectories).toEqual([DIRECTORY]);
       await request(app).put('/api/build-queue/pause').send({ directory: DIRECTORY, paused: 'yes' }).expect(400);
       await request(app).put('/api/build-queue/pause').send({ paused: true }).expect(400);
+      await request(app).put('/api/build-queue/participation').send({ directory: DIRECTORY, sessionId: SESSION, mode: 'beside' }).expect(400);
       const resumed = await request(app).put('/api/build-queue/pause').send({ directory: DIRECTORY, paused: false }).expect(200);
       expect(resumed.body.pausedDirectories).toEqual([]);
     } finally { runtime.stop(); await runtime.flush(); }
