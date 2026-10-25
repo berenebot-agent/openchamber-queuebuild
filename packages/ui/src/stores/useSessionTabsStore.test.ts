@@ -6,7 +6,7 @@ const state = () => useSessionTabsStore.getState();
 
 describe('useSessionTabsStore', () => {
   beforeEach(() => {
-    useSessionTabsStore.setState({ tabIds: [], previewTabId: null, pinOnOpenIds: [] });
+    useSessionTabsStore.setState({ tabIds: [], previewTabId: null, pinOnOpenIds: [], closedTabIds: [] });
   });
 
   test('opening a session uses the preview tab, replacing the previous preview in place', () => {
@@ -109,5 +109,48 @@ describe('useSessionTabsStore', () => {
     expect(state().tabIds).toBe(before);
     state().removeTabs(['a']);
     expect(state().tabIds).toEqual(['b']);
+  });
+
+  test('closeTab records the closed session so ensureTab does not re-add it', () => {
+    useSessionTabsStore.setState({ tabIds: ['a', 'b'], previewTabId: 'b' });
+    state().closeTab('b');
+    expect(state().tabIds).toEqual(['a']);
+    expect(state().previewTabId).toBeNull();
+    expect(state().closedTabIds).toEqual(['b']);
+
+    // A stale window writing its old tab list ['a', 'b'] must not resurrect 'b'
+    state().ensureTab('b');
+    expect(state().tabIds).toEqual(['a']);
+    expect(state().closedTabIds).toEqual(['b']);
+  });
+
+  test('closeOtherTabs records all closed sessions', () => {
+    useSessionTabsStore.setState({ tabIds: ['a', 'b', 'c'], previewTabId: 'c' });
+    state().closeOtherTabs('a');
+    expect(state().tabIds).toEqual(['a']);
+    expect(state().previewTabId).toBeNull();
+    expect(state().closedTabIds).toEqual(['b', 'c']);
+  });
+
+  test('pinTab clears the close marker when the user intentionally reopens', () => {
+    useSessionTabsStore.setState({ tabIds: ['a'], closedTabIds: ['b'] });
+    state().pinTab('b');
+    expect(state().closedTabIds).toEqual([]);
+    // ensureTab would then add it (not tested here since it requires the tab to not exist)
+  });
+
+  test('reopenClosedTab clears the close marker without adding a tab', () => {
+    useSessionTabsStore.setState({ tabIds: ['a'], closedTabIds: ['b', 'c'] });
+    state().reopenClosedTab('b');
+    expect(state().closedTabIds).toEqual(['c']);
+    expect(state().tabIds).toEqual(['a']); // tab not automatically added
+  });
+
+  test('ensureTab respects closedTabIds from persisted state', () => {
+    // Simulate persisted state where 'b' was previously closed
+    useSessionTabsStore.setState({ tabIds: ['a'], previewTabId: null, closedTabIds: ['b'] });
+    state().ensureTab('b');
+    expect(state().tabIds).toEqual(['a']);
+    expect(state().closedTabIds).toEqual(['b']);
   });
 });

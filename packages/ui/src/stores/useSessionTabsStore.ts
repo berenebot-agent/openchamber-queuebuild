@@ -16,6 +16,9 @@ import { createDeferredSafeJSONStorage } from '@/stores/utils/safeStorage';
  * A session opened by browsing lands in the one preview tab, which the next
  * opened session replaces in place. Double-clicking the tab, dragging it, or
  * sending a message in the session pins it: a pinned tab stays until closed.
+ *
+ * Closed tabs are tracked separately so a stale window cannot resurrect them
+ * by writing an old tab list.
  */
 interface SessionTabsStore {
   tabIds: string[];
@@ -26,6 +29,8 @@ interface SessionTabsStore {
    * the session ahead of its tab). Their tab opens pinned. Not persisted.
    */
   pinOnOpenIds: string[];
+  /** Session IDs that were explicitly closed and must not be re-added. */
+  closedTabIds: string[];
 
   /**
    * Opens the session's tab as the preview, replacing the current preview.
@@ -42,11 +47,17 @@ interface SessionTabsStore {
   reorderTabs: (activeId: string, overId: string) => void;
   /** Drop ids the caller has authoritatively confirmed no longer exist. */
   removeTabs: (sessionIds: readonly string[]) => void;
+  /** Reopens a previously closed tab, clearing its close marker. */
+  reopenClosedTab: (sessionId: string) => void;
 }
 
 const MAX_PINNED_SESSION_TABS = 10;
 
-type PersistedSessionTabs = { tabIds: string[]; previewTabId: string | null };
+type PersistedSessionTabs = {
+  tabIds: string[];
+  previewTabId: string | null;
+  closedTabIds: string[];
+};
 
 /**
  * Soft cap on pinned tabs: past it the oldest pinned tab leaves the working
@@ -69,10 +80,13 @@ export const useSessionTabsStore = create<SessionTabsStore>()(
         tabIds: [],
         previewTabId: null,
         pinOnOpenIds: [],
+        closedTabIds: [],
 
         ensureTab: (sessionId, slotIds) => {
           if (!sessionId) return;
-          const { tabIds, previewTabId, pinOnOpenIds } = get();
+          const { tabIds, previewTabId, pinOnOpenIds, closedTabIds } = get();
+          // Do not re-add a session the user explicitly closed.
+          if (closedTabIds.includes(sessionId)) return;
           if (tabIds.includes(sessionId)) return;
           const pinned = pinOnOpenIds.includes(sessionId);
           const nextPinOnOpenIds = pinned ? pinOnOpenIds.filter((id) => id !== sessionId) : pinOnOpenIds;
@@ -109,7 +123,11 @@ export const useSessionTabsStore = create<SessionTabsStore>()(
 
         pinTab: (sessionId) => {
           if (!sessionId) return;
-          const { tabIds, previewTabId, pinOnOpenIds } = get();
+          const { tabIds, previewTabId, pinOnOpenIds, closedTabIds } = get();
+          // Clear the close marker when the user intentionally reopens the tab.
+          if (closedTabIds.includes(sessionId)) {
+            set({ closedTabIds: closedTabIds.filter((id) => id !== sessionId) });
+          }
           if (tabIds.includes(sessionId)) {
             if (previewTabId !== sessionId) return;
             set({ tabIds: capPinnedTabs(tabIds, null), previewTabId: null });
@@ -120,19 +138,25 @@ export const useSessionTabsStore = create<SessionTabsStore>()(
         },
 
         closeTab: (sessionId) => {
-          const { tabIds, previewTabId } = get();
+          const { tabIds, previewTabId, closedTabIds } = get();
           if (!tabIds.includes(sessionId)) return;
           set({
             tabIds: tabIds.filter((id) => id !== sessionId),
             previewTabId: previewTabId === sessionId ? null : previewTabId,
+            closedTabIds: closedTabIds.includes(sessionId) ? closedTabIds : [...closedTabIds, sessionId],
           });
         },
 
         closeOtherTabs: (sessionId) => {
-          const { tabIds, previewTabId } = get();
+          const { tabIds, previewTabId, closedTabIds: _closedTabIds } = get();
           if (!tabIds.includes(sessionId)) return;
           if (tabIds.length === 1) return;
-          set({ tabIds: [sessionId], previewTabId: previewTabId === sessionId ? sessionId : null });
+          const closed = tabIds.filter((id) => id !== sessionId);
+          set({
+            tabIds: [sessionId],
+            previewTabId: previewTabId === sessionId ? sessionId : null,
+            closedTabIds: [..._closedTabIds, ...closed],
+          });
         },
 
         reorderTabs: (activeId, overId) => {
@@ -149,16 +173,23 @@ export const useSessionTabsStore = create<SessionTabsStore>()(
         removeTabs: (sessionIds) => {
           if (sessionIds.length === 0) return;
           const gone = new Set(sessionIds);
-          const { tabIds, previewTabId } = get();
+          const { tabIds, previewTabId, closedTabIds: _closedTabIds } = get();
           const next = tabIds.filter((id) => !gone.has(id));
           if (next.length === tabIds.length) return;
           set({ tabIds: next, previewTabId: previewTabId && gone.has(previewTabId) ? null : previewTabId });
+        },
+
+        reopenClosedTab: (sessionId) => {
+          if (!sessionId) return;
+          const { closedTabIds } = get();
+          if (!closedTabIds.includes(sessionId)) return;
+          set({ closedTabIds: closedTabIds.filter((id) => id !== sessionId) });
         },
       }),
       {
         name: 'session-tabs-store',
         storage: createDeferredSafeJSONStorage<PersistedSessionTabs>(),
-        partialize: (state) => ({ tabIds: state.tabIds, previewTabId: state.previewTabId }),
+        partialize: (state) => ({ tabIds: state.tabIds, previewTabId: state.previewTabId, closedTabIds: state.closedTabIds }),
       },
     ),
   ),
