@@ -51,6 +51,8 @@ Terminal capture, Escape abort priming, and the shifted reverse-agent chord are 
 
 Escape abort priming listens in the window bubble phase and only counts an Escape whose target is a chat composer editor (`[data-chat-input="true"]`) and that nothing prevented first. Escape from anywhere else, an Escape the composer spent on its own state (a picker, shell mode, the expanded input, a selection), IME composition, an open dropdown, or an open overlay clears the priming. `[data-btw-composer="true"]` owns Escape instead of main-session abort priming.
 
+On desktop and web, Escape from a non-editable chat target returns to the remembered Work Board when one is available. Dialogs, menus, terminals, editors, and composer inputs keep their existing Escape behavior.
+
 A key the application route leaves unhandled, a paste, and the window regaining focus go through the composer input redirect (`components/chat/composer/editor/inputRedirect.ts`) last, so text typed with nothing focused lands in a chat composer. It never takes a key a shortcut or sequence consumed.
 While active, main and Mini Chat model/effort shortcuts yield; main agent,
 expansion and dictation shortcuts also yield. Footer unmounting alone cannot

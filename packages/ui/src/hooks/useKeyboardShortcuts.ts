@@ -33,6 +33,7 @@ import { useGuestsStore } from '@/lib/guests/store';
 import { getVisibleContextRailSurfaces } from '@/lib/surfaces/registry';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { rememberWorkBoardReturn } from '@/components/workBoard/workBoardReturn';
 import { useSourceControlAuthStore } from '@/stores/useSourceControlAuthStore';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { getCycledPrimaryAgentName } from '@/components/chat/mobileControlsUtils';
@@ -74,6 +75,7 @@ export const useKeyboardShortcuts = () => {
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
   const effectiveDirectory = useEffectiveDirectory();
   const activeProject = useProjectsStore((s) => s.getActiveProject());
+  const projects = useProjectsStore((s) => s.projects);
   const { themeMode, setThemeMode } = useThemeSystem();
   const { phase: sessionPhase } = useCurrentSessionActivity();
   const abortPrimedUntilRef = React.useRef<number | null>(null);
@@ -451,6 +453,14 @@ export const useKeyboardShortcuts = () => {
       ) {
         return;
       }
+      if (!isEditableEventTarget(target) && target?.closest('[data-chat-column="main"]')
+        && !state.isMobile && !isVSCodeRuntime() && !state.isWorkBoardOpen
+        && state.workBoardProjectId && projects.some((project) => project.id === state.workBoardProjectId)) {
+        event.preventDefault();
+        rememberWorkBoardReturn();
+        useUIStore.getState().setWorkBoardOpen(true);
+        return;
+      }
       if (state.isPromptNavigatorPanelOpen) {
         event.preventDefault();
         state.setPromptNavigatorPanelOpen(false);
@@ -660,7 +670,7 @@ export const useKeyboardShortcuts = () => {
       window.removeEventListener('keydown', handleAbortEscapeKeyDown);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [armAbortPrompt, currentSessionId, dispatcher, effectiveDirectory, inputRedirect, resetAbortPriming, selectionToolbarDispatcher, sessionPhase]);
+  }, [armAbortPrompt, currentSessionId, dispatcher, effectiveDirectory, inputRedirect, projects, resetAbortPriming, selectionToolbarDispatcher, sessionPhase]);
 
   React.useEffect(() => () => resetAbortPriming(), [resetAbortPriming]);
 };

@@ -9,6 +9,7 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { useInputStore } from '@/sync/input-store';
 import { SyncProvider } from '@/sync/sync-context';
 import { useUIStore } from '@/stores/useUIStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 
 const directory = '/workspace/shortcut-test';
@@ -175,4 +176,37 @@ test('double Escape stops a running chat only from its composer', async () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     expect(aborts()).toBe(1);
   });
+});
+
+test('Escape returns from a chat to the previously visited work board', async () => {
+  const previousUI = {
+    workBoardProjectId: useUIStore.getState().workBoardProjectId,
+    isWorkBoardOpen: useUIStore.getState().isWorkBoardOpen,
+    isMobile: useUIStore.getState().isMobile,
+  };
+  const previousProjects = useProjectsStore.getState().projects;
+  useProjectsStore.setState({ projects: [{ id: 'project', path: directory }] });
+  useUIStore.setState({ workBoardProjectId: 'project', isWorkBoardOpen: false, isMobile: false });
+
+  try {
+    await withShortcutsMounted(async () => {
+      const unrelated = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      await act(async () => { document.body.dispatchEvent(unrelated); await Promise.resolve(); });
+      expect(useUIStore.getState().isWorkBoardOpen).toBe(false);
+
+      const column = document.createElement('div');
+      column.dataset.chatColumn = 'main';
+      const chat = document.createElement('button');
+      column.append(chat);
+      document.body.append(column);
+      const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      await act(async () => { chat.dispatchEvent(event); await Promise.resolve(); });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(useUIStore.getState().isWorkBoardOpen).toBe(true);
+    });
+  } finally {
+    useUIStore.setState(previousUI);
+    useProjectsStore.setState({ projects: previousProjects });
+  }
 });
