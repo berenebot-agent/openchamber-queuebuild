@@ -326,7 +326,7 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, orde
 }
 
 /**
- * The build the project is running now. Queue participation sets its blue or
+ * The build the project is running now. Queue participation sets its green or
  * amber treatment. A lease awaiting review keeps the error state.
  *
  * A build started outside the queue with an unconfirmed prompt (`resolve`) is
@@ -378,22 +378,22 @@ function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false,
     ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
     : !queueIncluded
       ? 'border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-warning)_18%,var(--surface-elevated))]'
-      : 'border-[color-mix(in_srgb,var(--status-info)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-info)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-info)_18%,var(--surface-elevated))]';
+      : 'border-[color-mix(in_srgb,var(--status-success)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-success)_18%,var(--surface-elevated))]';
   const row = <WorkBoardQueueTooltip model={model} content={content}>
     <button type="button" onClick={onOpen}
     className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
       + surface + (canChangeMode ? ' pe-9' : '')}
     aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })}>
-    {!needsReview && !checking && !forced && !waiting && <span aria-hidden="true" className="oc-build-stripes pointer-events-none absolute inset-0" />}
+    {!needsReview && !checking && !unavailable && !waiting && <span aria-hidden="true" className={'oc-build-stripes pointer-events-none absolute inset-0 ' + (queueIncluded ? 'oc-build-stripes-queue' : 'oc-build-stripes-outside')} />}
     <span className="relative flex min-w-0 items-center gap-2">
-      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : !queueIncluded || waiting ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-info)_26%,transparent)] text-[var(--status-info)]')}>
+      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : !queueIncluded || waiting ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-success)_26%,transparent)] text-[var(--status-success-text)]')}>
         <Icon name={needsReview ? 'alert' : forced ? 'rocket' : waiting ? ANSWER_PRESENTATION[waiting].icon : 'terminal-box'} className="size-3.5" />
       </span>
       <span className="min-w-0 flex-1">
         <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
         <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : waiting ? ANSWER_PRESENTATION[waiting].labelKey : queueMode === 'separate' ? 'workBoard.outsideQueue' : forced ? (counts ? 'workBoard.countsInQueue' : 'workBoard.outsideQueue') : 'workBoard.buildingNow')}</span>
       </span>
-      {!needsReview && !checking && !waiting && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (queueIncluded ? 'text-[var(--status-info)]' : 'text-[var(--status-warning-text)]')}>
+      {!needsReview && !checking && !waiting && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (queueIncluded ? 'text-[var(--status-success-text)]' : 'text-[var(--status-warning-text)]')}>
         <Spinner className="size-3 text-[var(--status-success)]" />{t('workBoard.active')}
       </span>}
     </span>
@@ -462,7 +462,7 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
   // The card and the notice under it read the same inputs, so the amber
   // treatment and the notice it belongs to can never disagree.
   const feedback = useWorkBoardCardFeedback(card, activity, statusUnknown, needsReview);
-  // A plan turn running now: its card carries the band and the green treatment,
+  // A plan turn running now: its card carries the band and the blue treatment,
   // and it is one of the two states that take the larger box. A turn waiting for
   // the user's answer is not running, however busy OpenCode reports it.
   const activePlan = lane === 'plan' && Boolean(activity?.busy) && !waitingFor;
@@ -504,7 +504,7 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
         + (activePlan ? '' : 'border-border ')
         + (large ? 'px-2.5 py-2 ' : 'px-2.5 py-1.5 ')}
     />}>
-    {activePlan && <span aria-hidden="true" className="oc-build-stripes oc-build-stripes-plan pointer-events-none absolute inset-0" />}
+    {(activePlan || activeBuild) && <span aria-hidden="true" className={'oc-build-stripes pointer-events-none absolute inset-0 ' + (activePlan ? 'oc-build-stripes-plan' : buildInQueue ? 'oc-build-stripes-queue' : 'oc-build-stripes-outside')} />}
     <div className="relative">
     <div className="flex min-w-0 items-center gap-1">
       <WorkBoardCardMark card={card} waitingFor={waitingFor} />

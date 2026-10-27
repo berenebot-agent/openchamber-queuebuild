@@ -2195,7 +2195,7 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
    layout, so it can sit on a card that stays mounted. 45deg paints the band
    as a construction hazard stripe, and the positive drift carries it left to
    right across the card. The band colour is a variable so the same drift can
-   also mark a running plan turn in green. Reduced motion keeps the band as a
+   mark each running state in its own colour. Reduced motion keeps the band as a
    static stripe, which still separates it from a settled row. */
 .oc-build-stripes {
   --oc-stripe-color: var(--status-info);
@@ -2215,6 +2215,14 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
   --oc-stripe-color: var(--status-info);
 }
 
+.oc-build-stripes-queue {
+  --oc-stripe-color: var(--status-success);
+}
+
+.oc-build-stripes-outside {
+  --oc-stripe-color: var(--status-warning);
+}
+
 /* A card that needs the user: failed or stopped unread turns, an unavailable
    status, or a lease parked for review. The notice line under the card already
    says so in words; tinting the card itself makes it read as a problem card at
@@ -2226,7 +2234,7 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
   background-color: color-mix(in srgb, var(--status-warning) 10%, var(--surface-elevated));
 }
 
-/* A plan turn running now, and the same green treatment on a working card that
+/* A plan turn running now, and the same blue treatment on a working card that
    also has a notice: the card takes the colour of the band it already carries,
    so a plan still being worked reads as active without being taller than the
    build card beside it (on the desktop board, where the lanes sit side by side;
@@ -2234,8 +2242,8 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
    outranks the notice; the notice text
    still says what is wrong. */
 [data-work-board-working] {
-  border-color: color-mix(in srgb, var(--status-success) 42%, transparent);
-  background-color: color-mix(in srgb, var(--status-success) 12%, var(--surface-elevated));
+  border-color: color-mix(in srgb, var(--status-info) 42%, transparent);
+  background-color: color-mix(in srgb, var(--status-info) 12%, var(--surface-elevated));
 }
 
 [data-work-board-build-active][data-work-board-build-in-queue] {

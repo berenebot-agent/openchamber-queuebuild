@@ -103,6 +103,7 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(lane('Build queue').querySelector('button[aria-label="Actions for direct-a"]')).not.toBeNull();
     expect(lane('Build queue').querySelector('button[aria-label="Actions for direct-b"]')).not.toBeNull();
     expect(lane('Build queue').querySelector('button[aria-label^="Open the build running now:"]')?.className).toContain('var(--status-warning)');
+    expect(openButtons()[0].querySelector('.oc-build-stripes-outside')).not.toBeNull();
     expect(lane('Plan').textContent).toContain('planning');
     // A running plan turn carries the moving blue plan stripe.
     const planCard = lane('Plan').querySelector('button[title="planning"]')!.closest('article')!;
@@ -150,6 +151,8 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(lane('Build queue').querySelector('button[aria-label="Cancel direct-a"]')).toBeNull();
     expect(lane('Build queue').textContent).not.toContain('Continue queue');
     expect(lane('Build queue').querySelectorAll('.oc-build-stripes')).toHaveLength(1);
+    expect(openButtons()[0].className).toContain('var(--status-success)');
+    expect(openButtons()[0].querySelector('.oc-build-stripes-queue')).not.toBeNull();
     expect(lane('Build queue').querySelector('.oc-build-stripes-plan')).toBeNull();
     expect(lane('Build queue').querySelectorAll('button[aria-label="Cancel direct-b"]')).toHaveLength(1);
     expect(lane('Build queue').querySelector('h2')?.textContent).toBe('Build queue2');
@@ -268,6 +271,7 @@ test('a session waiting for an answer stops reading as active and names the ask'
     expect(planCard().querySelector('use[href="#oc-question"]')).not.toBeNull();
     expect(buildCard('outside').hasAttribute('data-work-board-build-active')).toBe(true);
     expect(buildCard('outside').hasAttribute('data-work-board-build-in-queue')).toBe(false);
+    expect(buildCard('outside').querySelector('.oc-build-stripes-outside')).not.toBeNull();
     // The running lease is the same session state: no band, no Active pill.
     expect(leaseRow().querySelector('.oc-build-stripes')).toBeNull();
     expect(leaseRow().textContent).not.toContain('Active');
@@ -284,6 +288,7 @@ test('a session waiting for an answer stops reading as active and names the ask'
     expect(planCard().hasAttribute('data-work-board-working')).toBe(true);
     expect(planCard().querySelector('.oc-build-stripes-plan')).not.toBeNull();
     expect(buildCard('lease').hasAttribute('data-work-board-build-in-queue')).toBe(true);
+    expect(buildCard('lease').querySelector('.oc-build-stripes-queue')).not.toBeNull();
     expect(buildCard('outside').hasAttribute('data-work-board-build-in-queue')).toBe(false);
     expect(planCard().textContent).not.toContain('Pending question');
     expect(leaseRow().querySelector('.oc-build-stripes')).not.toBeNull();

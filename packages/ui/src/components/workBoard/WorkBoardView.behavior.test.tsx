@@ -590,8 +590,10 @@ test('the force confirmation asks how the queue treats the build', async () => {
     expect(queue.textContent).toContain('Outside queue');
     const counted = queue.querySelector('button[aria-label="Open the build running now: Session s2"]')!;
     const outside = queue.querySelector('button[aria-label="Open the build running now: Session s3"]')!;
-    expect(counted.className).toContain('var(--status-info)');
+    expect(counted.className).toContain('var(--status-success)');
     expect(outside.className).toContain('var(--status-warning)');
+    expect(counted.querySelector('.oc-build-stripes-queue')).not.toBeNull();
+    expect(outside.querySelector('.oc-build-stripes-outside')).not.toBeNull();
 
     // The confirmation offers both choices, and the queue's own button opens it.
     await click('Force Session s1');
