@@ -437,7 +437,7 @@ function WorkBoardLaneColumn({ lane, droppable, count, mobile, children }: {
  * and reorders it inside one, and dropping another card on it is how a place in
  * the middle of a lane is named.
  */
-function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnknown, needsReview, title, large, mobile, draggable, loading, error, menu, actions, onOpenCard, onAcknowledge }: {
+function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnknown, needsReview, buildInQueue, title, large, mobile, draggable, loading, error, menu, actions, onOpenCard, onAcknowledge }: {
   card: WorkBoardCard;
   lane: WorkBoardLane;
   activity: WorkBoardActivity | undefined;
@@ -445,6 +445,7 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
   checking: boolean;
   statusUnknown: boolean;
   needsReview: boolean;
+  buildInQueue: boolean;
   title: string;
   large: boolean;
   mobile: boolean;
@@ -465,6 +466,7 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
   // and it is one of the two states that take the larger box. A turn waiting for
   // the user's answer is not running, however busy OpenCode reports it.
   const activePlan = lane === 'plan' && Boolean(activity?.busy) && !waitingFor;
+  const activeBuild = lane === 'build' && Boolean(activity?.busy) && !waitingFor;
   const waitingLabel = waitingFor ? t(ANSWER_PRESENTATION[waitingFor].labelKey) : '';
   const sortable = useSortable({ id: card.id, disabled: !draggable });
   const droppable = useDroppable({ id: card.id, disabled: !draggable });
@@ -493,6 +495,8 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
       style={{ transform: CSS.Translate.toString(sortable.transform), transition: sortable.transition }}
       data-work-board-feedback={feedback ?? undefined}
       data-work-board-working={activePlan ? '' : undefined}
+      data-work-board-build-active={activeBuild ? '' : undefined}
+      data-work-board-build-in-queue={activeBuild && buildInQueue ? '' : undefined}
       data-work-board-waiting={waitingFor ?? undefined}
       data-work-board-dragging={dragging ? '' : undefined}
       className={'group relative overflow-hidden rounded-md border bg-surface-elevated cursor-grab select-none active:cursor-grabbing '
@@ -1363,6 +1367,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
                 checking={checking}
                 statusUnknown={statusUnknown}
                 needsReview={Boolean(queueStateFor(card)?.needsReview)}
+                buildInQueue={Boolean(queueStateFor(card)?.active || forcedBuilds.some(build => build.sessionId === card.sessionId && build.counts))}
                 title={title}
                 large={large}
                 mobile={mobile}

@@ -19,7 +19,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 /**
  * Live builds the board has no queue entry for. The board renders them once per
  * session as outside the queue, with an action to include them. A Plan turn
- * running gets the green band instead of the blue one.
+ * running gets the blue band.
  */
 test('live builds without queue entries remain visible and reconcile without duplicates', async () => {
   const dom = new Window({ url: 'http://localhost' });
@@ -104,8 +104,7 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(lane('Build queue').querySelector('button[aria-label="Actions for direct-b"]')).not.toBeNull();
     expect(lane('Build queue').querySelector('button[aria-label^="Open the build running now:"]')?.className).toContain('var(--status-warning)');
     expect(lane('Plan').textContent).toContain('planning');
-    // A running plan turn gets the same moving band as a running build, but in
-    // green: the plan card carries the plan stripe and the build card does not.
+    // A running plan turn carries the moving blue plan stripe.
     const planCard = lane('Plan').querySelector('button[title="planning"]')!.closest('article')!;
     expect(planCard.querySelector('.oc-build-stripes-plan')).not.toBeNull();
     expect(planCard.hasAttribute('data-work-board-working')).toBe(true);
@@ -216,17 +215,20 @@ test('a session waiting for an answer stops reading as active and names the ask'
   const notifications = useNotificationStore.getState();
   const sessionUI = useSessionUIStore.getState();
   const sessionDisplay = useSessionDisplayStore.getState();
-  const sessionRecords = ['planning', 'lease'].map(id => ({
+  const sessionRecords = ['planning', 'lease', 'outside'].map(id => ({
     id, directory: '/repo', projectID: 'project', title: id,
     cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 1, updated: Date.now() },
   }));
   const card = snapshotCard({ id: 'session:planning', lane: 'plan', text: 'planning', sessionId: 'planning', stage: 'plan' });
+  const queuedBuildCard = snapshotCard({ id: 'session:lease', lane: 'build', text: 'lease', sessionId: 'lease', stage: 'done' });
+  const outsideBuildCard = snapshotCard({ id: 'session:outside', lane: 'build', text: 'outside', sessionId: 'outside', stage: 'done' });
   const queue = { active: { sessionId: 'lease', itemId: 'lease', startedAt: 1, needsReview: false, retryAvailable: false, content: null, model: null } };
-  // Both wait on a question while OpenCode still reports their turns busy.
+  // The plan and queued build wait on a question while their turns stay busy;
+  // an outside build remains actively running.
   let snapshot: WorkBoardSnapshot = makeSnapshot({
-    cards: [card],
-    activities: { planning: { busy: true, messages: [] }, lease: { busy: true, messages: [] } },
+    cards: [card, queuedBuildCard, outsideBuildCard],
+    activities: { planning: { busy: true, messages: [] }, lease: { busy: true, messages: [] }, outside: { busy: true, messages: [] } },
     waitingFor: { planning: 'question', lease: 'question' },
     queue,
   });
@@ -251,6 +253,7 @@ test('a session waiting for an answer stops reading as active and names the ask'
   const root = createRoot(container);
   const lane = (name: string) => container.querySelector(`section[aria-label="${name}"]`)!;
   const planCard = () => lane('Plan').querySelector('button[title="planning"]')!.closest('article')!;
+  const buildCard = (title: string) => container.querySelector('section[data-work-board-lane="build"]')!.querySelector(`button[title="${title}"]`)!.closest('article')!;
   const leaseRow = () => lane('Build queue').querySelector('button[aria-label^="Open the build running now:"]')!;
   const refresh = async () => {
     await act(async () => { dom.document.dispatchEvent(new dom.Event('visibilitychange')); await sleep(30); });
@@ -263,6 +266,8 @@ test('a session waiting for an answer stops reading as active and names the ask'
     expect(planCard().querySelector('.oc-build-stripes-plan')).toBeNull();
     expect(planCard().textContent).toContain('Pending question');
     expect(planCard().querySelector('use[href="#oc-question"]')).not.toBeNull();
+    expect(buildCard('outside').hasAttribute('data-work-board-build-active')).toBe(true);
+    expect(buildCard('outside').hasAttribute('data-work-board-build-in-queue')).toBe(false);
     // The running lease is the same session state: no band, no Active pill.
     expect(leaseRow().querySelector('.oc-build-stripes')).toBeNull();
     expect(leaseRow().textContent).not.toContain('Active');
@@ -271,13 +276,15 @@ test('a session waiting for an answer stops reading as active and names the ask'
 
     // The answer arrives: the same busy turn reads as running again.
     snapshot = makeSnapshot({
-      cards: [card],
+      cards: [card, queuedBuildCard, outsideBuildCard],
       activities: snapshot.activities,
       queue,
     });
     await refresh();
     expect(planCard().hasAttribute('data-work-board-working')).toBe(true);
     expect(planCard().querySelector('.oc-build-stripes-plan')).not.toBeNull();
+    expect(buildCard('lease').hasAttribute('data-work-board-build-in-queue')).toBe(true);
+    expect(buildCard('outside').hasAttribute('data-work-board-build-in-queue')).toBe(false);
     expect(planCard().textContent).not.toContain('Pending question');
     expect(leaseRow().querySelector('.oc-build-stripes')).not.toBeNull();
     expect(leaseRow().textContent).toContain('Active');

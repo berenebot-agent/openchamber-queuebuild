@@ -181,12 +181,13 @@ build, the waiting rows, a running plan turn and any card showing a notice share
 one box, while settled To-do, Plan, Build complete and Done cards stay compact. Each card that
 can show a status reserves one line for it, so a notice arriving or leaving does
 not change a card's height. A card's amber notice treatment lives on the card
-itself (`data-work-board-feedback`), with a running plan card keeping its green
-treatment through `data-work-board-working`; both rules are in `index.css`.
+itself (`data-work-board-feedback`). Running plan cards use a blue moving band;
+active build cards are green when queue-counted and amber outside the queue.
+Their treatments are in `index.css`.
 
 A session waiting for the user's answer is not working, however busy OpenCode
 reports its turn. `snapshot.waitingFor` names the ask per session, and the board
-drops the moving band, the **Active** pill and the green working treatment for
+drops the moving band, the **Active** pill and the working treatment for
 it, tints the card through `data-work-board-waiting`, and names the ask — the
 sidebar's own "Pending question" or "Permission required" — in the card's status
 line and on the queue column's acting row. The mark before the title becomes the

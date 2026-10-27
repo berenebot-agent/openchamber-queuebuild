@@ -2210,10 +2210,9 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
   animation: oc-build-stripes-drift 0.9s linear infinite;
 }
 
-/* A running plan turn, not a build: the same hazard stripe reading in green so
-   the two active states are told apart at a glance. */
+/* A running plan turn is distinct from a running build. */
 .oc-build-stripes-plan {
-  --oc-stripe-color: var(--status-success);
+  --oc-stripe-color: var(--status-info);
 }
 
 /* A card that needs the user: failed or stopped unread turns, an unavailable
@@ -2237,6 +2236,16 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
 [data-work-board-working] {
   border-color: color-mix(in srgb, var(--status-success) 42%, transparent);
   background-color: color-mix(in srgb, var(--status-success) 12%, var(--surface-elevated));
+}
+
+[data-work-board-build-active][data-work-board-build-in-queue] {
+  border-color: color-mix(in srgb, var(--status-success) 42%, transparent);
+  background-color: color-mix(in srgb, var(--status-success) 12%, var(--surface-elevated));
+}
+
+[data-work-board-build-active]:not([data-work-board-build-in-queue]) {
+  border-color: color-mix(in srgb, var(--status-warning) 42%, transparent);
+  background-color: color-mix(in srgb, var(--status-warning) 12%, var(--surface-elevated));
 }
 
 /* A card whose session waits for the user's answer: the turn is still busy in
