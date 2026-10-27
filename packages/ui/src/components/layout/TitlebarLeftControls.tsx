@@ -10,6 +10,7 @@ import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/short
 import { invokeDesktop } from '@/lib/desktop';
 import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 import { publishTitlebarControlsWidth } from './titlebarControlsWidth';
+import { rememberWorkBoardReturn } from '@/components/workBoard/workBoardReturn';
 
 // Like the icon rail: muted at rest, full strength on hover or while what it
 // controls is on, and no hover fill.
@@ -18,7 +19,8 @@ const ICON_BUTTON_CLASS =
 
 /**
  * Persistent titlebar controls at the start of the line (app menu on frameless
- * chrome + sidebar toggle): top left, or top right in a right-to-left locale.
+ * chrome, the Work board, then the sidebar toggle): top left, or top right in a
+ * right-to-left locale.
  *
  * Rendered exactly once as an absolutely-positioned overlay above both the
  * sidebar and the header, so the buttons never migrate / re-mount between the
@@ -33,10 +35,17 @@ export const TitlebarLeftControls: React.FC = () => {
   const { t, locale, direction } = useI18n();
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
+  const isWorkBoardOpen = useUIStore((state) => state.isWorkBoardOpen);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const clusterRef = React.useRef<HTMLDivElement | null>(null);
 
   const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_sidebar', shortcutOverrides));
+  // The board is the app's home: it leads the cluster, and opens on the project
+  // the session on screen runs in.
+  const handleOpenWorkBoard = React.useCallback(() => {
+    rememberWorkBoardReturn();
+    useUIStore.getState().setWorkBoardOpen(true);
+  }, []);
   // Starting a session shares the titlebar row with the sidebar toggle, so it
   // stays in one place whether the sidebar is open or collapsed.
   const handleNewSession = React.useCallback(() => {
@@ -125,6 +134,24 @@ export const TitlebarLeftControls: React.FC = () => {
             </TooltipContent>
           </Tooltip>
         ) : null}
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleOpenWorkBoard}
+              data-work-board-open=""
+              aria-label={t('workBoard.title')}
+              aria-pressed={isWorkBoardOpen}
+              className={cn(ICON_BUTTON_CLASS, 'shrink-0', isWorkBoardOpen && 'text-foreground')}
+            >
+              <Icon name="route" className="h-4 w-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('workBoard.title')}</p>
+          </TooltipContent>
+        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>

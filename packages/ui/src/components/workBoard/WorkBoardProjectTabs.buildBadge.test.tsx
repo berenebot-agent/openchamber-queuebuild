@@ -46,6 +46,7 @@ test('a project tab carries its own build count, or an error mark, and nothing w
       asks={new Map()}
       onSelect={() => {}}
       onAdd={() => {}}
+      onAddProject={() => {}}
       onClose={() => {}}
       onReorder={() => {}}
     /></I18nProvider>));
@@ -107,6 +108,7 @@ test('a paused project reads differently from a queue that could not be read', a
       asks={new Map()}
       onSelect={() => {}}
       onAdd={() => {}}
+      onAddProject={() => {}}
       onClose={() => {}}
       onReorder={() => {}}
     /></I18nProvider>));
@@ -163,6 +165,7 @@ test('the spinner steps only when the appearance setting asks for animation', as
     asks={new Map()}
     onSelect={() => {}}
     onAdd={() => {}}
+    onAddProject={() => {}}
     onClose={() => {}}
     onReorder={() => {}}
   /></I18nProvider>);
@@ -213,6 +216,7 @@ test('the accessible label names the project and its count', async () => {
       asks={new Map()}
       onSelect={() => {}}
       onAdd={() => {}}
+      onAddProject={() => {}}
       onClose={() => {}}
       onReorder={() => {}}
     /></I18nProvider>));

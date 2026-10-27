@@ -53,6 +53,21 @@ async function renderControls() {
 }
 
 describe('TitlebarLeftControls', () => {
+  test('leads with the Work board and puts the sidebar toggle right after it', async () => {
+    useUIStore.getState().setSidebarOpen(true);
+    await renderControls();
+
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('button')];
+    const boardIndex = buttons.findIndex(button => button.hasAttribute('data-work-board-open'));
+    const sidebarIndex = buttons.findIndex(button => button.hasAttribute('data-sidebar-toggle'));
+    expect(boardIndex).toBe(0);
+    expect(sidebarIndex).toBe(1);
+
+    await act(async () => { buttons[boardIndex].click(); });
+    expect(useUIStore.getState().isWorkBoardOpen).toBe(true);
+    expect(buttons[boardIndex].getAttribute('aria-pressed')).toBe('true');
+  });
+
   test('caps the overlay to the sidebar width when the sidebar is open', async () => {
     useUIStore.getState().setSidebarOpen(true);
     await renderControls();
@@ -71,8 +86,7 @@ describe('TitlebarLeftControls', () => {
     expect(overlay!.style.maxWidth).toBe('');
   });
 
-  test('lets the labelled New session button shrink so its label truncates', async () => {
-    useUIStore.getState().setSidebarOpen(true);
+  test('lets the labelled New session button shrink so its label truncates', async () => {    useUIStore.getState().setSidebarOpen(true);
     await renderControls();
 
     const button = document.querySelector<HTMLButtonElement>('button.w-auto');

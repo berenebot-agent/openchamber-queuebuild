@@ -38,6 +38,8 @@ const projects = [
 
 let reorderCalls: Array<[string, string]> = [];
 
+let addProjectCalls = 0;
+
 function Harness({ initialProjectIds = ['alpha'] }: { initialProjectIds?: string[] }) {
   const [openProjectIds, setOpenProjectIds] = React.useState(initialProjectIds);
   const [activeProjectId, setActiveProjectId] = React.useState(initialProjectIds[0] ?? '');
@@ -53,6 +55,7 @@ function Harness({ initialProjectIds = ['alpha'] }: { initialProjectIds?: string
       setOpenProjectIds(current => [...current, projectId]);
       setActiveProjectId(projectId);
     }}
+    onAddProject={() => { addProjectCalls += 1; }}
     onClose={projectId => {
       const next = removeWorkBoardProjectTab(openProjectIds, activeProjectId, projectId);
       setOpenProjectIds(next.projectIds);
@@ -76,6 +79,7 @@ async function renderTabs(node: React.ReactElement = <Harness />) {
 afterEach(() => {
   container.replaceChildren();
   reorderCalls = [];
+  addProjectCalls = 0;
 });
 
 test('project tabs add, switch, close, and allow the last tab to be hidden', async () => {
@@ -106,6 +110,21 @@ test('project tabs add, switch, close, and allow the last tab to be hidden', asy
   await act(async () => { closeBeta.click(); });
   expect(container.querySelectorAll('nav button[aria-current="page"]')).toHaveLength(0);
   expect(container.querySelector<HTMLButtonElement>('button[aria-label="Add project tab"]')?.disabled).toBe(false);
+  await act(async () => root.unmount());
+});
+
+test('the add menu adds an open project or a folder that is not a project yet', async () => {
+  const root = await renderTabs(<Harness initialProjectIds={['alpha', 'beta']} />);
+  // Both projects already have tabs, so only the folder item is left; the
+  // control must still open rather than disabling itself.
+  const addButton = container.querySelector<HTMLButtonElement>('button[aria-label="Add project tab"]');
+  if (!addButton) throw new Error('Missing add project tab button');
+  expect(addButton.disabled).toBe(false);
+  await act(async () => { addButton.click(); });
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  expect(items).toHaveLength(1);
+  await act(async () => { items[0].click(); });
+  expect(addProjectCalls).toBe(1);
   await act(async () => root.unmount());
 });
 
@@ -194,6 +213,7 @@ test('a tab carries a question, a permission and its build load together', async
     asks={new Map([['alpha', { question: true, permission: true }]])}
     onSelect={() => {}}
     onAdd={() => {}}
+    onAddProject={() => {}}
     onClose={() => {}}
     onReorder={() => {}}
   /></I18nProvider>);

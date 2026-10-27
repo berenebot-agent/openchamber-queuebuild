@@ -31,7 +31,8 @@ not classify sessions itself.
 - `workBoardSnapshot.fixture.ts` — a test fixture that builds a snapshot the way
   the server projection does.
 - `WorkBoardProjectTabs.tsx`, `workBoardProjectState.ts` — project tab strip and
-  the project's display name.
+  the project's display name. The strip's `+` opens a project already on the
+  board or the folder picker, which adds a new project.
 - `WorkBoardProjectMarks.tsx` — the marks a board carries (pending asks, then the
   build queue), in one place, so the desktop tab strip and the phone's project
   picker read a board the same way.
@@ -185,6 +186,30 @@ in Settings → Work board. The header's Settings button opens this board's
 project page on its Work board section, where the project's own enablement, Git
 behavior and repository choices sit; the instance defaults stay on Settings →
 Work board.
+
+## The board leads the app
+
+The Work board button leads the titlebar cluster on every screen
+(`components/layout/TitlebarLeftControls.tsx`), ahead of the sidebar toggle, and
+opens the board on the project of the session on screen
+(`rememberWorkBoardReturn`). The board does not render its own title row or its
+own close: it keeps the app header's session tabs and controls on the top row
+and names itself nowhere, so nothing stacks two headers above the lanes.
+
+### Why the board sits under the app header rather than replacing it
+
+An earlier version gave the board the whole header (its name and a back arrow
+in place of the session tabs) and drew a second header of its own under it. Two
+rows of chrome pushed the session tabs off the top of the window and printed
+the board's name twice. The tabs stay: they are how a session is picked, and
+they now sit above the board like they sit above a chat.
+
+### Why the `+` menu also adds a folder
+
+The `+` lists the open tabs' projects and, after a separator, the folder picker
+the sidebar and command palette open. A folder picked there becomes a project
+the normal way, and its tab follows from the project list, so a project added
+from the board is indistinguishable from one added anywhere else.
 
 ## Search
 

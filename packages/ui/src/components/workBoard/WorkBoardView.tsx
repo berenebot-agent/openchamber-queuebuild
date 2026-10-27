@@ -42,6 +42,7 @@ import { readRecentWorkBoardProjects, rememberWorkBoardProjectAccess } from './w
 import { WorkBoardMobileProjectPicker } from './WorkBoardMobileProjectPicker';
 import { removeWorkBoardProjectTab, reorderWorkBoardProjectTabs } from './workBoardProjectState';
 import { requestTodoLoad, useWorkBoardSavedTodo } from './workBoardSavedTodo';
+import { sessionEvents } from '@/lib/sessionEvents';
 
 const lanes: WorkBoardLane[] = ['todo', 'plan', 'queue', 'build', 'done'];
 
@@ -1161,10 +1162,13 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
 
   return <div className={mobile ? 'flex h-full min-h-0 flex-col bg-background' : 'absolute inset-0 z-10 flex flex-col bg-background'} aria-label={t('workBoard.title')}>
     {/* items-end + pt-3-only puts the project tabs on the header's lower edge, so
-        a selected tab can flow into the board; the title and controls carry their
+        a selected tab can flow into the board; the controls carry their
         own bottom padding and stay vertically centred. The header owns a surface
         because the selected tab is filled with the board's colour — against the
         bare board background the connection would read as an outline.
+        The board names itself nowhere here: the titlebar's Work board button and
+        the window title already do, and a title row above the tabs would push
+        them into a second row under the app header.
         A phone has no room for a tab strip and five lanes at once, so the tabs
         become a lane picker whose counts show where the work is. The fullscreen
         surface already carries the board's title and its close. */}
@@ -1175,7 +1179,6 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           header's own border, so a selected tab's fill paints over it and the
           line breaks under that tab alone. The strip is lifted above it. */}
       {!mobile && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border" />}
-      {!mobile && <h1 className="pb-3 text-lg font-semibold">{t('workBoard.title')}</h1>}
       {mobile ? <>
         <WorkBoardMobileProjectPicker
           projects={projects}
@@ -1215,6 +1218,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           activeProjectId: nextProjectId,
         })}
         onAdd={addProjectTab}
+        onAddProject={() => sessionEvents.requestDirectoryDialog()}
         onClose={closeProjectTab}
         onReorder={reorderProjectTab}
       />}
@@ -1246,9 +1250,6 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         <Button size="icon" variant="ghost" aria-label={t('workBoard.settings')} title={t('workBoard.settings')}
           onClick={() => openBoardSettings()}>
           <Icon name="settings-3" className="size-4" />
-        </Button>
-        <Button size="icon" variant="ghost" onClick={() => useUIStore.getState().setWorkBoardOpen(false)} aria-label={t('workBoard.cancel')} title={t('workBoard.cancel')}>
-          <Icon name="close" className="size-4" />
         </Button>
       </div>}
     </header>

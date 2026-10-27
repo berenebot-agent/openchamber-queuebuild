@@ -1,7 +1,5 @@
 import React from 'react';
 import { Header } from './Header';
-import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/icon/Icon';
 import { Sidebar } from './Sidebar';
 import { SidebarTopBar } from './SidebarTopBar';
 import { useSidebarPeek } from './useSidebarPeek';
@@ -27,7 +25,6 @@ import { ProjectActionsProvider } from './ProjectActionsProvider';
 import { RunAutoFusion } from '@/lib/multirun/autoFusion';
 
 import { useUIStore } from '@/stores/useUIStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSpacesStore } from '@/lib/spaces/spaces-store';
 import { useUpdatePolling } from '@/hooks/useUpdatePolling';
@@ -36,7 +33,6 @@ import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { useOnDemandComponent } from '@/hooks/useOnDemandComponent';
 import { useSessionListSync } from '@/components/session/sidebar/list/useSessionListSync';
-import { rememberWorkBoardReturn } from '@/components/workBoard/workBoardReturn';
 import { setChatCovered } from './rightSlot';
 
 import { ChatView } from '@/components/views/ChatView';
@@ -125,12 +121,6 @@ export const MainLayout: React.FC = () => {
     const isUsageStatsPageOpen = useUIStore((state) => state.isUsageStatsPageOpen);
     const isSourceBoardOpen = useUIStore((state) => state.isSourceBoardOpen);
     const isWorkBoardOpen = useUIStore((state) => state.isWorkBoardOpen);
-    const workBoardProjectId = useUIStore((state) => state.workBoardProjectId);
-    // The remembered board is only usable while its project still exists. The
-    // project list is seeded from the last confirmed server list before it
-    // loads again, so this holds on the first frame after a reload.
-    const projects = useProjectsStore((state) => state.projects);
-    const hasWorkBoardProject = workBoardProjectId !== null && projects.some((project) => project.id === workBoardProjectId);
     const worktreesPageProjectId = useUIStore((state) => state.worktreesPageProjectId);
     // The spaces page exists only while the feature's switch is on.
     const isSpacesPageOpen = useUIStore((state) => state.isolatedSpacesEnabled && state.spacesPageProjectId !== null);
@@ -234,28 +224,9 @@ export const MainLayout: React.FC = () => {
                                                 <ErrorBoundary><ChatView active={!isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary>
                                             </div>
                                             {/* A board the user has opened is a place they can always
-                                                return to, from any session — not only the one a card
-                                                launched. `workBoardProjectId` records that board, so
-                                                the button appears once a board has been visited.
-                                                Clicking it lands on the project of the session it was
-                                                clicked from, not on the tab the board was left on. */}
-                                            {!isSurfacePageOpen && !isSettingsDialogOpen && hasWorkBoardProject && (
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="xs"
-                                                    className="absolute inset-s-3 top-3 z-30 gap-1.5 border-border/70 bg-background/95 shadow-sm backdrop-blur-sm"
-                                                    onClick={() => {
-                                                        rememberWorkBoardReturn();
-                                                        useUIStore.getState().setWorkBoardOpen(true);
-                                                    }}
-                                                    aria-label="Back to Work Board"
-                                                    title="Back to Work Board"
-                                                >
-                                                    <Icon name="arrow-left" className="size-3.5" />
-                                                    Work Board
-                                                </Button>
-                                            )}
+                                                return to: the Work board button leads the titlebar on
+                                                every screen, on the project of the session it is clicked
+                                                from rather than the tab the board was left on. */}
                                             <ErrorBoundary><OnDemand needed={isRunOverviewOpen} load={loadRunOverview} onFailure={closeMainSurfaces} /></ErrorBoundary>
                                             <ErrorBoundary><OnDemand needed={isScheduledTasksPageOpen} load={loadScheduledTasksDialog} onFailure={closeMainSurfaces} /></ErrorBoundary>
                                             <ErrorBoundary><OnDemand needed={isArchivePageOpen} load={loadArchiveView} onFailure={closeMainSurfaces} /></ErrorBoundary>

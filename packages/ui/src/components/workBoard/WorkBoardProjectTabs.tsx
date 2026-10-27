@@ -18,7 +18,7 @@ import {
 import { CSS as DndCSS } from '@dnd-kit/utilities';
 
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -45,6 +45,8 @@ type WorkBoardProjectTabsProps = {
   asks: Map<string, WorkBoardTabAsks>;
   onSelect: (projectId: string) => void;
   onAdd: (projectId: string) => void;
+  /** Open the folder picker; a folder picked there becomes a project and a tab. */
+  onAddProject: () => void;
   onClose: (projectId: string) => void;
   /** A tab was dropped on another: the two ids' new order, left to right. */
   onReorder: (activeProjectId: string, overProjectId: string) => void;
@@ -177,6 +179,7 @@ export function WorkBoardProjectTabs({
   asks,
   onSelect,
   onAdd,
+  onAddProject,
   onClose,
   onReorder,
 }: WorkBoardProjectTabsProps) {
@@ -242,7 +245,7 @@ export function WorkBoardProjectTabs({
             type="button"
             size="icon"
             variant="ghost"
-            disabled={disabled || availableProjects.length === 0}
+            disabled={disabled}
             aria-label={t('workBoard.addProjectTab')}
             title={t('workBoard.addProjectTab')}
             // Bottom-aligned with the tabs it follows, so it reads as the next
@@ -256,6 +259,14 @@ export function WorkBoardProjectTabs({
           {availableProjects.map(project => <DropdownMenuItem key={project.id} onClick={() => onAdd(project.id)}>
             {projectLabel(project)}
           </DropdownMenuItem>)}
+          {/* A folder that is not a project yet. The same picker the sidebar and
+              the command palette open, so a project added here is no different
+              from one added there; its tab follows from the project list. */}
+          {availableProjects.length ? <DropdownMenuSeparator /> : null}
+          <DropdownMenuItem onClick={onAddProject}>
+            <Icon name="folder-add" className="me-1 size-4" />
+            {t('workBoard.addProjectFolder')}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </nav>
