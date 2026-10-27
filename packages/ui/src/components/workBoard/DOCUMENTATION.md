@@ -192,7 +192,9 @@ Work board.
 The Work board button leads the titlebar cluster on every screen
 (`components/layout/TitlebarLeftControls.tsx`), ahead of the sidebar toggle, and
 opens the board on the project of the session on screen
-(`rememberWorkBoardReturn`). The board does not render its own title row or its
+(`rememberWorkBoardReturn`). A chip over the chat
+(`MainLayout`, shown on chats once a board has been visited) is the same way
+back from the chat itself. The board does not render its own title row or its
 own close: it keeps the app header's session tabs and controls on the top row
 and names itself nowhere, so nothing stacks two headers above the lanes.
 

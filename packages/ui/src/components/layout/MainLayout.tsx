@@ -1,5 +1,7 @@
 import React from 'react';
 import { Header } from './Header';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/icon/Icon';
 import { Sidebar } from './Sidebar';
 import { SidebarTopBar } from './SidebarTopBar';
 import { useSidebarPeek } from './useSidebarPeek';
@@ -25,6 +27,7 @@ import { ProjectActionsProvider } from './ProjectActionsProvider';
 import { RunAutoFusion } from '@/lib/multirun/autoFusion';
 
 import { useUIStore } from '@/stores/useUIStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSpacesStore } from '@/lib/spaces/spaces-store';
 import { useUpdatePolling } from '@/hooks/useUpdatePolling';
@@ -34,6 +37,8 @@ import { cn } from '@/lib/utils';
 import { useOnDemandComponent } from '@/hooks/useOnDemandComponent';
 import { useSessionListSync } from '@/components/session/sidebar/list/useSessionListSync';
 import { setChatCovered } from './rightSlot';
+import { useI18n } from '@/lib/i18n';
+import { rememberWorkBoardReturn } from '@/components/workBoard/workBoardReturn';
 
 import { ChatView } from '@/components/views/ChatView';
 import { DiagnosticDialogAvailableContext } from '@/lib/diagnostics/dialog-availability';
@@ -102,6 +107,7 @@ LeftSidebar.displayName = 'LeftSidebar';
  * crossing the threshold reloads into it (see watchHostedSurfaceViewport).
  */
 export const MainLayout: React.FC = () => {
+    const { t } = useI18n();
     useSessionListSync({ isVSCode: false });
     useTerminalSessionKeepalive();
     // The grant dialog of isolated spaces; the main layout is never VS Code's (decision 16).
@@ -121,6 +127,12 @@ export const MainLayout: React.FC = () => {
     const isUsageStatsPageOpen = useUIStore((state) => state.isUsageStatsPageOpen);
     const isSourceBoardOpen = useUIStore((state) => state.isSourceBoardOpen);
     const isWorkBoardOpen = useUIStore((state) => state.isWorkBoardOpen);
+    const workBoardProjectId = useUIStore((state) => state.workBoardProjectId);
+    // The remembered board is only usable while its project still exists. The
+    // project list is seeded from the last confirmed server list before it
+    // loads again, so this holds on the first frame after a reload.
+    const projects = useProjectsStore((state) => state.projects);
+    const hasWorkBoardProject = workBoardProjectId !== null && projects.some((project) => project.id === workBoardProjectId);
     const worktreesPageProjectId = useUIStore((state) => state.worktreesPageProjectId);
     // The spaces page exists only while the feature's switch is on.
     const isSpacesPageOpen = useUIStore((state) => state.isolatedSpacesEnabled && state.spacesPageProjectId !== null);
@@ -226,7 +238,26 @@ export const MainLayout: React.FC = () => {
                                             {/* A board the user has opened is a place they can always
                                                 return to: the Work board button leads the titlebar on
                                                 every screen, on the project of the session it is clicked
-                                                from rather than the tab the board was left on. */}
+                                                from rather than the tab the board was left on. This chip
+                                                keeps that way back beside the chat itself. */}
+                                            {!isSurfacePageOpen && !isSettingsDialogOpen && hasWorkBoardProject && (
+                                                <Button
+                                                    type="button"
+                                                    data-work-board-return=""
+                                                    variant="outline"
+                                                    size="xs"
+                                                    className="absolute inset-s-3 top-3 z-30 gap-1.5 border-border/70 bg-background/95 shadow-sm backdrop-blur-sm"
+                                                    onClick={() => {
+                                                        rememberWorkBoardReturn();
+                                                        useUIStore.getState().setWorkBoardOpen(true);
+                                                    }}
+                                                    aria-label={t('workBoard.title')}
+                                                    title={t('workBoard.title')}
+                                                >
+                                                    <Icon name="route" className="size-3.5" />
+                                                    {t('workBoard.title')}
+                                                </Button>
+                                            )}
                                             <ErrorBoundary><OnDemand needed={isRunOverviewOpen} load={loadRunOverview} onFailure={closeMainSurfaces} /></ErrorBoundary>
                                             <ErrorBoundary><OnDemand needed={isScheduledTasksPageOpen} load={loadScheduledTasksDialog} onFailure={closeMainSurfaces} /></ErrorBoundary>
                                             <ErrorBoundary><OnDemand needed={isArchivePageOpen} load={loadArchiveView} onFailure={closeMainSurfaces} /></ErrorBoundary>
