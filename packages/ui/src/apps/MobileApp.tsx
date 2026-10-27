@@ -607,7 +607,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 
         <div className="flex h-full min-w-0 flex-1 flex-col" data-page-scroll-lock="true">
           <MobileHeader
-            onOpenSessions={() => (isTabletLayout ? toggleSidebar() : setSessionsSheetOpen(true))}
+            onOpenSessions={isTabletLayout ? toggleSidebar : undefined}
             onOpenWorkBoard={openWorkBoard}
             onOpenWorkspace={openWorkspace}
             compactTitle={isTabletLayout}

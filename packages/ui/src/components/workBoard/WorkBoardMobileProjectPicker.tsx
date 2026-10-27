@@ -57,7 +57,10 @@ export function WorkBoardMobileProjectPicker({
           {ordered.map(project => <DropdownMenuItem
             key={project.id}
             onClick={() => onSelect(project.id)}
-            className="justify-between"
+            className="w-full justify-between px-3 py-0 text-sm"
+            // px, not rem: the row height is a touch target and must not shrink
+            // with the root font-size setting.
+            style={{ minHeight: 44 }}
           >
             <span className="flex min-w-0 items-center gap-1.5">
               {project.id === activeProjectId

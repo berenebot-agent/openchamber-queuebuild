@@ -16,7 +16,9 @@ import { MobileSessionMetadataButton } from './MobileSessionMetadata';
 import { MobileSessionSwitcher } from './MobileSessionSwitcher';
 
 export const MobileHeader: React.FC<{
-  onOpenSessions: () => void;
+  /** Tablet only: toggles the persistent sessions sidebar. A phone has no
+      sidebar button — the sessions drawer opens from the start-edge swipe. */
+  onOpenSessions?: () => void;
   /** Opens the Work Board surface; the chat hides the board it came from. */
   onOpenWorkBoard: () => void;
   /** Opens the right workspace drawer (Changes / Files / Terminal / Notes / MCP). */
@@ -66,7 +68,7 @@ export const MobileHeader: React.FC<{
   const handleOpenSessions = React.useCallback(() => {
     setMetadataOpen(false);
     setSwitcherOpen(false);
-    onOpenSessions();
+    onOpenSessions?.();
   }, [onOpenSessions]);
 
   // The two header popovers are mutually exclusive.
@@ -93,15 +95,17 @@ export const MobileHeader: React.FC<{
         style={{ paddingTop: 'var(--oc-safe-area-top, 0px)' }}
       >
         <div className="flex h-[var(--oc-header-height,56px)] w-full items-center gap-1 px-2">
-          <button
-            type="button"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={t('mobile.sessions.openSheetAria')}
-            onClick={handleOpenSessions}
-            style={{ touchAction: 'manipulation' }}
-          >
-            <Icon name="list-unordered" className="size-5" />
-          </button>
+          {onOpenSessions ? (
+            <button
+              type="button"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={t('mobile.sessions.openSheetAria')}
+              onClick={handleOpenSessions}
+              style={{ touchAction: 'manipulation' }}
+            >
+              <Icon name="list-unordered" className="size-5" />
+            </button>
+          ) : null}
 
           {/* The board sits behind the chat, so the way back belongs here
               rather than only in the sessions drawer footer. */}
