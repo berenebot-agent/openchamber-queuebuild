@@ -151,9 +151,9 @@ the desktop row keeps its own inline controls beside the three-dot.
 A running build has one queue-participation action in its three-dot menu and its
 desktop right-click menu. A lease holder or included build offers `Extract from
 queue (Q moves on)`. An outside build offers `Include in queue (queue waits)`.
-The run continues either way. Queue-counted builds render green, and separate
-builds render orange; green does not imply exclusive lease ownership. On a phone,
-the three-dot menu is the action path.
+The run continues either way. All running builds render green; green does not
+imply exclusive lease ownership. On a phone, the three-dot menu is the action
+path.
 
 ### Why the queued row's menu holds both lists and not only the session's
 

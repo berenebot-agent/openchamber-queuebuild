@@ -377,7 +377,7 @@ function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false,
   const surface = needsReview
     ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
     : !queueIncluded
-      ? 'border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-warning)_18%,var(--surface-elevated))]'
+      ? 'border-[color-mix(in_srgb,#22c55e_45%,transparent)] bg-[color-mix(in_srgb,#22c55e_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,#22c55e_18%,var(--surface-elevated))]'
       : 'border-[color-mix(in_srgb,var(--status-success)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-success)_18%,var(--surface-elevated))]';
   const row = <WorkBoardQueueTooltip model={model} content={content}>
     <button type="button" onClick={onOpen}
@@ -386,15 +386,15 @@ function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false,
     aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })}>
     {!needsReview && !checking && !unavailable && !waiting && <span aria-hidden="true" className={'oc-build-stripes pointer-events-none absolute inset-0 ' + (queueIncluded ? 'oc-build-stripes-queue' : 'oc-build-stripes-outside')} />}
     <span className="relative flex min-w-0 items-center gap-2">
-      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : !queueIncluded || waiting ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : 'bg-[color-mix(in_srgb,var(--status-success)_26%,transparent)] text-[var(--status-success-text)]')}>
+      <span className={'flex size-6 shrink-0 items-center justify-center rounded ' + (needsReview ? 'bg-[var(--status-error-background)] text-[var(--status-error-text)]' : waiting ? 'bg-[color-mix(in_srgb,var(--status-warning)_26%,transparent)] text-[var(--status-warning-text)]' : !queueIncluded ? 'bg-[color-mix(in_srgb,#22c55e_26%,transparent)] text-[#22c55e]' : 'bg-[color-mix(in_srgb,var(--status-success)_26%,transparent)] text-[var(--status-success-text)]')}>
         <Icon name={needsReview ? 'alert' : forced ? 'rocket' : waiting ? ANSWER_PRESENTATION[waiting].icon : 'terminal-box'} className="size-3.5" />
       </span>
       <span className="min-w-0 flex-1">
         <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
         <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : waiting ? ANSWER_PRESENTATION[waiting].labelKey : queueMode === 'separate' ? 'workBoard.outsideQueue' : forced ? (counts ? 'workBoard.countsInQueue' : 'workBoard.outsideQueue') : 'workBoard.buildingNow')}</span>
       </span>
-      {!needsReview && !checking && !waiting && <span className={'flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] ' + (queueIncluded ? 'text-[var(--status-success-text)]' : 'text-[var(--status-warning-text)]')}>
-        <Spinner className="size-3 text-[var(--status-success)]" />{t('workBoard.active')}
+      {!needsReview && !checking && !waiting && <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#22c55e]">
+        <Spinner className="size-3 text-[#22c55e]" />{t('workBoard.active')}
       </span>}
     </span>
     </button>

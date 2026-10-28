@@ -102,7 +102,7 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(lane('Build queue').querySelector('button[aria-label^="Cancel "]')).toBeNull();
     expect(lane('Build queue').querySelector('button[aria-label="Actions for direct-a"]')).not.toBeNull();
     expect(lane('Build queue').querySelector('button[aria-label="Actions for direct-b"]')).not.toBeNull();
-    expect(lane('Build queue').querySelector('button[aria-label^="Open the build running now:"]')?.className).toContain('var(--status-warning)');
+    expect(lane('Build queue').querySelector('button[aria-label^="Open the build running now:"]')?.className).toContain('#22c55e');
     expect(openButtons()[0].querySelector('.oc-build-stripes-outside')).not.toBeNull();
     expect(lane('Plan').textContent).toContain('planning');
     // A running plan turn carries the moving blue plan stripe.
