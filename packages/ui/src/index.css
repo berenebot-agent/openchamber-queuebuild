@@ -2252,8 +2252,8 @@ textarea[data-terminal-hidden-input="true"]::placeholder {
 }
 
 [data-work-board-build-active]:not([data-work-board-build-in-queue]) {
-  border-color: color-mix(in srgb, var(--status-warning) 42%, transparent);
-  background-color: color-mix(in srgb, var(--status-warning) 12%, var(--surface-elevated));
+  border-color: color-mix(in srgb, var(--status-success) 42%, transparent);
+  background-color: color-mix(in srgb, var(--status-success) 12%, var(--surface-elevated));
 }
 
 /* A card whose session waits for the user's answer: the turn is still busy in
