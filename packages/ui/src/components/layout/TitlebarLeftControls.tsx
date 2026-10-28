@@ -1,6 +1,7 @@
 import React from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from '@/components/icon/Icon';
+import workBoardLogo from '@/assets/openchamber-queue-header.svg?url';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -143,9 +144,9 @@ export const TitlebarLeftControls: React.FC = () => {
               data-work-board-open=""
               aria-label={t('workBoard.title')}
               aria-pressed={isWorkBoardOpen}
-              className={cn(ICON_BUTTON_CLASS, 'shrink-0', isWorkBoardOpen && 'text-foreground')}
+              className={cn(ICON_BUTTON_CLASS, 'h-8 w-auto shrink-0 px-1', isWorkBoardOpen && 'text-foreground')}
             >
-              <Icon name="route" className="h-4 w-4" />
+              <img src={workBoardLogo} alt="" aria-hidden="true" className="h-5 w-auto" />
             </button>
           </TooltipTrigger>
           <TooltipContent>

@@ -62,6 +62,7 @@ describe('TitlebarLeftControls', () => {
     const sidebarIndex = buttons.findIndex(button => button.hasAttribute('data-sidebar-toggle'));
     expect(boardIndex).toBe(0);
     expect(sidebarIndex).toBe(1);
+    expect(buttons[boardIndex].querySelector('img')?.getAttribute('src')).toContain('openchamber-queue-header.svg');
 
     await act(async () => { buttons[boardIndex].click(); });
     expect(useUIStore.getState().isWorkBoardOpen).toBe(true);
@@ -89,7 +90,7 @@ describe('TitlebarLeftControls', () => {
   test('lets the labelled New session button shrink so its label truncates', async () => {    useUIStore.getState().setSidebarOpen(true);
     await renderControls();
 
-    const button = document.querySelector<HTMLButtonElement>('button.w-auto');
+    const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find((candidate) => candidate.querySelector('span'));
     expect(button).not.toBeNull();
     expect(button!.classList.contains('shrink-0')).toBe(false);
     expect(button!.classList.contains('min-w-0')).toBe(true);

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="227" height="28" viewBox="0 0 227 28" fill="none" role="img" aria-label="OpenChamber Queue">
+  <title>OpenChamber Queue</title>
+  <g stroke-width="1.65" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M3 7.2 9.2 4.4c.9-.4 1.8.2 1.8 1.2v17.2c0 1-.9 1.5-1.8 1.2L3 21.1V7.2Z" stroke="#54BDE9"/>
+    <path d="m12.9 7.5 4.5-2.1c.9-.4 1.7.2 1.7 1.1v15c0 .9-.8 1.5-1.7 1.1l-4.5-2.1" stroke="#8297B4"/>
+    <path d="m20.8 9.4 3.5-1.6c.7-.3 1.4.2 1.4 1v10.5c0 .8-.7 1.3-1.4 1l-3.5-1.6" stroke="#59677A"/>
+  </g>
+  <text x="35" y="18.8" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="14" font-weight="570" letter-spacing="-0.35" fill="#E2E2E4">OpenChamber</text>
+  <path d="M147 6v16" stroke="#64676D" stroke-width="1"/>
+  <text x="156" y="18.8" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif" font-size="14" font-weight="650" letter-spacing="-0.25" fill="#54BDE9">Queue</text>
+</svg>
