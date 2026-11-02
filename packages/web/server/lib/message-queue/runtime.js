@@ -3029,7 +3029,10 @@ export function createMessageQueueRuntime({
     const statuses = await activityProbe.fetchActiveSessionStatuses();
     const shells = await activityProbe.fetchRunningShellSessionIds(directory);
     if (!statuses || shells === null) return null;
-    const liveIds = new Set([...Object.keys(statuses), ...shells]);
+    // Shells are already scoped to this directory. They remain a write risk
+    // even if their session has disappeared from the top-level session list.
+    if (shells.size > 0) return true;
+    const liveIds = new Set(Object.keys(statuses));
     if (liveIds.size === 0) return false;
     const listed = asList(asRecord(await openCodeFetch('/api/session', {
       headers: { 'x-opencode-directory': encodeURIComponent(directory) },
