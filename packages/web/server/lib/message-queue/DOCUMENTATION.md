@@ -756,7 +756,7 @@ net change including untracked files, pins the stash commit under the sibling
 `stash` ref, and verifies the baseline is clean before releasing the lease.
 A zero-file-change failure is parked without a stash. The queue snapshot
 retains the failed attempt, outcome, reason and pinned stash ref, and the work
-board displays Action required. Later Builds in that session receive the
+board displays a failed-build alert. Later Builds in that session receive the
 recovery ref as context; OpenCode must inspect or selectively restore changes,
 not automatically apply them. A verified successful later Build clears the
 visible recovery notice, leaving Git recovery refs for manual retention/cleanup.
@@ -789,12 +789,18 @@ refs are not pruned automatically.
 ### Board Git controls
 
 `POST /api/build-queue/git-action` accepts `{directory,action,message?,
-expectedHead,expectedBranch,expectedChanged,expectedPaths}` where action
-is `commit` or `revert`. The server selects the project checkout and
-rechecks the Git preview before acting. A running/preparing/forced Build,
-another live unqueued Build, or unknown OpenCode activity produces a 409.
+expectedHead,expectedBranch,expectedChanged,expectedPaths,expectedFingerprint}`
+where action is `commit` or `revert` (labelled **Discard** in the UI).
+The ordinary Git health poll skips content hashing; the confirmation requests
+`GET /api/build-queue/git-health?directory=...&includeFingerprint=true` and
+pins the full SHA-256 fingerprint of staged and working-tree changes, including
+untracked file bytes. The server checks the exact fingerprint again before
+acting. Running project sessions, background shells, queued Build activity,
+uncertain recovery or unavailable OpenCode activity produce a 409.
 Commit delegates to OpenChamber's existing Git service. Revert uses
 `git reset --hard HEAD` and `git clean -fd` on the selected worktree root;
 ignored files, nested repositories, commits and managed recovery refs are
 untouched. These are explicit operator actions, separate from automatic
-managed Build recovery.
+managed Build recovery. The board can dismiss all visible failures for a session
+without deleting its Git recovery refs, but cannot mark unverified failed work
+as Build complete or Done.
