@@ -14,6 +14,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const runGit = promisify(execFile);
@@ -1643,6 +1644,7 @@ export function createMessageQueueRuntime({
     if (!directory || !itemId) throw new TypeError('directory and itemId are required');
     if (mode !== 'queue' && mode !== 'separate') throw new TypeError('mode must be "queue" or "separate"');
     await load();
+    if (buildModeTransitions.has(directoryKey(directory))) throw httpError('Project Git maintenance is in progress. Retry when it finishes.', 409);
     const queue = queues.get(sessionId);
     if (!queue || queue.directory !== directory) throw httpError('Build not found in this project', 404);
     const item = queue.items.find(entry => entry.id === itemId);
@@ -2455,7 +2457,10 @@ export function createMessageQueueRuntime({
     if (!previous.some(entry => entry.attemptId === attemptId && directoryKey(entry.directory) === directory)) {
       throw httpError('Recovery alert changed; refresh before clearing it.', 409);
     }
-    const rest = previous.filter(entry => !(entry.attemptId === attemptId && directoryKey(entry.directory) === directory));
+    // The UI shows one failed-build alert per session. A dismissal must clear
+    // that visible session history, not expose an older hidden failure next.
+    // Git recovery refs remain untouched for manual retrieval.
+    const rest = previous.filter(entry => directoryKey(entry.directory) !== directory);
     if (rest.length) managedRecoveries.set(sessionId, rest);
     else managedRecoveries.delete(sessionId);
     commit(sessionId);
@@ -2978,6 +2983,66 @@ export function createMessageQueueRuntime({
    * must not walk away from: a waiting item, an in-flight send, or a build lease
    * this session owns.
    */
+  // Fingerprint both staged changes and the working tree, including untracked
+  // file bytes. Filenames/counts alone cannot guard a destructive confirmation:
+  // another writer can modify a file without changing either.
+  const readGitChangeFingerprint = async repository => {
+    const run = async (...args) => (await runGit('git', ['-C', repository, ...args], {
+      timeout: 15000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8',
+    })).stdout;
+    const [status, index] = await Promise.all([
+      run('status', '--porcelain=v1', '-z', '--untracked-files=all'),
+      run('diff', '--cached', '--raw', 'HEAD', '--'),
+    ]);
+    const digest = createHash('sha256').update(status).update('\0').update(index);
+    const parts = status.split('\0');
+    for (let i = 0; i < parts.length; i++) {
+      const record = parts[i];
+      if (!record) continue;
+      const statusCode = record.slice(0, 2);
+      const relative = record.slice(3);
+      // With -z, renamed/copied records carry their old path in the next field.
+      if (/[RC]/.test(statusCode)) { digest.update('\0previous:' + (parts[++i] ?? '')); }
+      digest.update('\0path:' + relative);
+      const name = path.join(repository, relative);
+      let stat;
+      try { stat = await fs.promises.lstat(name); }
+      catch (error) {
+        if (error?.code === 'ENOENT') { digest.update('deleted'); continue; }
+        throw error;
+      }
+      digest.update(String(stat.mode));
+      if (stat.isSymbolicLink()) digest.update('link:' + await fs.promises.readlink(name));
+      else if (stat.isFile()) {
+        const fileDigest = createHash('sha256');
+        for await (const chunk of fs.createReadStream(name)) fileDigest.update(chunk);
+        digest.update('file:' + fileDigest.digest('hex'));
+      } else digest.update('other:' + stat.size);
+    }
+    return digest.digest('hex');
+  };
+
+  // Check *all* running project sessions and background shells, not just Builds.
+  // A Plan or ordinary chat can also edit the same worktree. Unknown status
+  // fails closed rather than permitting a destructive Git operation.
+  const projectHasLiveWriters = async directory => {
+    const statuses = await activityProbe.fetchActiveSessionStatuses();
+    const shells = await activityProbe.fetchRunningShellSessionIds(directory);
+    if (!statuses || shells === null) return null;
+    const liveIds = new Set([...Object.keys(statuses), ...shells]);
+    if (liveIds.size === 0) return false;
+    const listed = asList(asRecord(await openCodeFetch('/api/session', {
+      headers: { 'x-opencode-directory': encodeURIComponent(directory) },
+    }).catch(() => null))?.data);
+    if (!listed) return null;
+    const key = directoryKey(directory);
+    return listed.some(value => {
+      const session = asRecord(value);
+      return liveIds.has(session?.id)
+        && directoryKey(asNonEmptyString(asRecord(session?.location)?.directory)) === key;
+    });
+  };
+
   // Read-only Git health for the board. The repository is resolved by the
   // project's server-side choice; the caller never supplies a Git path.
   const readQueueGitHealth = async (directoryInput) => {
@@ -2995,15 +3060,16 @@ export function createMessageQueueRuntime({
       const [root, branch, head, porcelain] = await Promise.all([
         execGit('rev-parse', '--show-toplevel'),
         execGit('symbolic-ref', '--short', '-q', 'HEAD'),
-        execGit('rev-parse', '--short', 'HEAD'),
+        execGit('rev-parse', 'HEAD'),
         execGit('status', '--porcelain=v1', '--untracked-files=all'),
       ]);
       const resolvedRoot = await fs.promises.realpath(root);
       if (resolvedRoot !== await fs.promises.realpath(repository)) throw new Error('Selected path is not a Git worktree root');
       const paths = porcelain ? porcelain.split('\n').slice(0, 200).map(line => line.slice(3)) : [];
       const changed = porcelain ? porcelain.split('\n').length : 0;
+      const fingerprint = changed ? await readGitChangeFingerprint(repository) : null;
       return { state: changed ? 'dirty' : 'clean', repository, policy: await effectiveBuildGitPolicy(directory), branch: branch || '(detached)', head,
-        changed, paths, checkedAt: now() };
+        changed, paths, fingerprint, checkedAt: now() };
     } catch (error) {
       return { state: 'unavailable', repository, policy: await effectiveBuildGitPolicy(directory), reason: error?.message ?? 'Git check failed', checkedAt: now() };
     }
@@ -3021,49 +3087,63 @@ export function createMessageQueueRuntime({
       throw httpError('A commit message of 1–500 characters is required', 400);
     }
     await load();
-    const state = buildSnapshot();
-    if (state.active.some(item => directoryKey(item.directory) === directory)
-      || state.forced.some(item => directoryKey(item.directory) === directory)
-      || state.preparation.some(item => directoryKey(item.directory) === directory)) {
-      throw httpError('A Build is running or preparing in this project. Finish it before changing Git.', 409);
+    if (buildModeTransitions.has(directory)) throw httpError('Project Git maintenance is already in progress.', 409);
+    // Hold the queue's dispatch gate throughout the checks and Git operation.
+    buildModeTransitions.add(directory);
+    try {
+      const assertNoActiveBuild = () => {
+        const state = buildSnapshot();
+        if (state.active.some(item => directoryKey(item.directory) === directory)
+          || state.forced.some(item => directoryKey(item.directory) === directory)
+          || state.preparation.some(item => directoryKey(item.directory) === directory)
+          || state.recoveries.some(item => directoryKey(item.directory) === directory)) {
+          throw httpError('Resolve active or failed Builds before changing project Git.', 409);
+        }
+      };
+      assertNoActiveBuild();
+      const writers = await projectHasLiveWriters(directory);
+      if (writers !== false) throw httpError(writers === null
+        ? 'Cannot verify project activity. Try again when OpenCode is available.'
+        : 'A project session is running. Finish it before changing Git.', 409);
+      const health = await readQueueGitHealth(directory);
+      if (health.state !== 'dirty' || !health.repository || !health.branch || health.branch === '(detached)') {
+        throw httpError('A dirty, attached Git worktree is required. Refresh Git status.', 409);
+      }
+      if (!input?.expectedFingerprint || health.fingerprint !== input.expectedFingerprint
+        || health.head !== input.expectedHead || health.branch !== input.expectedBranch
+        || health.changed !== input.expectedChanged
+        || JSON.stringify(health.paths) !== JSON.stringify(input.expectedPaths)) {
+        throw httpError('Git contents changed since confirmation. Refresh and review changes.', 409);
+      }
+      // Recheck both the worktree and the runtime after asynchronous probes.
+      assertNoActiveBuild();
+      if (await projectHasLiveWriters(directory) !== false) {
+        throw httpError('Project activity changed. Try again after sessions finish.', 409);
+      }
+      const latest = await readQueueGitHealth(directory);
+      if (latest.state !== 'dirty' || latest.repository !== health.repository
+        || latest.head !== health.head || latest.branch !== health.branch
+        || latest.fingerprint !== health.fingerprint) {
+        throw httpError('Git changed before the operation. No changes were discarded.', 409);
+      }
+      assertNoActiveBuild();
+      if (action === 'commit') {
+        const { commit: commitChanges } = await import('../git/service.js');
+        const result = await commitChanges(health.repository, input.message.trim(), { addAll: true });
+        return { ok: true, action, commit: result.commit ?? null };
+      }
+      // Discard only tracked and non-ignored untracked changes. Never alter
+      // commits, ignored files, nested Git repositories or recovery refs.
+      const git = (...args) => runGit('git', ['-C', health.repository, ...args], {
+        timeout: 30000, maxBuffer: 1024 * 1024, encoding: 'utf8',
+      });
+      await git('reset', '--hard', 'HEAD');
+      await git('clean', '-fd');
+      return { ok: true, action };
+    } finally {
+      buildModeTransitions.delete(directory);
+      wakeProject(directory);
     }
-    // Also guard sessions started outside the queue: an absent or unreadable
-    // OpenCode activity roster is never proof that the repository is idle.
-    const liveBuild = await findLiveBuild(directory);
-    if (liveBuild === undefined) throw httpError('Cannot verify running Build sessions. Try again when OpenCode is available.', 409);
-    if (liveBuild) throw httpError('A Build is running outside the queue. Finish it before changing Git.', 409);
-    const health = await readQueueGitHealth(directory);
-    if (health.state !== 'dirty' || !health.repository || !health.branch || health.branch === '(detached)') {
-      throw httpError('A dirty, attached Git worktree is required. Refresh Git status.', 409);
-    }
-    if (health.head !== input?.expectedHead || health.branch !== input?.expectedBranch
-      || health.changed !== input?.expectedChanged
-      || JSON.stringify(health.paths) !== JSON.stringify(input?.expectedPaths)) {
-      throw httpError('Git changed since the confirmation. Refresh the board and review the changes.', 409);
-    }
-    // Revalidate the queue immediately before the actual Git operation.
-    const latest = buildSnapshot();
-    if (latest.active.some(item => directoryKey(item.directory) === directory)
-      || latest.forced.some(item => directoryKey(item.directory) === directory)
-      || latest.preparation.some(item => directoryKey(item.directory) === directory)) {
-      throw httpError('A Build became active; Git changes were not applied.', 409);
-    }
-    if (action === 'commit') {
-      // Use OpenChamber's existing commit service (identity, hooks, staging and
-      // signing) rather than implementing another Git authoring path.
-      const { commit: commitChanges } = await import('../git/service.js');
-      const result = await commitChanges(health.repository, input.message.trim(), { addAll: true });
-      return { ok: true, action, commit: result.commit ?? null };
-    }
-    // reset --hard affects tracked files only; clean -fd removes untracked,
-    // non-ignored files, but never ignored files or nested Git repositories.
-    // No commits, branches, remote refs or recovery refs are rewritten.
-    const git = (...args) => runGit('git', ['-C', health.repository, ...args], {
-      timeout: 30000, maxBuffer: 1024 * 1024, encoding: 'utf8',
-    });
-    await git('reset', '--hard', 'HEAD');
-    await git('clean', '-fd');
-    return { ok: true, action };
   });
 
   const hasManagedWorkFor = (sessionId) => {
