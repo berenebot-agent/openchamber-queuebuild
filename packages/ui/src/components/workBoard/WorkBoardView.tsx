@@ -1241,7 +1241,13 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       }
       setClearRecoveryConfirm(null);
       const card = cards.find(entry => entry.sessionId === recovery.sessionId);
-      if (card && destination === 'plan') place([card], 'plan');
+      if (card && destination === 'plan') {
+        // Await the move before refreshing: otherwise an older queue snapshot
+        // can repaint the card in its old lane after the alert is dismissed.
+        await placeWorkBoardCard(card, 'plan');
+        const sessionDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
+        await setSessionWorkState(recovery.sessionId, sessionDirectory, 'open');
+      }
       await refresh();
     } catch (error) {
       setQueueActionError(error instanceof Error ? error.message : 'Recovery dismissal failed');
@@ -1655,12 +1661,12 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         <p className="break-all text-xs text-muted-foreground">{gitHealth?.repository} · {gitHealth?.changed ?? 0} changed files</p>
         {gitConfirm === 'commit' ? <Input autoFocus aria-label="Commit message" placeholder="Commit message" value={gitMessage}
           maxLength={500} disabled={gitBusy} onChange={event => setGitMessage(event.target.value)} />
-          : <Input aria-label="Type REVERT to confirm" placeholder="Type REVERT to confirm" value={gitRevertPhrase}
+          : <Input aria-label="Type DISCARD to confirm" placeholder="Type DISCARD to confirm" value={gitRevertPhrase}
             disabled={gitBusy} onChange={event => setGitRevertPhrase(event.target.value)} />}
         <DialogFooter>
           <Button variant="outline" disabled={gitBusy} onClick={() => setGitConfirm(null)}>Cancel</Button>
           <Button variant={gitConfirm === 'revert' ? 'destructive' : 'default'} disabled={gitBusy ||
-            (gitConfirm === 'commit' ? !gitMessage.trim() : gitRevertPhrase !== 'REVERT')}
+            (gitConfirm === 'commit' ? !gitMessage.trim() : gitRevertPhrase !== 'DISCARD')}
             onClick={() => void submitBoardGitAction()}>{gitBusy ? 'Working…' : gitConfirm === 'commit' ? 'Commit' : 'Discard changes'}</Button>
         </DialogFooter>
       </DialogContent>
