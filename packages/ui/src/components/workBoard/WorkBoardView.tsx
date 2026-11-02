@@ -94,6 +94,22 @@ const ANSWER_PRESENTATION = {
   question: { icon: 'question', labelKey: 'sessions.sidebar.session.status.questionPending' },
 } as const;
 
+// Isolated timer: never re-render the full board to count down a queue pause.
+const QueueResumeTime = React.memo(function QueueResumeTime({ at }: { at: number }) {
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const minutes = Math.max(0, Math.ceil((at - now) / 60_000));
+  const relative = minutes === 0 ? 'Resuming shortly' : minutes < 60
+    ? `Resumes in ${minutes}m` : minutes < 1440
+      ? `Resumes in ${Math.floor(minutes / 60)}h ${minutes % 60}m`
+      : `Resumes in ${Math.ceil(minutes / 1440)}d`;
+  const date = new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return <span className="text-muted-foreground" title={new Date(at).toLocaleString()}>{relative} · {date}</span>;
+});
+
 /**
  * The one mark a card can show before its title: live activity, or — for a
  * finished card the user has not acknowledged — the session list's green
@@ -224,7 +240,7 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
           <span dir="auto" className="block truncate text-xs font-medium leading-5 hover:underline">{row.title}</span>
           {/* One line of subtitle space, reserved: a row keeps its height
               whether it shows the prompt, "Paused", or a fallback session id. */}
-          <span dir="auto" className="block min-h-[1lh] truncate text-[11px] leading-5 text-muted-foreground">{row.paused || queuePaused ? t('workBoard.paused') : row.snippet || row.sessionId.slice(0, 9)}</span>
+          <span dir="auto" className="block min-h-[1lh] truncate text-xs leading-5 text-muted-foreground">{row.paused || queuePaused ? t('workBoard.paused') : row.snippet || row.sessionId.slice(0, 9)}</span>
         </span>
       </button>
     </WorkBoardQueueTooltip>
@@ -309,13 +325,13 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, reco
     {recoveries.length > 0 && <section aria-label="Parked managed Builds" className="mt-3 space-y-2">
       {recoveries.map(recovery => <div key={recovery.sessionId + ':' + recovery.attemptId}
         className="w-full rounded-md border border-[var(--status-error-text)]/50 bg-[var(--status-error-bg)] px-3 py-2 text-left text-xs">
-        <span className="block font-semibold">Action required · {recovery.outcome === 'input_required' ? 'Input required' : 'Failed Build'}</span>
+        <span className="block font-semibold">{recovery.outcome === 'input_required' ? 'Input required' : 'Build failed'}</span>
         <span className="mt-1 block truncate">{recovery.reason || 'Previous changes were safely parked'}</span>
         <span className="mt-1 block truncate text-muted-foreground" title={recovery.stashRef ?? undefined}>{recovery.stashRef
           ? 'Preserved: ' + recovery.stashRef : 'No file changes to recover'}</span>
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button size="xs" variant="outline" onClick={() => onOpen(recovery.sessionId)}>Open original card</Button>
-          <Button size="xs" variant="outline" disabled={busy} onClick={() => onClearRecovery(recovery)}>Clear alert…</Button>
+          <Button size="xs" variant="outline" onClick={() => onOpen(recovery.sessionId)}>Open chat</Button>
+          <Button size="xs" variant="outline" disabled={busy} onClick={() => onClearRecovery(recovery)}>Dismiss…</Button>
         </div>
       </div>)}
     </section>}
@@ -377,7 +393,7 @@ function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false,
           <span className="flex size-6 shrink-0 items-center justify-center rounded bg-[var(--status-error-background)] text-[var(--status-error-text)]"><Icon name="alert" className="size-3.5" /></span>
           <span className="min-w-0 flex-1">
             <button type="button" onClick={onOpen} dir="auto" className="block w-full truncate text-start text-xs font-semibold leading-5 hover:underline" title={title}>{title}</button>
-            <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t('workBoard.forcedUnconfirmed')}</span>
+            <span className="block truncate text-xs leading-5 text-muted-foreground">{t('workBoard.forcedUnconfirmed')}</span>
           </span>
           <Button size="xs" variant="outline" disabled={busy} onClick={() => onResolve?.({ sessionId: resolve.sessionId, itemId: resolve.itemId })}>{t('buildQueue.recovery.continue')}</Button>
         </div>
@@ -407,9 +423,9 @@ function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false,
       </span>
       <span className="min-w-0 flex-1">
         <span dir="auto" className="block truncate text-xs font-semibold leading-5">{title}</span>
-        <span className="block truncate text-[11px] leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : waiting ? ANSWER_PRESENTATION[waiting].labelKey : queueMode === 'separate' ? 'workBoard.outsideQueue' : forced ? (counts ? 'workBoard.countsInQueue' : 'workBoard.outsideQueue') : 'workBoard.buildingNow')}</span>
+        <span className="block truncate text-xs leading-5 text-muted-foreground">{t(unavailable ? 'workBoard.unknown' : checking ? 'common.loading' : needsReview ? 'workBoard.needsReview' : waiting ? ANSWER_PRESENTATION[waiting].labelKey : queueMode === 'separate' ? 'workBoard.outsideQueue' : forced ? (counts ? 'workBoard.countsInQueue' : 'workBoard.outsideQueue') : 'workBoard.buildingNow')}</span>
       </span>
-      {!needsReview && !checking && !waiting && <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-[#22c55e]">
+      {!needsReview && !checking && !unavailable && !waiting && <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-[#22c55e]">
         <Spinner className="size-3 text-[#22c55e]" />{t('workBoard.active')}
       </span>}
     </span>
@@ -653,7 +669,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const sessionsLoading = useGlobalSessionsStore(state => !state.hasLoaded && state.status !== 'error');
   const [queueBusy, setQueueBusy] = React.useState(false);
   const [gitHealth, setGitHealth] = React.useState<{
-    state: 'clean' | 'dirty' | 'unavailable'; repository: string | null; policy?: string;
+    state: 'clean' | 'dirty' | 'unavailable'; repository: string | null; policy?: string; fingerprint?: string | null;
     branch?: string; head?: string; changed?: number; paths?: string[];
     checkedAt?: number; reason?: string;
   } | null>(null);
@@ -668,11 +684,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const [sweepConfirm, setSweepConfirm] = React.useState<{ action: 'done' | 'archive'; hours: 24 | 48 | 168; ids: string[] } | null>(null);
   const [resumeOpen, setResumeOpen] = React.useState(false);
   const [resumeInput, setResumeInput] = React.useState('');
-  const [resumeClock, setResumeClock] = React.useState(Date.now());
-  React.useEffect(() => {
-    const timer = setInterval(() => setResumeClock(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const [resumeError, setResumeError] = React.useState('');
   const [drag, setDrag] = React.useState<WorkBoardDrag | null>(null);
   // Search hides cards, it never unsaves them: a card the query does not match
   // keeps its lane, its order and its actions, and returns when the query is
@@ -721,7 +733,8 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       const response = await runtimeFetch('/api/build-queue/git-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ directory, action, message: action === 'commit' ? gitMessage.trim() : undefined,
-          expectedHead: preview.head, expectedBranch: preview.branch, expectedChanged: preview.changed, expectedPaths: preview.paths }),
+          expectedHead: preview.head, expectedBranch: preview.branch, expectedChanged: preview.changed, expectedPaths: preview.paths,
+          expectedFingerprint: preview.fingerprint }),
       });
       const result = await response.json().catch(() => null);
       if (!response.ok || result?.ok !== true) throw new Error(result?.error ?? 'Project Git action failed');
@@ -729,7 +742,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         setGitConfirm(null);
         setGitMessage('');
         setGitRevertPhrase('');
-        toast.success(action === 'commit' ? 'Changes committed' : 'Uncommitted changes reverted');
+        toast.success(action === 'commit' ? 'Changes committed' : 'Changes discarded');
       }
     } catch (error) {
       if (runtime === getRuntimeKey() && token === generation.current) {
@@ -759,6 +772,9 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   React.useLayoutEffect(() => {
     generation.current += 1;
     setActionError('');
+    setQueueActionError('');
+    setGitBusy(false);
+    setGitConfirm(null);
   }, [directory, runtimeKey]);
   React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
     generation.current += 1;
@@ -1000,7 +1016,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     const ids = sweepCandidates(snapshot, hours, visible)
       .filter(card => action !== 'archive' || Boolean(card.sessionId && sessions.some(session => session.id === card.sessionId)))
       .map(card => card.id);
-    if (ids.length) setSweepConfirm({ action, hours, ids });
+    setSweepConfirm({ action, hours, ids });
   };
   const executeSweep = async () => {
     const request = sweepConfirm;
@@ -1136,7 +1152,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const scheduleResume = () => {
     const at = new Date(resumeInput).getTime();
     if (!Number.isSafeInteger(at) || at <= Date.now() || at > Date.now() + 7 * 86400000) {
-      setQueueActionError('Choose a future date and time within seven days.');
+      setResumeError('Choose a time within the next seven days.');
       return;
     }
     setResumeOpen(false);
@@ -1210,7 +1226,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // request to the build the user is looking at.
   const resolveForcedBuild = (row: { itemId: string; sessionId: string }) =>
     void queueMutate('/api/build-queue/resolve', 'POST', { directory, itemId: row.itemId, action: 'skip' });
-  const clearRecoveredBuild = async (destination: 'plan' | 'build' | 'done') => {
+  const clearRecoveredBuild = async (destination: 'plan' | 'dismiss') => {
     const recovery = clearRecoveryConfirm;
     if (!recovery || !directory || queueBusy) return;
     setQueueBusy(true);
@@ -1225,7 +1241,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       }
       setClearRecoveryConfirm(null);
       const card = cards.find(entry => entry.sessionId === recovery.sessionId);
-      if (card) place([card], destination);
+      if (card && destination === 'plan') place([card], 'plan');
       await refresh();
     } catch (error) {
       setQueueActionError(error instanceof Error ? error.message : 'Recovery dismissal failed');
@@ -1429,7 +1445,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           <Switch aria-label={t('workBoard.queueEnabledLabel')} checked={queueEnabled === true}
             disabled={!directory || busy} onCheckedChange={toggleQueueEnabled} />
         </div>
-        {gitHealth && <button type="button" onClick={openBoardSettings}
+        {gitHealth && gitHealth.state !== 'dirty' && <button type="button" onClick={openBoardSettings}
           aria-label="Project Git status" title={[gitHealth.repository, gitHealth.branch, gitHealth.head,
             gitHealth.checkedAt && new Date(gitHealth.checkedAt).toLocaleString(),
             gitHealth.reason, ...(gitHealth.paths ?? [])].filter(Boolean).join('\n')}
@@ -1446,14 +1462,14 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       </div>}
     </header>
     {gitHealth?.state === 'dirty' && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-[var(--status-warning)]/40 px-3 py-2 text-xs">
-      <span className="min-w-0 flex-1 truncate" title={gitHealth.repository ?? undefined}>Git: {gitHealth.changed} changed files · {gitHealth.branch}</span>
+      <span className="min-w-0 flex-1 truncate" title={gitHealth.repository ?? undefined}>Git changes · {gitHealth.changed} files · {gitHealth.branch}</span>
       <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitMessage(''); setGitConfirm('commit'); }}>Commit…</Button>
-      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitRevertPhrase(''); setGitConfirm('revert'); }}>Revert…</Button>
+      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitRevertPhrase(''); setGitConfirm('revert'); }}>Discard…</Button>
     </section>}
     {queuePaused && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2 text-xs">
-      <span>Project queue paused.</span>
-      {queue?.resumeAt && <span className="text-muted-foreground">Resumes {new Date(queue.resumeAt).toLocaleString()} · {Math.max(0, Math.ceil((queue.resumeAt - resumeClock) / 1000))}s remaining</span>}
-      <Button size="xs" variant="outline" onClick={() => { setResumeInput(''); setResumeOpen(true); }}>Resume at…</Button>
+      <span>Queue paused</span>
+      {queue?.resumeAt && <QueueResumeTime at={queue.resumeAt} />}
+      <Button size="xs" variant="outline" onClick={() => { setResumeInput(''); setResumeError(''); setResumeOpen(true); }}>Resume at…</Button>
     </section>}
     {(needsReview || queueIssue) && <section role="alert" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3 py-2">
       <Icon name="alert" className="size-4 shrink-0 text-status-warning" />
@@ -1481,7 +1497,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{count}</span></h2>
             {(lane === 'todo' || lane === 'plan') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane === 'plan' && !agents.some(agent => agent.name === 'plan'))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')} title={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')}><Icon name="add" className="size-4" /></Button>}
             {lane === 'queue' && queuePaused && <Button size="sm" variant="ghost" disabled={queueBusy}
-              onClick={() => { setResumeInput(''); setResumeOpen(true); }}
+              onClick={() => { setResumeInput(''); setResumeError(''); setResumeOpen(true); }}
               aria-label="Schedule queue resume" title="Resume at a set time">
               <Icon name="timer" className="size-4" />
             </Button>}
@@ -1498,14 +1514,11 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
               <DropdownMenuTrigger asChild><Button size="sm" variant="ghost" disabled={busy || !inLane.length} aria-label={t('workBoard.laneActions')} title={t('workBoard.laneActions')}><Icon name="more" className="size-4" /></Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => completeAllIn(lane)}>{t('workBoard.completeAll')}</DropdownMenuItem>
-                {lane === 'build' && ([24, 48, 168] as const).flatMap(hours => (['done', 'archive'] as const).map(action => {
-                  const count = sweepCandidates(snapshot, hours, new Set(inLane.map(card => card.id)))
-                    .filter(card => action !== 'archive' || Boolean(card.sessionId && sessions.some(session => session.id === card.sessionId))).length;
-                  return <DropdownMenuItem key={action + hours} disabled={count === 0 || busy}
-                    onClick={() => startSweep(action, hours)}>
-                    {action === 'done' ? 'Move to Done' : 'Archive'} older than {hours === 168 ? '7 days' : hours + 'h'} · {count}
-                  </DropdownMenuItem>;
-                }))}
+                {lane === 'build' && <DropdownMenuItem disabled={busy || ![24, 48, 168].some(hours =>
+                  sweepCandidates(snapshot, hours, new Set(inLane.map(card => card.id))).length > 0)}
+                  onClick={() => startSweep('done', 24)}>
+                  Clean up completed…
+                </DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>}
           </div>
@@ -1635,7 +1648,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     </DndContext>}
     <Dialog open={gitConfirm !== null} onOpenChange={open => { if (!open && !gitBusy) setGitConfirm(null); }}>
       <DialogContent showCloseButton={!gitBusy}>
-        <DialogTitle>{gitConfirm === 'commit' ? 'Commit project changes' : 'Revert all uncommitted changes?'}</DialogTitle>
+        <DialogTitle>{gitConfirm === 'commit' ? 'Commit project changes' : 'Discard all uncommitted changes?'}</DialogTitle>
         <DialogDescription>{gitConfirm === 'commit'
           ? 'Commit staged, unstaged and untracked (non-ignored) files in the selected repository. No push is performed.'
           : 'This permanently discards all staged and unstaged changes and deletes untracked, non-ignored files. Commits, ignored files and recovery refs remain untouched.'}</DialogDescription>
@@ -1648,7 +1661,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           <Button variant="outline" disabled={gitBusy} onClick={() => setGitConfirm(null)}>Cancel</Button>
           <Button variant={gitConfirm === 'revert' ? 'destructive' : 'default'} disabled={gitBusy ||
             (gitConfirm === 'commit' ? !gitMessage.trim() : gitRevertPhrase !== 'REVERT')}
-            onClick={() => void submitBoardGitAction()}>{gitBusy ? 'Working…' : gitConfirm === 'commit' ? 'Commit' : 'Revert changes'}</Button>
+            onClick={() => void submitBoardGitAction()}>{gitBusy ? 'Working…' : gitConfirm === 'commit' ? 'Commit' : 'Discard changes'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1670,32 +1683,41 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     </Dialog>
     <Dialog open={sweepConfirm !== null} onOpenChange={open => { if (!open && !busy) setSweepConfirm(null); }}>
       <DialogContent>
-        <DialogTitle>{sweepConfirm?.action === 'done' ? 'Move to Done' : 'Archive'} older Build completions?</DialogTitle>
-        <DialogDescription>{sweepConfirm?.ids.length ?? 0} selected Build complete cards older than {sweepConfirm?.hours === 168 ? '7 days' : (sweepConfirm?.hours ?? 0) + ' hours'}. Running, uncertain, manually placed and failed-recovery cards are excluded; each card is checked again before changes.</DialogDescription>
+        <DialogTitle>Clean up completed builds</DialogTitle>
+        <DialogDescription>Only verified, idle completions are eligible. Every card is checked again before changes.</DialogDescription>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Cleanup action">
+          {(['done', 'archive'] as const).map(action => <Button key={action} size="sm" variant={sweepConfirm?.action === action ? 'default' : 'outline'}
+            onClick={() => startSweep(action, sweepConfirm?.hours ?? 24)}>{action === 'done' ? 'Move to Done' : 'Archive'}</Button>)}
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Completion age">
+          {([24, 48, 168] as const).map(hours => <Button key={hours} size="sm" variant={sweepConfirm?.hours === hours ? 'default' : 'outline'}
+            onClick={() => startSweep(sweepConfirm?.action ?? 'done', hours)}>{hours === 168 ? '7 days' : hours + 'h'}</Button>)}
+        </div>
+        <p role="status" className="text-sm">{sweepConfirm?.ids.length ?? 0} eligible builds</p>
         <DialogFooter>
           <Button variant="outline" onClick={() => setSweepConfirm(null)} disabled={busy}>Cancel</Button>
-          <Button disabled={busy} onClick={() => void executeSweep()}>Confirm</Button>
+          <Button disabled={busy || !sweepConfirm?.ids.length} onClick={() => void executeSweep()}>{sweepConfirm?.action === 'archive' ? 'Archive' : 'Move to Done'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
     <Dialog open={clearRecoveryConfirm !== null} onOpenChange={isOpen => { if (!isOpen && !queueBusy) setClearRecoveryConfirm(null); }}>
       <DialogContent>
-        <DialogTitle>Clear recovered Build alert?</DialogTitle>
-        <DialogDescription>Dismiss {clearRecoveryConfirm?.title ?? 'this Build'} without running it. Pinned recovery refs remain preserved for manual retrieval.</DialogDescription>
+        <DialogTitle>Dismiss failed build?</DialogTitle>
+        <DialogDescription>Dismiss failures for {clearRecoveryConfirm?.title ?? 'this build'}. Git recovery refs stay available. Moving to Plan does not verify the work.</DialogDescription>
         <DialogFooter>
           <Button variant="outline" disabled={queueBusy} onClick={() => setClearRecoveryConfirm(null)}>Cancel</Button>
-          <Button disabled={queueBusy} onClick={() => void clearRecoveredBuild('plan')}>Move to Plan</Button>
-          <Button disabled={queueBusy} onClick={() => void clearRecoveredBuild('build')}>Build complete</Button>
-          <Button disabled={queueBusy} onClick={() => void clearRecoveredBuild('done')}>Done</Button>
+          <Button variant="outline" disabled={queueBusy} onClick={() => void clearRecoveredBuild('plan')}>Move to Plan</Button>
+          <Button disabled={queueBusy} onClick={() => void clearRecoveredBuild('dismiss')}>Dismiss alert</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
     <Dialog open={resumeOpen} onOpenChange={setResumeOpen}>
       <DialogContent>
         <DialogTitle>Schedule queue resume</DialogTitle>
-        <DialogDescription>Choose when this paused project's Build queue may start waiting work. Stored on the server, even if you close the browser.</DialogDescription>
+        <DialogDescription>Resume this project's queue at a set time. Saved on the server.</DialogDescription>
         <input type="datetime-local" aria-label="Resume date and time" className="w-full rounded-md border border-border bg-background p-2 text-sm"
-          value={resumeInput} onChange={event => setResumeInput(event.target.value)} />
+          value={resumeInput} onChange={event => { setResumeInput(event.target.value); setResumeError(''); }} />
+        {resumeError && <p role="alert" className="text-xs text-[var(--status-error-text)]">{resumeError}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={() => setResumeOpen(false)}>Cancel</Button>
           <Button onClick={scheduleResume} disabled={!resumeInput || queueBusy}>Schedule resume</Button>
@@ -1713,7 +1735,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           <Button disabled={queueBusy} onClick={() => confirmForce('queue')}>{t('buildQueue.force.confirmInQueue')}</Button>
           {gitHealth?.policy === 'managed' && <Button variant="destructive" disabled={queueBusy} onClick={() => confirmForce('separate', true)}
             title="Emergency override: bypasses managed Git verification and recovery. Concurrent changes can conflict.">
-            Emergency: bypass managed Git
+            Emergency: bypass Git checks
           </Button>}
         </DialogFooter>
       </DialogContent>
