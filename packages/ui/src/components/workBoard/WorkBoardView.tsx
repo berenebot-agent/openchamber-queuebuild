@@ -724,6 +724,35 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     const timer = setInterval(() => void inspect(), 20000);
     return () => { disposed = true; clearInterval(timer); };
   }, [directory, runtimeKey]);
+  const openGitConfirmation = async (action: 'commit' | 'revert') => {
+    if (!directory || gitBusy) return;
+    const token = generation.current;
+    const runtime = getRuntimeKey();
+    setGitBusy(true);
+    setQueueActionError('');
+    try {
+      // Ordinary 20s health checks are cheap; hash all edited file contents
+      // only when a person explicitly opens a commit/discard confirmation.
+      const response = await runtimeFetch('/api/build-queue/git-health?directory='
+        + encodeURIComponent(directory) + '&includeFingerprint=true');
+      const preview = await response.json();
+      if (!response.ok || preview?.state !== 'dirty' || !preview?.fingerprint) {
+        throw new Error(preview?.reason || preview?.error || 'Git changes are no longer available. Refresh the board.');
+      }
+      if (token === generation.current && runtime === getRuntimeKey()) {
+        setGitPreview(preview);
+        setGitMessage('');
+        setGitRevertPhrase('');
+        setGitConfirm(action);
+      }
+    } catch (error) {
+      if (token === generation.current && runtime === getRuntimeKey()) {
+        setQueueActionError(error instanceof Error ? error.message : 'Could not review Git changes');
+      }
+    } finally {
+      if (token === generation.current && runtime === getRuntimeKey()) setGitBusy(false);
+    }
+  };
   const submitBoardGitAction = async () => {
     const preview = gitPreview;
     const action = gitConfirm;
@@ -1479,8 +1508,8 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     </header>
     {gitHealth?.state === 'dirty' && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-[var(--status-warning)]/40 px-3 py-2 text-xs">
       <span className="min-w-0 flex-1 truncate" title={gitHealth.repository ?? undefined}>Git changes · {gitHealth.changed} files · {gitHealth.branch}</span>
-      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitMessage(''); setGitPreview(gitHealth); setGitConfirm('commit'); }}>Commit…</Button>
-      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitRevertPhrase(''); setGitPreview(gitHealth); setGitConfirm('revert'); }}>Discard…</Button>
+      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => void openGitConfirmation('commit')}>Commit…</Button>
+      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => void openGitConfirmation('revert')}>Discard…</Button>
     </section>}
     {queuePaused && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2 text-xs">
       <span>Queue paused</span>
