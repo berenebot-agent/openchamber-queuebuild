@@ -2978,6 +2978,37 @@ export function createMessageQueueRuntime({
    * must not walk away from: a waiting item, an in-flight send, or a build lease
    * this session owns.
    */
+  // Read-only Git health for the board. The repository is resolved by the
+  // project's server-side choice; the caller never supplies a Git path.
+  const readQueueGitHealth = async (directoryInput) => {
+    const directory = directoryKey(directoryInput);
+    if (!directory) throw new TypeError('A project directory is required');
+    await load();
+    const identity = await projectIdentityOf({ directory });
+    if (!asNonEmptyString(identity?.projectId)) throw httpError('This directory is not a project', 400);
+    const repository = await queueRepositoryFor(directory);
+    if (!repository) return { state: 'unavailable', repository: null, reason: 'No Git repository selected or detected' };
+    try {
+      const execGit = async (...args) => (await runGit('git', ['-C', repository, ...args], {
+        timeout: 10000, maxBuffer: 1024 * 1024, encoding: 'utf8',
+      })).stdout.trim();
+      const [root, branch, head, porcelain] = await Promise.all([
+        execGit('rev-parse', '--show-toplevel'),
+        execGit('symbolic-ref', '--short', '-q', 'HEAD'),
+        execGit('rev-parse', '--short', 'HEAD'),
+        execGit('status', '--porcelain=v1', '--untracked-files=all'),
+      ]);
+      const resolvedRoot = await fs.promises.realpath(root);
+      if (resolvedRoot !== await fs.promises.realpath(repository)) throw new Error('Selected path is not a Git worktree root');
+      const paths = porcelain ? porcelain.split('\n').slice(0, 200).map(line => line.slice(3)) : [];
+      const changed = porcelain ? porcelain.split('\n').length : 0;
+      return { state: changed ? 'dirty' : 'clean', repository, branch: branch || '(detached)', head,
+        changed, paths, checkedAt: now() };
+    } catch (error) {
+      return { state: 'unavailable', repository, reason: error?.message ?? 'Git check failed', checkedAt: now() };
+    }
+  };
+
   const hasManagedWorkFor = (sessionId) => {
     const queue = queues.get(sessionId);
     if (queue && queue.items.length > 0) return true;
@@ -3012,6 +3043,7 @@ export function createMessageQueueRuntime({
     writeQueuePolicy,
     writeQueueRepository,
     queueRepositoryFor,
+    readQueueGitHealth,
     cancelScheduledTask,
     parkSession,
     remove,
@@ -3037,6 +3069,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.get('/api/build-queue', async (_req, res) => {
     try { await runtime.load(); res.json(runtime.buildSnapshot()); }
     catch (error) { respondError(res, error, 'Failed to load build queue'); }
+  });
+  app.get('/api/build-queue/git-health', async (req, res) => {
+    try { res.json(await runtime.readQueueGitHealth(req.query?.directory)); }
+    catch (error) { respondError(res, error, 'Failed to inspect project Git'); }
   });
   app.put('/api/build-queue/pause', async (req, res) => {
     try { res.json(await runtime.setQueuePaused(req.body?.directory, req.body?.paused, req.body?.resumeAt ?? null)); }

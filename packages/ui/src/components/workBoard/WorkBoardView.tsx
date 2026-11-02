@@ -652,6 +652,11 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // than claim to be empty and then gain cards.
   const sessionsLoading = useGlobalSessionsStore(state => !state.hasLoaded && state.status !== 'error');
   const [queueBusy, setQueueBusy] = React.useState(false);
+  const [gitHealth, setGitHealth] = React.useState<{
+    state: 'clean' | 'dirty' | 'unavailable'; repository: string | null;
+    branch?: string; head?: string; changed?: number; paths?: string[];
+    checkedAt?: number; reason?: string;
+  } | null>(null);
   const [queueActionError, setQueueActionError] = React.useState('');
   const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
   const [forceConfirm, setForceConfirm] = React.useState<{ itemId: string; sessionId: string; title: string } | null>(null);
@@ -681,6 +686,24 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const cards = React.useMemo<WorkBoardSnapshotCard[]>(() => snapshot?.cards ?? [], [snapshot]);
   const loading = snapshot === null && !snapshotError;
   React.useEffect(() => { setError(snapshotError ?? ''); }, [snapshotError]);
+  React.useEffect(() => {
+    let disposed = false;
+    setGitHealth(null);
+    if (!directory) return;
+    const inspect = async () => {
+      try {
+        const response = await runtimeFetch('/api/build-queue/git-health?directory=' + encodeURIComponent(directory));
+        if (!response.ok) throw new Error('Git inspection failed');
+        const state = await response.json();
+        if (!disposed && ['clean', 'dirty', 'unavailable'].includes(state?.state)) setGitHealth(state);
+      } catch {
+        if (!disposed) setGitHealth({ state: 'unavailable', repository: null, reason: 'Could not inspect Git' });
+      }
+    };
+    void inspect();
+    const timer = setInterval(() => void inspect(), 20000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [directory, runtimeKey]);
   // A saved to-do from the composer arrives as a card; the next snapshot carries
   // it, so the effect only nudges a refresh rather than merging cards by hand.
   React.useEffect(() => useWorkBoardSavedTodo.subscribe((state, previousState) => {
@@ -927,7 +950,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       && card.status === 'known' && (!visible || visible.has(card.id))
       && card.availableActions.includes('complete') && !recoveries.has(card.sessionId ?? '')
       && !source.waitingFor[card.sessionId ?? ''] && !source.activities[card.sessionId ?? '']?.busy
-      && Number.isFinite(source.placements[card.id]?.finishedAt)
+      && typeof source.placements[card.id]?.finishedAt === 'number'
       && (source.placements[card.id]?.finishedAt ?? Infinity) <= cutoff);
   };
   const startSweep = (action: 'done' | 'archive', hours: 24 | 48 | 168) => {
@@ -1364,6 +1387,16 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           <Switch aria-label={t('workBoard.queueEnabledLabel')} checked={queueEnabled === true}
             disabled={!directory || busy} onCheckedChange={toggleQueueEnabled} />
         </div>
+        {gitHealth && <button type="button" onClick={openBoardSettings}
+          aria-label="Project Git status" title={[gitHealth.repository, gitHealth.branch, gitHealth.head,
+            gitHealth.checkedAt && new Date(gitHealth.checkedAt).toLocaleString(),
+            gitHealth.reason, ...(gitHealth.paths ?? [])].filter(Boolean).join('\n')}
+          className={'rounded-md border px-2 py-1 text-xs ' +
+            (gitHealth.state === 'clean' ? 'border-[var(--status-success)] text-[var(--status-success-text)]' :
+              gitHealth.state === 'dirty' ? 'border-[var(--status-warning)] text-[var(--status-warning-text)]' : 'border-border text-muted-foreground')}>
+          {gitHealth.state === 'clean' ? 'Git clean' : gitHealth.state === 'dirty'
+            ? 'Git dirty · ' + gitHealth.changed + ' files' : 'Git unavailable'}
+        </button>}
         <Button size="icon" variant="ghost" aria-label={t('workBoard.settings')} title={t('workBoard.settings')}
           onClick={() => openBoardSettings()}>
           <Icon name="settings-3" className="size-4" />
@@ -1403,7 +1436,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             {lane === 'queue' && queuePaused && <Button size="sm" variant="ghost" disabled={queueBusy}
               onClick={() => { setResumeInput(''); setResumeOpen(true); }}
               aria-label="Schedule queue resume" title="Resume at a set time">
-              <Icon name="time" className="size-4" />
+              <Icon name="timer" className="size-4" />
             </Button>}
             {lane === 'queue' && <Button size="sm" variant="ghost"
               disabled={!directory || busy || queueBusy || !queue?.known || Boolean(queueError)}
