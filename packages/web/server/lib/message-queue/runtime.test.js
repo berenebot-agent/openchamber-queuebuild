@@ -3236,7 +3236,7 @@ describe('queue repository choice', () => {
     await runtime.flush();
   });
 
-  it('uses the selected project repository for guarded board Git commit and revert', async () => {
+  it('uses content-guarded project Git commit and discard and leaves ignored files alone', async () => {
     const root = fs.realpathSync(makeDataDir());
     const run = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
     run('init');
@@ -3257,11 +3257,21 @@ describe('queue repository choice', () => {
     try {
       const before = await runtime.readQueueGitHealth(root);
       expect(before).toMatchObject({ state: 'dirty', changed: 2, repository: root });
+      expect(before.fingerprint).toMatch(/^[a-f0-9]{64}$/);
       const action = { directory: root, expectedHead: before.head, expectedBranch: before.branch,
-        expectedChanged: before.changed, expectedPaths: before.paths };
+        expectedChanged: before.changed, expectedPaths: before.paths, expectedFingerprint: before.fingerprint };
       await expect(runtime.manualBoardGitAction({ ...action, action: 'revert', expectedChanged: 999 }))
         .rejects.toMatchObject({ status: 409 });
+      // Same paths and count, different file bytes: confirmation must be stale.
+      fs.writeFileSync(path.join(root, 'tracked.txt'), 'modified again\n');
+      fs.writeFileSync(path.join(root, 'new.txt'), 'new but different\n');
       await expect(runtime.manualBoardGitAction({ ...action, action: 'revert' }))
+        .rejects.toMatchObject({ status: 409 });
+      expect(fs.readFileSync(path.join(root, 'tracked.txt'), 'utf8')).toBe('modified again\n');
+      expect(fs.readFileSync(path.join(root, 'new.txt'), 'utf8')).toBe('new but different\n');
+      const refreshed = await runtime.readQueueGitHealth(root);
+      await expect(runtime.manualBoardGitAction({ ...action,
+        expectedFingerprint: refreshed.fingerprint, action: 'revert' }))
         .resolves.toMatchObject({ ok: true, action: 'revert' });
       expect(fs.readFileSync(path.join(root, 'tracked.txt'), 'utf8')).toBe('original\n');
       expect(fs.existsSync(path.join(root, 'new.txt'))).toBe(false);
@@ -3273,10 +3283,68 @@ describe('queue repository choice', () => {
       const next = await runtime.readQueueGitHealth(root);
       const committed = await runtime.manualBoardGitAction({ directory: root, action: 'commit',
         message: 'Board commit', expectedHead: next.head, expectedBranch: next.branch,
-        expectedChanged: next.changed, expectedPaths: next.paths });
+        expectedChanged: next.changed, expectedPaths: next.paths, expectedFingerprint: next.fingerprint });
       expect(committed).toMatchObject({ ok: true, action: 'commit' });
       expect(run('show', '-s', '--format=%s', 'HEAD')).toBe('Board commit');
       expect(run('status', '--porcelain')).toBe('');
+    } finally {
+      runtime.stop();
+      await runtime.flush();
+    }
+  });
+
+  it('blocks Git actions while a non-Build agent is working in the project', async () => {
+    const root = fs.realpathSync(makeDataDir());
+    const run = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+    run('init');
+    run('config', 'user.name', 'Board Test');
+    run('config', 'user.email', 'board@test.invalid');
+    fs.writeFileSync(path.join(root, 'tracked.txt'), 'baseline\n');
+    run('add', '.');
+    run('commit', '-m', 'Baseline');
+    fs.writeFileSync(path.join(root, 'tracked.txt'), 'modified\n');
+    const { runtime, openCode } = createRuntime({
+      projectConfigRuntime: projectConfigRuntime(root),
+      resolveProjectIdentity: () => ({ directory: root, projectId: createProjectIdFromPath(root) }),
+      resolveRepositoryRoot: async () => root,
+    });
+    try {
+      const health = await runtime.readQueueGitHealth(root);
+      const action = { directory: root, action: 'revert', expectedHead: health.head,
+        expectedBranch: health.branch, expectedChanged: health.changed,
+        expectedPaths: health.paths, expectedFingerprint: health.fingerprint };
+      openCode.state.sessions = [{ id: SESSION, agent: 'plan', location: { directory: root } }];
+      openCode.state.active[SESSION] = { type: 'running' };
+      await expect(runtime.manualBoardGitAction(action)).rejects.toMatchObject({ status: 409 });
+      expect(fs.readFileSync(path.join(root, 'tracked.txt'), 'utf8')).toBe('modified\n');
+      delete openCode.state.active[SESSION];
+      await expect(runtime.manualBoardGitAction(action)).resolves.toMatchObject({ ok: true });
+    } finally {
+      runtime.stop();
+      await runtime.flush();
+    }
+  });
+
+  it('dismissing the latest recovery clears older visible failures but keeps persisted Git refs', async () => {
+    const dataDir = makeDataDir();
+    const journal = path.join(dataDir, 'message-queue.json');
+    const recovery = attemptId => ({
+      directory: DIRECTORY, sessionId: SESSION, attemptId, repository: DIRECTORY,
+      stashRef: 'refs/openchamber/recovery/' + SESSION + '/' + attemptId + '/stash',
+    });
+    fs.writeFileSync(journal, JSON.stringify({
+      version: 2, revision: 1, sessions: {}, activeBuilds: {}, buildParticipation: {},
+      forceReservations: {}, lastBuildOwners: {}, nextBuildOrder: 1,
+      managedRecoveries: { [SESSION]: [recovery('attempt1'), recovery('attempt2')] },
+    }));
+    const { runtime } = createRuntime({ dataDir });
+    try {
+      await runtime.load();
+      expect(runtime.buildSnapshot().recoveries).toHaveLength(2);
+      await runtime.clearManagedRecovery(DIRECTORY, SESSION, 'attempt2');
+      expect(runtime.buildSnapshot().recoveries).toHaveLength(0);
+      await runtime.flush();
+      expect(JSON.parse(fs.readFileSync(journal, 'utf8')).managedRecoveries).toEqual({});
     } finally {
       runtime.stop();
       await runtime.flush();
