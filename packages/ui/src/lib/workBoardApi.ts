@@ -169,6 +169,7 @@ const snapshotSchema = z.object({
   cards: z.array(snapshotCardSchema),
   placements: z.record(z.string(), z.object({
     lane: z.enum(['todo', 'plan', 'queue', 'build', 'done']), completedAt: z.number(),
+    finishedAt: z.number().nullable().default(null),
     updatedAt: z.number(), sessionId: z.string().optional(),
   })),
   activities: z.record(z.string(), z.object({ busy: z.boolean(), messages: z.array(activityMessageSchema) })),

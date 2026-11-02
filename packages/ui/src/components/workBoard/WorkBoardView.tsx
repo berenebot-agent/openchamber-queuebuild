@@ -30,12 +30,13 @@ import { createChatDraftIdentity } from '@/lib/chatDraftPersistence';
 import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
-import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, updateQueueSettings, type WorkBoardCard, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
+import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, placeWorkBoardCards, updateQueueSettings, type WorkBoardCard, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
 import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardCompletesMove, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
+import { runSessionSubtreeAction } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
 import { WorkBoardCardMenu, WorkBoardCardContextMenu, WorkBoardQueueMenu, WorkBoardQueueContextMenu, WorkBoardActiveBuildMenu, type WorkBoardCardMenuProps, type WorkBoardQueueMenuProps } from './WorkBoardCardMenu';
 import { readMobileWorkBoardLane, rememberMobileWorkBoardLane } from './workBoardMobileLane';
 import { readRecentWorkBoardProjects, rememberWorkBoardProjectAccess } from './workBoardRecentProjects';
@@ -655,6 +656,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
   const [forceConfirm, setForceConfirm] = React.useState<{ itemId: string; sessionId: string; title: string } | null>(null);
   const [clearRecoveryConfirm, setClearRecoveryConfirm] = React.useState<{ sessionId: string; attemptId: string; title: string } | null>(null);
+  const [sweepConfirm, setSweepConfirm] = React.useState<{ action: 'done' | 'archive'; hours: 24 | 48 | 168; ids: string[] } | null>(null);
   const [resumeOpen, setResumeOpen] = React.useState(false);
   const [resumeInput, setResumeInput] = React.useState('');
   const [resumeClock, setResumeClock] = React.useState(Date.now());
@@ -917,6 +919,64 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const canDo = (card: WorkBoardSnapshotCard, action: WorkBoardSnapshotCard['availableActions'][number]) =>
     !loading && !error && card.availableActions.includes(action);
   const canComplete = (card: WorkBoardSnapshotCard) => canDo(card, 'complete');
+  const sweepCandidates = (source: typeof snapshot, hours: number, visible?: Set<string>) => {
+    if (!source?.queue.known) return [];
+    const cutoff = Date.now() - hours * 3600000;
+    const recoveries = new Set(source.queue.recoveries.map(recovery => recovery.sessionId));
+    return source.cards.filter(card => source.lanes[card.id] === 'build'
+      && card.status === 'known' && (!visible || visible.has(card.id))
+      && card.availableActions.includes('complete') && !recoveries.has(card.sessionId ?? '')
+      && !source.waitingFor[card.sessionId ?? ''] && !source.activities[card.sessionId ?? '']?.busy
+      && Number.isFinite(source.placements[card.id]?.finishedAt)
+      && (source.placements[card.id]?.finishedAt ?? Infinity) <= cutoff);
+  };
+  const startSweep = (action: 'done' | 'archive', hours: 24 | 48 | 168) => {
+    const visible = new Set((shownLanes.get('build') ?? []).map(card => card.id));
+    const ids = sweepCandidates(snapshot, hours, visible)
+      .filter(card => action !== 'archive' || Boolean(card.sessionId && sessions.some(session => session.id === card.sessionId)))
+      .map(card => card.id);
+    if (ids.length) setSweepConfirm({ action, hours, ids });
+  };
+  const executeSweep = async () => {
+    const request = sweepConfirm;
+    if (!request || busy || !directory) return;
+    setSweepConfirm(null);
+    setBusy(true);
+    setActionError('');
+    try {
+      const fresh = await fetchWorkBoardSnapshot(directory, sessionDays);
+      const eligible = new Map(sweepCandidates(fresh, request.hours).map(card => [card.id, card]));
+      const selected = request.ids.flatMap(id => {
+        const current = eligible.get(id);
+        const prior = cards.find(card => card.id === id);
+        return current && prior?.updatedAt === current.updatedAt ? [current] : [];
+      });
+      if (request.action === 'done') {
+        if (selected.length) {
+          const result = await placeWorkBoardCards(directory, 'done',
+            selected.map(card => ({ id: card.id, updatedAt: card.updatedAt, text: card.text, sessionId: card.sessionId })), true);
+          if (result.failed.length) throw new Error(result.failed.length + ' cards changed during completion');
+          for (const card of selected) {
+            if (card.sessionId && result.placed.some(done => done.id === card.id)) {
+              const session = sessions.find(item => item.id === card.sessionId);
+              if (session) await setSessionWorkState(session.id, session.directory, 'done');
+            }
+          }
+        }
+      } else {
+        for (const card of selected) {
+          const session = sessions.find(item => item.id === card.sessionId);
+          if (!session) continue;
+          // Archive the existing session, not the board card's local copy.
+          const result = await runSessionSubtreeAction('archive', session, [], useSessionUIStore.getState(), t);
+          if (result.failedIds.length) throw new Error('Could not archive ' + session.id);
+        }
+      }
+      if (selected.length !== request.ids.length) setActionError((request.ids.length - selected.length) + ' changed or active cards were left untouched.');
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Column cleanup failed');
+    } finally { await refresh(); setBusy(false); }
+  };
   // Every lane's own card moves into Done together, from its own menu. Done has
   // no such action: its cards are already there. A bulk move names no place, so
   // each card keeps Done's own newest-completion order.
@@ -1356,7 +1416,17 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             </Button>}
             {lane !== 'queue' && <DropdownMenu>
               <DropdownMenuTrigger asChild><Button size="sm" variant="ghost" disabled={busy || !inLane.length} aria-label={t('workBoard.laneActions')} title={t('workBoard.laneActions')}><Icon name="more" className="size-4" /></Button></DropdownMenuTrigger>
-              <DropdownMenuContent align="end"><DropdownMenuItem onClick={() => completeAllIn(lane)}>{t('workBoard.completeAll')}</DropdownMenuItem></DropdownMenuContent>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => completeAllIn(lane)}>{t('workBoard.completeAll')}</DropdownMenuItem>
+                {lane === 'build' && ([24, 48, 168] as const).flatMap(hours => (['done', 'archive'] as const).map(action => {
+                  const count = sweepCandidates(snapshot, hours, new Set(inLane.map(card => card.id)))
+                    .filter(card => action !== 'archive' || Boolean(card.sessionId && sessions.some(session => session.id === card.sessionId))).length;
+                  return <DropdownMenuItem key={action + hours} disabled={count === 0 || busy}
+                    onClick={() => startSweep(action, hours)}>
+                    {action === 'done' ? 'Move to Done' : 'Archive'} older than {hours === 168 ? '7 days' : hours + 'h'} · {count}
+                  </DropdownMenuItem>;
+                }))}
+              </DropdownMenuContent>
             </DropdownMenu>}
           </div>
           {lane === 'queue' ? <WorkBoardQueueColumn
@@ -1492,6 +1562,16 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         <DialogFooter>
           <Button variant="outline" disabled={queueBusy} onClick={() => setResolveConfirm(null)}>{t('workBoard.cancel')}</Button>
           <Button disabled={queueBusy} onClick={confirmResolve}>{t('workBoard.resume')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={sweepConfirm !== null} onOpenChange={open => { if (!open && !busy) setSweepConfirm(null); }}>
+      <DialogContent>
+        <DialogTitle>{sweepConfirm?.action === 'done' ? 'Move to Done' : 'Archive'} older Build completions?</DialogTitle>
+        <DialogDescription>{sweepConfirm?.ids.length ?? 0} selected Build complete cards older than {sweepConfirm?.hours === 168 ? '7 days' : (sweepConfirm?.hours ?? 0) + ' hours'}. Running, uncertain, manually placed and failed-recovery cards are excluded; each card is checked again before changes.</DialogDescription>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setSweepConfirm(null)} disabled={busy}>Cancel</Button>
+          <Button disabled={busy} onClick={() => void executeSweep()}>Confirm</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

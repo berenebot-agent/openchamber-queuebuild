@@ -97,6 +97,18 @@ function buildFinishedAt(card, activity) {
   return lastTurn?.time.created ?? card.updatedAt;
 }
 
+// Only a confirmed last Build finish can be swept by age; manually placed,
+// failed, running or unreadable sessions are deliberately ineligible.
+function sweepFinishedAt(card, activity, lane) {
+  if (lane !== 'build' || !activity || activity.busy || card.placementAt !== undefined) return null;
+  const messages = [...(activity.messages ?? [])].reverse();
+  const assistant = messages.find(message => message.role === 'assistant');
+  if (!assistant || String(assistant.agent ?? '').toLowerCase() !== 'build') return null;
+  const terminal = messages.find(message => message.role === 'idle'
+    && message.outcome === 'succeeded' && message.time.created >= assistant.time.created);
+  return terminal?.time.created ?? null;
+}
+
 /**
  * A lane's own order with the cards the user dropped by hand moved to the place
  * they named. `placementBefore` is the card a dropped card now sits in front of,
@@ -343,7 +355,9 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
         ? (unavailable.has(card.sessionId) ? 'unavailable' : entry ? 'known' : 'unknown')
         : 'none';
       lanes[card.id] = lane;
-      placements[card.id] = { lane, completedAt: completionTime(card, entry, lane), updatedAt: card.updatedAt, sessionId: card.sessionId };
+      placements[card.id] = { lane, completedAt: completionTime(card, entry, lane),
+        finishedAt: sweepFinishedAt(card, entry, lane),
+        updatedAt: card.updatedAt, sessionId: card.sessionId };
       return { ...card, lane, status, availableActions: availableActions(card, lane, status, Boolean(entry?.busy), sessions.available) };
     });
 
