@@ -3318,6 +3318,10 @@ describe('queue repository choice', () => {
       await expect(runtime.manualBoardGitAction(action)).rejects.toMatchObject({ status: 409 });
       expect(fs.readFileSync(path.join(root, 'tracked.txt'), 'utf8')).toBe('modified\n');
       delete openCode.state.active[SESSION];
+      // Background shell output can still write after the parent turn idles.
+      openCode.state.shells = [{ directory: root, status: 'running', metadata: { sessionID: SESSION } }];
+      await expect(runtime.manualBoardGitAction(action)).rejects.toMatchObject({ status: 409 });
+      openCode.state.shells = [];
       await expect(runtime.manualBoardGitAction(action)).resolves.toMatchObject({ ok: true });
     } finally {
       runtime.stop();
