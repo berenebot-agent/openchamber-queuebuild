@@ -724,3 +724,63 @@ browsers, see "Sessions and events" in
 `packages/web/server/lib/spaces/DOCUMENTATION.md`. VS Code intentionally
 does not use this module; with all OpenChamber webviews closed, queued
 messages there are not delivered.
+
+
+### Managed Git Build policy (opt-in)
+
+A fourth per-project Git policy, `managed`, provides guarded completion and
+failure parking on top of the existing durable Build queue. Existing Continue,
+Pause and staged auto-commit projects are unchanged. The selected repository must
+have a committed, clean, attached branch before dispatch. The queue records its
+real worktree root, branch, baseline commit and attempt id with the durable lease
+**before** sending the prompt. The gate is rechecked immediately before send.
+
+The Build gets a synthetic completion contract and must finish its final
+response with a single literal footer:
+
+```text
+OPENCHAMBER_TURN_COMPLETE: {"attempt_id":"<queue-item-id>","outcome":"success","summary":"Brief result"}
+```
+
+Allowed outcomes: `success`, `failed`, `input_required`. This is an agent
+report, **not** permission to release a lease. The server independently requires
+a native terminal succeeded record, no running descendants/background shell
+commands, a matching attempt id, the original branch, a HEAD descended from
+the baseline, and a clean worktree for verified success.
+
+An explicit failure or input-required outcome (or success with dirty Git)
+enters a durable `capturing` journal stage. The server pins the ending HEAD
+under `refs/openchamber/recovery/<session>/<attempt>/rescue`, CAS-rewinds
+the branch to the exact baseline without altering files or index, stashes the
+net change including untracked files, pins the stash commit under the sibling
+`stash` ref, and verifies the baseline is clean before releasing the lease.
+A zero-file-change failure is parked without a stash. The queue snapshot
+retains the failed attempt, outcome, reason and pinned stash ref, and the work
+board displays Action required. Later Builds in that session receive the
+recovery ref as context; OpenCode must inspect or selectively restore changes,
+not automatically apply them. A verified successful later Build clears the
+visible recovery notice, leaving Git recovery refs for manual retention/cleanup.
+
+If a step fails, the outcome is unknown, the completion footer is missing,
+the process roster cannot be verified, a Git operation is interrupted, or
+persistence fails, **ownership is retained** with a manual-review reason.
+No unknown prompt is replayed and no partial Git rollback is attempted
+automatically after restart. A manually acknowledged unsafe managed attempt
+still requires terminal turn evidence and a clean descendant of its recorded
+baseline. The existing success/failure pathways for other policies are
+unchanged.
+
+A managed lease cannot be extracted into an outside-queue run, and submitting
+another Build cannot silently unfreeze its unsafe hold. The ordinary Force
+options are refused in managed mode. The Work Board offers a separately
+labelled emergency Force outside queue, which deliberately bypasses all Git
+management and can conflict with active edits. This escape hatch does not
+promise recovery.
+
+**Limitations:** A managed journal fences queue-owned Builds, not unrelated
+direct OpenCode API calls or external writers. Changed ignored files, effects
+outside the selected repository and pushed commits cannot be recovered. Native
+session history has to retain the final outcome and footer. There is no
+automatic completion-only retry if the agent omits the footer; the lane is
+held for reconciliation rather than assumed successful. Existing recovery
+refs are not pruned automatically.

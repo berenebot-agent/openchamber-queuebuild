@@ -23,6 +23,7 @@ import { createSessionActivityProbe } from '../opencode/session-activity.js';
 import { readMergedSettingsSync } from '../opencode/settings-files.js';
 import { attachmentHint } from '../routing/runtime.js';
 import { isBuildAgentName } from './build-classification.js';
+import { captureManagedBaseline, verifyManagedSuccess, parkManagedFailure, readManagedReport } from './managed-git.js';
 import { projectPathFromId } from '../projects/project-id.js';
 import { buildGoalIntroText, createSessionGoal } from '../session-goal/create.js';
 
@@ -381,6 +382,10 @@ export function createMessageQueueRuntime({
   const preparingBuilds = new Map();
   const preparationFailures = new Map();
   const buildCommits = new Map();
+  // A safely parked managed attempt no longer holds the lease, but retains its
+  // pinned recovery reference and reason until this session verifies a new Build.
+  const managedRecoveries = new Map(); // sessionId -> recovery[]
+  const managedFinalizing = new Set();
   const buildMonitors = new Map();
   // Running Builds without a queue lease: forced starts, live builds the user
   // moved on from, and live builds the user included in the queue. Only entries
@@ -444,6 +449,7 @@ export function createMessageQueueRuntime({
         model: entry.model ?? null,
       }])),
     forceReservations: Object.fromEntries(forceReservations),
+    managedRecoveries: Object.fromEntries(managedRecoveries),
     lastBuildOwners: Object.fromEntries(lastBuildOwners),
     sessions: Object.fromEntries(
       Array.from(queues.entries()).map(([sessionId, queue]) => [sessionId, { directory: queue.directory, items: queue.items }]),
@@ -483,7 +489,7 @@ export function createMessageQueueRuntime({
       if (!directory || items.length === 0) continue;
       sessions[sessionId] = { directory, items };
     }
-    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, buildParticipation: asRecord(stored.buildParticipation) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, lastBuildOwners: asRecord(stored.lastBuildOwners) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey) };
+    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, buildParticipation: asRecord(stored.buildParticipation) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, managedRecoveries: asRecord(stored.managedRecoveries) ?? {}, lastBuildOwners: asRecord(stored.lastBuildOwners) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey) };
   };
 
   const load = () => {
@@ -498,8 +504,17 @@ export function createMessageQueueRuntime({
               // A restored lease represents a prompt dispatched before restart.
               // The live status probe still prevents releasing external runs that survived.
               const hasQueuedItem = queues.get(value.sessionId)?.items.some(item => item.id === value.itemId);
-              activeBuilds.set(directory, { ...value, observedBusy: false, restored: true, ...(hasQueuedItem ? { needsReview: true, reviewReason: 'restart-during-dispatch' } : {}) });
+              activeBuilds.set(directory, { ...value, observedBusy: false, restored: true,
+                ...((value?.recoveryPhase === 'capturing' || value?.recoveryPhase === 'captured')
+                  ? { needsReview: true, reviewReason: 'managed-recovery-interrupted' }
+                  : hasQueuedItem ? { needsReview: true, reviewReason: 'restart-during-dispatch' } : {}) });
             }
+          }
+          for (const [sessionId, entries] of Object.entries(stored.managedRecoveries ?? {})) {
+            if (!isValidSessionId(sessionId) || !Array.isArray(entries)) continue;
+            const valid = entries.filter(entry => asRecord(entry) && asNonEmptyString(entry.repository)
+              && asNonEmptyString(entry.attemptId) && asNonEmptyString(entry.directory)).slice(-20);
+            if (valid.length) managedRecoveries.set(sessionId, valid);
           }
           for (const [directory, sessionId] of Object.entries(stored.lastBuildOwners)) {
             if (asNonEmptyString(directory) && isValidSessionId(sessionId)) lastBuildOwners.set(directoryKey(directory), sessionId);
@@ -648,6 +663,7 @@ export function createMessageQueueRuntime({
   const buildSnapshot = () => ({
     revision,
     pausedDirectories: [...pausedDirectories],
+    recoveries: [...managedRecoveries.entries()].flatMap(([sessionId, entries]) => entries.map(entry => ({ ...entry, sessionId }))),
     preparation: Array.from(preparingBuilds, ([directory, value]) => ({ directory, phase: value.phase })),
     commits: Array.from(buildCommits, ([directory, value]) => ({ directory, ...value })),
     active: Array.from(activeBuilds.entries()).map(([directory, lease]) => ({ directory, ...lease, retryAvailable: queues.get(lease.sessionId)?.items.some(item => item.id === lease.itemId) === true })),
@@ -679,7 +695,9 @@ export function createMessageQueueRuntime({
     issues: [
       ...Array.from(buildProblems.entries()).filter(([directory]) => pendingBuilds(directory).length > 0).map(([directory, issue]) => ({ directory, issue })),
       ...Array.from(activeBuilds.entries()).filter(([, lease]) => lease.needsReview)
-        .map(([directory, lease]) => ({ directory, issue: lease.reviewReason === 'aborted'
+        .map(([directory, lease]) => ({ directory, issue: lease.managed && lease.managedReason
+          ? 'Managed Build requires reconciliation: ' + lease.managedReason
+          : lease.reviewReason === 'aborted'
           ? 'The previous build was stopped. Review its changes before continuing.'
           : lease.reviewReason === 'persistence-failed'
             ? 'Build queue storage failed. Repair server storage, then review this build.'
@@ -838,7 +856,7 @@ export function createMessageQueueRuntime({
       : [withMetadata];
   };
 
-  const sendItem = async (sessionId, directory, item, buildSelection, { forced = false, resumesOwnCheckout = false } = {}) => {
+  const sendItem = async (sessionId, directory, item, buildSelection, { forced = false, resumesOwnCheckout = false, managedAttempt = null, managedRecovery = [] } = {}) => {
     const { providerID, modelID, variant } = item.sendConfig;
     let agent = item.sendConfig.agent;
     // Older admitted prompts without captured selection keep the session's.
@@ -929,6 +947,12 @@ export function createMessageQueueRuntime({
     const buildStartup = isBuildItem(item) ? [
       resumesOwnCheckout ? '' : await sessionTreeRuntime?.describe(sessionId, directory).catch(() => '') ?? '',
       !forced && item.buildWaited ? BUILD_INSTRUCTION : '',
+      managedAttempt ? `Managed Build attempt ${managedAttempt.attemptId}, repository ${managedAttempt.repository}. `
+        + `End your final response with one literal final line: OPENCHAMBER_TURN_COMPLETE: {"attempt_id":"${managedAttempt.attemptId}","outcome":"success","summary":"Brief result"}. `
+        + 'Use outcome "failed" or "input_required" when appropriate; do not report success until changes are committed and Git is clean.' : '',
+      managedRecovery.length ? 'Previous failed Build changes are preserved as pinned Git stash references. '
+        + managedRecovery.map(entry => `Attempt ${entry.attemptId}: ${entry.stashRef || 'no changed files'} (${entry.reason || 'failed'}).`).join(' ')
+        + ' The checkout starts clean. Inspect or selectively recover those changes; do not blindly apply an old stash.' : '',
     ].filter(Boolean).join('\n\n') : '';
     const preamble = [
       ...(buildStartup ? [{ text: buildStartup, resume: false }] : []),
@@ -1027,7 +1051,7 @@ export function createMessageQueueRuntime({
   const buildGitPolicy = () => {
     try {
       const settings = readMergedSettingsSync({ fs, path, settingsFilePath });
-      if (['continue', 'commit', 'pause'].includes(settings?.buildQueueGitPolicy)) return settings.buildQueueGitPolicy;
+      if (['continue', 'commit', 'pause', 'managed'].includes(settings?.buildQueueGitPolicy)) return settings.buildQueueGitPolicy;
       return settings?.buildQueueRequireCleanGit === false ? 'continue' : 'pause';
     } catch {
       return 'pause';
@@ -1131,6 +1155,78 @@ export function createMessageQueueRuntime({
     timer.unref?.();
     buildMonitors.set(directory, timer);
   };
+  // The only path that releases an owned managed Build: native turn evidence,
+  // agent report, and independent Git checks must all settle. A parked failure
+  // writes its recovery journal BEFORE the exclusive lease is released.
+  async function finalizeManagedBuild(directory, lease) {
+    if (managedFinalizing.has(directory) || activeBuilds.get(directory) !== lease) return;
+    managedFinalizing.add(directory);
+    try {
+      const page = await openCodeFetch(`/api/session/${encodeURIComponent(lease.sessionId)}/message`, {
+        directory, query: { limit: '50' },
+      }).catch(() => null);
+      const report = readManagedReport(asList(asRecord(page)?.data), lease.itemId, lease.startedAt);
+      if (report.outcome === 'unknown') {
+        lease.needsReview = true;
+        lease.reviewReason = 'managed-completion-unconfirmed';
+        lease.managedReason = report.reason;
+        commit(lease.sessionId);
+        return;
+      }
+      let outcome = report.outcome;
+      let reason = report.reason;
+      if (outcome === 'success') {
+        try { await verifyManagedSuccess(lease.managed); }
+        catch (error) { outcome = 'failed'; reason = 'Git validation failed: ' + error.message; }
+      }
+      if (outcome !== 'success') {
+        lease.recoveryPhase = 'capturing';
+        commit(lease.sessionId);
+        await writePromise;
+        if (persistenceError) throw new Error('Cannot persist the recovery journal');
+        const recovery = await parkManagedFailure(lease.managed, lease.sessionId, lease.itemId);
+        // The failed session's own instructions remain saved, but may not
+        // execute until the operator explicitly resumes them. Other sessions
+        // remain eligible and the clean queue may advance.
+        for (const next of queues.get(lease.sessionId)?.items ?? []) {
+          if (isBuildItem(next)) next.buildPaused = true;
+        }
+        const entry = { ...recovery, directory, outcome, reason, sessionId: lease.sessionId, priority: lease.buildOrder };
+        lease.recoveryPhase = 'captured';
+        lease.managedRecovery = entry;
+        managedRecoveries.set(lease.sessionId, [...(managedRecoveries.get(lease.sessionId) ?? []), entry].slice(-20));
+        commit(lease.sessionId);
+        await writePromise;
+        if (persistenceError) throw new Error('Cannot persist the captured recovery');
+      } else {
+        // Do not delete Git refs here: the operator may still need historical
+        // stashes. Only the visible unresolved alert is cleared on success.
+        managedRecoveries.delete(lease.sessionId);
+      }
+      if (activeBuilds.get(directory) !== lease) return;
+      activeBuilds.delete(directory);
+      commit(lease.sessionId);
+      await writePromise;
+      if (persistenceError) {
+        activeBuilds.set(directory, lease);
+        lease.needsReview = true;
+        lease.reviewReason = 'persistence-failed';
+        return;
+      }
+      wakeProject(directory);
+    } catch (error) {
+      if (activeBuilds.get(directory) === lease) {
+        lease.needsReview = true;
+        lease.reviewReason = 'managed-recovery-unsafe';
+        lease.managedReason = error?.message ?? String(error);
+        commit(lease.sessionId);
+      }
+    } finally {
+      managedFinalizing.delete(directory);
+      broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
+    }
+  }
+
   async function monitorBuild(directory) {
     const lease = activeBuilds.get(directory);
     if (stopped || !lease) return;
@@ -1156,6 +1252,21 @@ export function createMessageQueueRuntime({
       activeBuilds.delete(directory);
       commit(lease.sessionId);
       wakeProject(directory);
+      return;
+    }
+    if (lease.needsReview && lease.managed) {
+      // A known user Stop can be safely parked only once all native writers
+      // are verified idle. Other uncertainty (including interrupted Git
+      // capture) stays fenced for explicit reconciliation.
+      if (lease.reviewReason === 'aborted') {
+        const quiet = await isSessionIdle(lease.sessionId, directory);
+        const children = quiet === true ? await hasWorkingSubagents(lease.sessionId, directory) : null;
+        if (quiet === true && children === false && activeBuilds.get(directory) === lease) {
+          await finalizeManagedBuild(directory, lease);
+          return;
+        }
+        scheduleBuildMonitor(directory, buildRecheckMs);
+      }
       return;
     }
     if (lease.needsReview) {
@@ -1213,6 +1324,7 @@ export function createMessageQueueRuntime({
       return;
     }
     if (idle !== true || children !== false || !completed) { scheduleBuildMonitor(directory, buildRecheckMs); return; }
+    if (lease.managed) { await finalizeManagedBuild(directory, lease); return; }
     // The lane belongs to the session, not to one turn: what the user sent while
     // the Build ran (a queued follow-up, or a steer already inside the running
     // turn) is delivered by the session's own queue, and its lane is released
@@ -1220,7 +1332,11 @@ export function createMessageQueueRuntime({
     // lane's own next work — the project order picks it up — so it does not hold
     // the lane.
     const remaining = queues.get(lease.sessionId)?.items ?? [];
-    if (remaining.some(item => !isBuildItem(item)) || sending.has(lease.sessionId)) {
+    // Consecutive queued Build turns retain their existing session-owned slot.
+    // A subsequent Plan/To-do instruction is not a Build continuation and
+    // releases ownership at that boundary instead of blocking other Builds.
+    const buildContinuation = remaining.some(item => !isBuildItem(item) && isBuildAgentName(item.sendConfig?.agent ?? ''));
+    if (buildContinuation || sending.has(lease.sessionId)) {
       scheduleBuildMonitor(directory, buildRecheckMs);
       return;
     }
@@ -1433,6 +1549,11 @@ export function createMessageQueueRuntime({
     // idleness was unsatisfiable: a message delivered into the session after the
     // freeze kept it busy, so the button that clears the freeze could never run.
     const turnOver = await leaseTurnOver(lease, directory);
+    if (lease.managed && action === 'retry') throw httpError('Managed Build cannot replay an uncertain prompt. Start a new Build only after reconciliation.', 409);
+    if (lease.managed && action === 'skip') {
+      try { await verifyManagedSuccess(lease.managed); }
+      catch (error) { throw httpError('Reconcile the repository and confirm a clean descendant of the baseline first: ' + error.message, 409); }
+    }
     if (turnOver !== true) throw httpError('Build session may still be running; cannot resolve yet', 409);
     if (activeBuilds.get(directory) !== lease) throw httpError('The build queue changed. Refresh it before continuing.', 409);
     const queue = queues.get(lease.sessionId);
@@ -1443,6 +1564,7 @@ export function createMessageQueueRuntime({
     // and the queue resumes when it ends. Unreadable status keeps the freeze.
     const idle = await isSessionIdle(lease.sessionId, directory);
     if (idle === null) throw httpError('Build session may still be running; cannot resolve yet', 409);
+    if (idle === false && lease.managed) throw httpError('Managed Build still has active work; cannot release its Git lease', 409);
     if (idle === false) {
       delete lease.needsReview;
       delete lease.reviewReason;
@@ -1474,7 +1596,7 @@ export function createMessageQueueRuntime({
    * next build starts. `mode: 'separate'` leaves the queue to ignore it, which
    * is what a force without a mode does.
    */
-  const forceDispatch = async (directoryInput, sessionIdInput, itemIdInput, modeInput) => {
+  const forceDispatch = async (directoryInput, sessionIdInput, itemIdInput, modeInput, ignoreManagedGit = false) => {
     const directory = asNonEmptyString(directoryInput);
     const sessionId = requireSessionId(sessionIdInput);
     const itemId = asNonEmptyString(itemIdInput);
@@ -1487,6 +1609,9 @@ export function createMessageQueueRuntime({
     const item = queue.items.find(entry => entry.id === itemId);
     if (!item) throw httpError('Build is no longer queued', 404);
     if (!isBuildItem(item)) throw httpError('Only a queued build can be forced', 409);
+    if (await effectiveBuildGitPolicy(directory) === 'managed' && (!ignoreManagedGit || mode !== 'separate')) {
+      throw httpError('Managed Builds require the verified queue. Only explicit emergency Force outside queue may bypass its Git recovery.', 409);
+    }
     if (sending.has(sessionId) || forcedBuilds.has(sessionId) || forceReservations.has(sessionId)) throw httpError('This build is already being sent', 409);
     const idle = await isSessionIdle(sessionId, directory);
     if (idle === null) throw httpError('The session status is unavailable; try again before forcing this build', 409);
@@ -1573,6 +1698,9 @@ export function createMessageQueueRuntime({
     if (modeInput === 'separate' && !currentLeaseEntry && !currentForced) {
       throw httpError('This build is already outside the queue', 409);
     }
+    if (currentLeaseEntry?.[1]?.managed && modeInput === 'separate') {
+      throw httpError('Managed Build cannot be extracted: it must verify or safely recover before releasing Git ownership.', 409);
+    }
     if (currentLeaseEntry && (currentLeaseEntry[1].needsReview || currentLeaseEntry[1].phase === 'dispatching')) {
       throw httpError('This build cannot change queue state while its dispatch needs review', 409);
     }
@@ -1657,7 +1785,7 @@ export function createMessageQueueRuntime({
    * it would unfreeze the lane onto an enqueue that cannot be persisted either,
    * so a dispatch could run with no durable record of it. Storage is the fix.
    */
-  const buildReviewBlocksUserUnfreeze = (lease) => lease.reviewReason === 'persistence-failed';
+  const buildReviewBlocksUserUnfreeze = (lease) => lease.reviewReason === 'persistence-failed' || Boolean(lease.managed);
 
   /**
    * A lane waiting for a human decision, held by the given session. Its session
@@ -1903,6 +2031,7 @@ export function createMessageQueueRuntime({
     const item = current?.items[0];
     if (!item || item.id !== head.id || sending.has(sessionId) || parkingSessions.has(sessionId)) return;
     let buildSelection;
+    let managedBaseline = null;
     // Decided before this build claims the lease, which records its own owner.
     const resumesOwnCheckout = isBuildItem(item) && lastBuildOwners.get(directoryKey(current.directory)) === sessionId;
 
@@ -2001,10 +2130,15 @@ export function createMessageQueueRuntime({
           wakeProject(current.directory);
         }
         if (!isCurrent()) { wakeProject(current.directory); return; }
-      } else if (policy === 'pause') {
+      } else if (policy === 'pause' || policy === 'managed') {
         const repository = await queueRepositoryFor(current.directory);
-        const problem = checkBuildGit ? await checkBuildGit(repository || current.directory) : await inspectGit(repository || current.directory);
-        if (problem) { markBuildWaiting(sessionId, item); setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
+        if (policy === 'managed') {
+          try { managedBaseline = await captureManagedBaseline(repository || current.directory); }
+          catch (error) { markBuildWaiting(sessionId, item); setBuildProblem(current.directory, 'Managed Git hold: ' + error.message); armDispatch(sessionId, buildRecheckMs); return; }
+        } else {
+          const problem = checkBuildGit ? await checkBuildGit(repository || current.directory) : await inspectGit(repository || current.directory);
+          if (problem) { markBuildWaiting(sessionId, item); setBuildProblem(current.directory, problem); armDispatch(sessionId, buildRecheckMs); return; }
+        }
       } else if (buildProblems.has(current.directory)) {
         setBuildProblem(current.directory, null);
       }
@@ -2016,6 +2150,7 @@ export function createMessageQueueRuntime({
         // What the running card says about itself after the item is gone: the
         // prompt that started it and the model it runs on.
         content: item.content.slice(0, BUILD_SNAPSHOT_CHAR_LIMIT), model: queuedModelOf(item),
+        ...(managedBaseline ? { managed: { ...managedBaseline, attemptId: item.id }, buildOrder: item.buildOrder } : {}),
       });
       lastBuildOwners.set(directoryKey(current.directory), sessionId);
       commit(sessionId);
@@ -2061,6 +2196,19 @@ export function createMessageQueueRuntime({
       return;
     }
 
+    if (isBuildItem(item) && leaseBeforeSend?.managed) {
+      try {
+        const fresh = await captureManagedBaseline(leaseBeforeSend.managed.repository);
+        if (fresh.head !== leaseBeforeSend.managed.head || fresh.branch !== leaseBeforeSend.managed.branch)
+          throw new Error('Baseline changed before the prompt was sent');
+      } catch (error) {
+        leaseBeforeSend.needsReview = true;
+        leaseBeforeSend.reviewReason = 'managed-baseline-changed';
+        leaseBeforeSend.managedReason = error.message;
+        commit(sessionId);
+        return;
+      }
+    }
     sending.set(sessionId, item.id);
     broadcast(sessionId);
     try {
@@ -2078,7 +2226,9 @@ export function createMessageQueueRuntime({
           return;
         }
       }
-      await sendItem(sessionId, current.directory, item, buildSelection, { resumesOwnCheckout: isBuildItem(item) && resumesOwnCheckout });
+      await sendItem(sessionId, current.directory, item, buildSelection, { resumesOwnCheckout: isBuildItem(item) && resumesOwnCheckout,
+        managedAttempt: leaseBeforeSend?.managed ?? null,
+        managedRecovery: isBuildItem(item) ? managedRecoveries.get(sessionId) ?? [] : [] });
       const after = queues.get(sessionId);
       if (after) setQueueItems(sessionId, after.directory, after.items.filter((entry) => entry.id !== item.id), 'sent');
       // The admission is settled: a replay of the client's prompt id would now
@@ -2160,14 +2310,23 @@ export function createMessageQueueRuntime({
       unfreezeBuildLeaseForSession(sessionId, directory);
       const lease = activeBuilds.get(directory);
       if (lease?.sessionId === sessionId && buildReviewBlocksUserUnfreeze(lease)) {
-        throw httpError('Build queue storage is unavailable. Repair server storage before submitting another build.', 503);
+        throw httpError(lease.managed
+          ? 'Managed Build requires reconciliation before new work can be admitted into this session.'
+          : 'Build queue storage is unavailable. Repair server storage before submitting another build.', 503);
       }
       const current = queues.get(sessionId);
       const slot = (current?.items ?? []).find(entry => isBuildItem(entry));
       if (lease?.sessionId === sessionId && !lease.needsReview) {
-        // The lane is already this session's: the prompt needs no second place
-        // in the order, and the session's own queue delivers it in turn.
-        delete parsed.buildQueue;
+        // Managed Builds require a fresh journal and baseline for each Build
+        // turn. Do not downgrade a second Build to an untracked session item.
+        // Ordinary queues preserve their existing same-session Build batch.
+        if (lease.managed && slot && sending.get(sessionId) !== slot.id) {
+          appendToBuildSlot(slot, parsed);
+          const result = commit(sessionId);
+          armDispatch(sessionId);
+          return { ...result, itemId: slot.id };
+        }
+        if (!lease.managed) delete parsed.buildQueue;
       } else if (slot && sending.get(sessionId) !== slot.id) {
         appendToBuildSlot(slot, parsed);
         const result = commit(sessionId);
@@ -2193,11 +2352,12 @@ export function createMessageQueueRuntime({
         throw httpError('message queue is full', 409);
       }
     }
+    const rememberedPriority = parsed.buildQueue ? managedRecoveries.get(sessionId)?.at(-1)?.priority : undefined;
     const item = {
       id: `queued-${now()}-${Math.random().toString(36).slice(2, 9)}`,
       createdAt: now(),
       ...parsed,
-      ...(parsed.buildQueue ? { buildOrder: nextBuildOrder++ } : {}),
+      ...(parsed.buildQueue ? { buildOrder: Number.isFinite(rememberedPriority) ? rememberedPriority : nextBuildOrder++ } : {}),
     };
     const existing = queues.get(sessionId);
     const items = [...(existing?.items ?? []), item].slice(-MAX_ITEMS_PER_SESSION);
@@ -2719,8 +2879,8 @@ export function createMessageQueueRuntime({
    * instance setting, so no run needs interrupting.
    */
   const writeQueuePolicy = async (identityInput, policy) => withAdmission(async () => {
-    if (policy !== null && !['continue', 'commit', 'pause'].includes(policy)) {
-      throw new TypeError('policy must be continue, commit, pause, or null');
+    if (policy !== null && !['continue', 'commit', 'pause', 'managed'].includes(policy)) {
+      throw new TypeError('policy must be continue, commit, pause, managed, or null');
     }
     const identity = await projectIdentityOf(identityInput);
     const projectId = asNonEmptyString(identity?.projectId);
@@ -2841,7 +3001,7 @@ export function registerMessageQueueRoutes(app, runtime) {
     catch (error) { respondError(res, error, 'Failed to resolve build queue'); }
   });
   app.post('/api/build-queue/force', async (req, res) => {
-    try { res.json(await runtime.forceDispatch(req.body?.directory, req.body?.sessionId, req.body?.itemId, req.body?.mode)); }
+    try { res.json(await runtime.forceDispatch(req.body?.directory, req.body?.sessionId, req.body?.itemId, req.body?.mode, req.body?.ignoreManagedGit === true)); }
     catch (error) { respondError(res, error, 'Failed to force build'); }
   });
   app.put('/api/build-queue/participation', async (req, res) => {

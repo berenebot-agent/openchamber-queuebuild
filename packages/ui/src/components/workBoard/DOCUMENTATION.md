@@ -260,3 +260,20 @@ same selector, so the row is a way in rather than a readout.
 The `onLeave` prop dismisses the board. The mobile shells draw the board over
 the chat, so opening a session or starting a draft calls it; the desktop shells
 pass nothing and close the board surface as before.
+
+
+## Managed Build recovery surface
+
+With a project's Git policy set to **Managed: verify and recover failed
+Builds**, the Build queue shows safely parked failures as Action required
+entries with their outcome and pinned recovery stash reference. These are
+not live leases and do not count towards the queue's dispatch barrier.
+Opening the entry returns to the original session, where a new Build may
+inspect its recovery reference. A failed Build with no net changes shows
+"No file changes to recover."
+
+A live managed attempt with unknown completion, an interrupted journal, or
+Git uncertainty continues to appear as a lease requiring review. It must not
+be mistaken for a safely parked attempt. An emergency Force outside the
+queue is explicitly labelled as bypassing managed verification and recovery;
+normal Force modes are refused by the server while Managed is selected.

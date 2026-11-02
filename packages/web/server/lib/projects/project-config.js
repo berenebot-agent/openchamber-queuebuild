@@ -1016,7 +1016,7 @@ export const createProjectConfigRuntime = (deps) => {
     return enabled;
   });
 
-  const GIT_POLICIES = ['continue', 'commit', 'pause'];
+  const GIT_POLICIES = ['continue', 'commit', 'pause', 'managed'];
 
   /**
    * The queue behavior this project chose for itself, or `null` when it never
@@ -1031,7 +1031,7 @@ export const createProjectConfigRuntime = (deps) => {
 
   const setBuildQueueGitPolicy = async (projectID, policy) => withProjectWriteLock(projectID, async () => {
     if (policy !== null && !GIT_POLICIES.includes(policy)) {
-      throw new TypeError('build queue policy must be continue, commit, pause, or null');
+      throw new TypeError('build queue policy must be continue, commit, pause, managed, or null');
     }
     const existing = await readRawProjectConfigFromDisk(projectID);
     const next = { ...existing, version: PROJECT_CONFIG_VERSION };

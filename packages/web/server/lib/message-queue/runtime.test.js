@@ -4,6 +4,7 @@ import path from 'path';
 import express from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { createMessageQueueRuntime, parseQueuedItemInput, registerMessageQueueRoutes } from './runtime.js';
 import { admitPrompt, createAdmissionFacts } from './admission.js';
 import { createProjectIdFromPath } from '../projects/project-id.js';
@@ -3592,5 +3593,114 @@ describe('managed dispatch delivery', () => {
     expect(prompts[0].body.delivery).toBeUndefined();
     runtime.stop();
     await runtime.flush();
+  });
+});
+
+
+describe('managed Build journal and recovery', () => {
+  const makeRepo = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-managed-runtime-'));
+    tempDirs.push(dir);
+    const git = (...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+    git('init', '-b', 'main');
+    git('config', 'user.email', 'test@example.invalid');
+    git('config', 'user.name', 'Managed Build Test');
+    fs.writeFileSync(path.join(dir, 'file.txt'), 'original\n');
+    git('add', '--all');
+    git('commit', '-m', 'baseline');
+    return { dir, git };
+  };
+  const projectPolicy = {
+    readBuildQueueGitPolicy: async () => 'managed',
+    readBuildQueueRepository: async () => null,
+  };
+  const resolveProjectIdentity = async ({ directory }) => ({ directory, projectId: 'managed-test-project' });
+
+  it('validates the final report and committed clean baseline before advancing', async () => {
+    const { dir, git } = makeRepo();
+    const openCode = createOpenCode();
+    const { runtime } = createRuntime({ openCode, projectConfigRuntime: projectPolicy,
+      resolveProjectIdentity, buildMonitorDelayMs: 15, buildRecheckMs: 15 });
+    runtime.start();
+    try {
+      const queued = await runtime.enqueue(SESSION, dir, item({ buildQueue: true, content: 'build clean', text: 'build clean' }));
+      await settle(100);
+      const lease = runtime.buildSnapshot().active[0];
+      expect(lease.managed).toMatchObject({ attemptId: queued.itemId, branch: 'refs/heads/main' });
+      expect(openCode.state.sent.some(entry => entry.path.endsWith('/synthetic')
+        && entry.body.text.includes('OPENCHAMBER_TURN_COMPLETE'))).toBe(true);
+      fs.writeFileSync(path.join(dir, 'file.txt'), 'finished\n');
+      git('add', '--all');
+      git('commit', '-m', 'finished');
+      const at = Date.now();
+      openCode.state.tail = [
+        { type: 'idle', outcome: 'succeeded', time: { created: at } },
+        { type: 'assistant', time: { created: at, completed: at }, parts: [
+          { text: 'Done\nOPENCHAMBER_TURN_COMPLETE: {"attempt_id":"' + queued.itemId + '","outcome":"success"}' },
+        ] },
+      ];
+      await settle(180);
+      expect(runtime.buildSnapshot().active).toHaveLength(0);
+      expect(runtime.buildSnapshot().recoveries).toHaveLength(0);
+      expect(git('status', '--porcelain')).toBe('');
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('pins failed changes, resets the baseline, and allows the next Build', async () => {
+    const { dir, git } = makeRepo();
+    const baseline = git('rev-parse', 'HEAD');
+    const openCode = createOpenCode();
+    const { runtime } = createRuntime({ openCode, projectConfigRuntime: projectPolicy,
+      resolveProjectIdentity, buildMonitorDelayMs: 15, buildRecheckMs: 15 });
+    runtime.start();
+    try {
+      await runtime.enqueue(SESSION, dir, item({ buildQueue: true, content: 'fail', text: 'fail' }));
+      await settle(100);
+      expect(runtime.buildSnapshot().active).toHaveLength(1);
+      // Further Build work in this same session is not allowed to run after a failure.
+      const held = await runtime.enqueue(SESSION, dir, item({ buildQueue: true, content: 'unexecuted followup', text: 'unexecuted followup' }));
+      fs.writeFileSync(path.join(dir, 'file.txt'), 'partially committed\n');
+      git('add', '--all');
+      git('commit', '-m', 'partial build');
+      fs.writeFileSync(path.join(dir, 'new.txt'), 'untracked\n');
+      const at = Date.now();
+      openCode.state.tail = [
+        { type: 'idle', outcome: 'failed', time: { created: at } },
+        { type: 'assistant', time: { created: at, completed: at } },
+      ];
+      await settle(180);
+      const snapshot = runtime.buildSnapshot();
+      expect(snapshot.active).toHaveLength(0);
+      expect(snapshot.recoveries).toHaveLength(1);
+      expect(snapshot.queued.find(entry => entry.id === held.itemId)?.paused).toBe(true);
+      expect(git('rev-parse', 'HEAD')).toBe(baseline);
+      expect(git('status', '--porcelain')).toBe('');
+      expect(git('rev-parse', snapshot.recoveries[0].stashRef)).toBe(snapshot.recoveries[0].stash);
+      await runtime.enqueue(SECOND, dir, item({ buildQueue: true, content: 'next', text: 'next' }));
+      await settle(100);
+      expect(openCode.state.sent.some(entry => entry.path.endsWith('/prompt') && entry.body.text === 'next')).toBe(true);
+    } finally { runtime.stop(); await runtime.flush(); }
+  });
+
+  it('does not trust a clean Git state without a valid matching completion footer', async () => {
+    const { dir } = makeRepo();
+    const openCode = createOpenCode();
+    const { runtime } = createRuntime({ openCode, projectConfigRuntime: projectPolicy,
+      resolveProjectIdentity, buildMonitorDelayMs: 15, buildRecheckMs: 15 });
+    runtime.start();
+    try {
+      await runtime.enqueue(SESSION, dir, item({ buildQueue: true }));
+      await settle(100);
+      const at = Date.now();
+      openCode.state.tail = [
+        { type: 'idle', outcome: 'succeeded', time: { created: at } },
+        { type: 'assistant', time: { created: at, completed: at }, parts: [{ text: 'Done without footer' }] },
+      ];
+      await settle(120);
+      expect(runtime.buildSnapshot().active[0]).toMatchObject({
+        needsReview: true, reviewReason: 'managed-completion-unconfirmed',
+      });
+      expect(runtime.buildSnapshot().recoveries).toHaveLength(0);
+    } finally { runtime.stop(); await runtime.flush(); }
   });
 });

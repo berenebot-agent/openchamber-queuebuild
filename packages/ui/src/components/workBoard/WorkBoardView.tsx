@@ -263,12 +263,13 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
  * The Build queue lane. Running builds sit above the gap, and waiting items keep
  * the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onSetParticipation, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, recoveries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onSetParticipation, onNewBuild }: {
   rows: WorkBoardQueueRow[];
   paused: boolean;
   active: { sessionId: string; needsReview?: boolean; phase?: 'dispatching' | 'running'; startedAt: number; model?: WorkBoardQueuedModel | null; content?: string | null } | undefined;
   activeTitle: string;
   entries: WorkBoardActiveEntry[];
+  recoveries: Array<{ sessionId: string; attemptId: string; reason?: string; outcome: string; stashRef: string | null }>;
   order: string[];
   busy: boolean;
   error: string;
@@ -303,6 +304,16 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, orde
         resolve={entry.needsReview && entry.itemId ? { sessionId: entry.sessionId, itemId: entry.itemId } : undefined}
         busy={busy} onResolve={onResolveForced} />)}
     </div>}
+    {recoveries.length > 0 && <section aria-label="Parked managed Builds" className="mt-3 space-y-2">
+      {recoveries.map((recovery, index) => <button type="button" key={recovery.sessionId + ':' + recovery.attemptId + ':' + index}
+        onClick={() => onOpen(recovery.sessionId)}
+        className="w-full rounded-md border border-[var(--status-error-text)]/50 bg-[var(--status-error-bg)] px-3 py-2 text-left text-xs">
+        <span className="block font-semibold">Action required · {recovery.outcome === 'input_required' ? 'Input required' : 'Failed Build'}</span>
+        <span className="mt-1 block truncate">{recovery.reason || 'Previous changes were safely parked'}</span>
+        <span className="mt-1 block truncate text-muted-foreground">{recovery.stashRef
+          ? 'Preserved: ' + recovery.stashRef : 'No file changes to recover'} · Open session to resume</span>
+      </button>)}
+    </section>}
     {!active && !entries.length && <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
           className="mb-1 h-auto w-full flex-col items-start gap-1 rounded-md border border-dashed border-border px-2.5 py-3 text-xs font-normal text-muted-foreground"
           aria-label={t('workBoard.newBuild')}>
@@ -1038,9 +1049,9 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // how the queue treats the build, because the build starts either way.
   const forceQueued = (row: { itemId: string; sessionId: string }) =>
     setForceConfirm({ itemId: row.itemId, sessionId: row.sessionId, title: sessionTitleFor(row.sessionId) });
-  const confirmForce = (mode: 'queue' | 'separate') => {
+  const confirmForce = (mode: 'queue' | 'separate', ignoreManagedGit = false) => {
     if (!forceConfirm || !directory) return;
-    const body: WorkBoardQueueWrite = { directory, sessionId: forceConfirm.sessionId, itemId: forceConfirm.itemId, mode };
+    const body: WorkBoardQueueWrite = { directory, sessionId: forceConfirm.sessionId, itemId: forceConfirm.itemId, mode, ...(ignoreManagedGit ? { ignoreManagedGit: true } : {}) };
     setForceConfirm(null);
     void queueMutate('/api/build-queue/force', 'POST', body);
   };
@@ -1160,7 +1171,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const queueActiveEntries = workBoardActiveEntries(forcedBuilds, [...queueLiveBuilds.values()]);
   const laneCounts = new Map<WorkBoardLane, number>(lanes.map(lane => [lane,
     lane === 'queue'
-      ? queueRows.length + (activeBuild ? 1 : 0) + queueActiveEntries.length
+      ? queueRows.length + (activeBuild ? 1 : 0) + queueActiveEntries.length + (queue?.recoveries?.length ?? 0)
       : (shownLanes.get(lane) ?? []).length]));
   const visibleLanes = mobile ? lanes.filter(lane => lane === mobileLane) : lanes;
 
@@ -1300,6 +1311,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             active={activeBuild}
             activeTitle={activeBuild ? sessionTitleFor(activeBuild.sessionId) : ''}
             entries={activeEntries}
+            recoveries={queue?.recoveries ?? []}
             order={queueOrder}
             busy={queueBusy}
             error={queueActionError}
@@ -1437,6 +1449,10 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           <Button variant="outline" disabled={queueBusy} onClick={() => setForceConfirm(null)}>{t('workBoard.cancel')}</Button>
           <Button variant="outline" disabled={queueBusy} onClick={() => confirmForce('separate')}>{t('buildQueue.force.confirmOutsideQueue')}</Button>
           <Button disabled={queueBusy} onClick={() => confirmForce('queue')}>{t('buildQueue.force.confirmInQueue')}</Button>
+          <Button variant="destructive" disabled={queueBusy} onClick={() => confirmForce('separate', true)}
+            title="Emergency override: bypasses managed Git verification and recovery. Concurrent changes can conflict.">
+            Emergency: bypass managed Git
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

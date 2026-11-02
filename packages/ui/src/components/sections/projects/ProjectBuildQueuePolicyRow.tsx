@@ -54,7 +54,7 @@ export function ProjectBuildQueuePolicyRow({ directory, override, onSaved }: {
       settingsItem="projects.build-queue-policy"
     >
       <Select value={choice} onValueChange={value => {
-        if (value === FOLLOW_DEFAULT || value === 'continue' || value === 'commit' || value === 'pause') save(value);
+        if (value === FOLLOW_DEFAULT || value === 'continue' || value === 'commit' || value === 'pause' || value === 'managed') save(value);
       }}>
         <SelectTrigger className={SETTINGS_SELECT_ROW_TRIGGER_CLASS} aria-label={t('settings.openchamber.buildQueue.policy.title')} disabled={!directory || busy}>
           <SelectValue />
@@ -64,6 +64,7 @@ export function ProjectBuildQueuePolicyRow({ directory, override, onSaved }: {
           <SelectItem value="continue">{t('settings.openchamber.buildQueue.policy.continue')}</SelectItem>
           <SelectItem value="commit">{t('settings.openchamber.buildQueue.policy.commit')}</SelectItem>
           <SelectItem value="pause">{t('settings.openchamber.buildQueue.policy.pause')}</SelectItem>
+          <SelectItem value="managed">Managed: verify and recover failed Builds</SelectItem>
         </SelectContent>
       </Select>
     </SettingsFieldRow>

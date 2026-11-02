@@ -35,7 +35,7 @@ export type WorkBoardQueueWrite =
   | { directory: string; ids: string[] }
   | { paused: boolean }
   | { directory: string; paused: boolean }
-  | { directory: string; sessionId: string; itemId: string; mode?: 'queue' | 'separate' }
+  | { directory: string; sessionId: string; itemId: string; mode?: 'queue' | 'separate'; ignoreManagedGit?: boolean }
   | { directory: string; sessionId: string; mode: 'queue' | 'separate' }
   | { directory: string; itemId?: string; action: 'skip' | 'retry' };
 

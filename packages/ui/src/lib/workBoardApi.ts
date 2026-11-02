@@ -27,7 +27,7 @@ type QueueRepositoryWrite = { directory: string; repository: string | null };
 type QueuePolicyWrite = { directory: string; policy: QueueGitPolicy | null };
 
 /** The Git behavior a queue runs with; `null` in a project means "follow the instance". */
-export type QueueGitPolicy = 'continue' | 'commit' | 'pause';
+export type QueueGitPolicy = 'continue' | 'commit' | 'pause' | 'managed';
 
 export class WorkBoardRequestError extends Error {
   constructor(message: string, readonly status: number) {
@@ -150,6 +150,13 @@ const queueStateSchema = z.object({
     counts: z.boolean().default(false),
   })),
   issue: z.string().nullable(),
+  recoveries: z.array(z.object({
+    sessionId: z.string(), attemptId: z.string(), directory: z.string(),
+    repository: z.string(), head: z.string(), branch: z.string(),
+    outcome: z.enum(['failed', 'input_required']),
+    reason: z.string().optional(), stashRef: z.string().nullable(),
+    stash: z.string().nullable(), recoveredAt: z.number(),
+  })).default([]),
   preparation: z.object({ directory: z.string(), phase: z.string() }).nullable(),
   commit: z.object({ directory: z.string(), hash: z.string(), subject: z.string() }).nullable(),
 });
@@ -214,8 +221,8 @@ export async function fetchQueueSettings(directory: string): Promise<{ enabled: 
     effectiveRepository: z.string().nullish().transform(value => value ?? null),
     // Likewise for the policy: an older server answers without it, and the row
     // then falls back to the instance value it already holds.
-    policy: z.enum(['continue', 'commit', 'pause']).nullish(),
-    policyOverride: z.enum(['continue', 'commit', 'pause']).nullish(),
+    policy: z.enum(['continue', 'commit', 'pause', 'managed']).nullish(),
+    policyOverride: z.enum(['continue', 'commit', 'pause', 'managed']).nullish(),
   }).transform(value => ({
     enabled: value.enabled,
     override: value.override,
@@ -229,8 +236,8 @@ export async function fetchQueueSettings(directory: string): Promise<{ enabled: 
 /** The queue behavior a project stores for itself, or `null` to follow the instance default. */
 export async function updateQueuePolicy(directory: string, policy: QueueGitPolicy | null): Promise<{ policy: QueueGitPolicy; policyOverride: QueueGitPolicy | null }> {
   const parsed = z.object({
-    policy: z.enum(['continue', 'commit', 'pause']),
-    policyOverride: z.enum(['continue', 'commit', 'pause']).nullable(),
+    policy: z.enum(['continue', 'commit', 'pause', 'managed']),
+    policyOverride: z.enum(['continue', 'commit', 'pause', 'managed']).nullable(),
   }).parse(await request('/api/build-queue/policy', 'PUT', { directory, policy }));
   return parsed;
 }
