@@ -675,6 +675,9 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   } | null>(null);
   const [queueActionError, setQueueActionError] = React.useState('');
   const [gitConfirm, setGitConfirm] = React.useState<'commit' | 'revert' | null>(null);
+  // Freeze the reviewed Git snapshot when the dialog opens. The 20s health poll
+  // must not silently approve changes made after the user saw the preview.
+  const [gitPreview, setGitPreview] = React.useState<typeof gitHealth>(null);
   const [gitMessage, setGitMessage] = React.useState('');
   const [gitRevertPhrase, setGitRevertPhrase] = React.useState('');
   const [gitBusy, setGitBusy] = React.useState(false);
@@ -722,7 +725,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     return () => { disposed = true; clearInterval(timer); };
   }, [directory, runtimeKey]);
   const submitBoardGitAction = async () => {
-    const preview = gitHealth;
+    const preview = gitPreview;
     const action = gitConfirm;
     if (!directory || !preview?.repository || preview.state !== 'dirty' || !action || gitBusy) return;
     const token = generation.current;
@@ -740,6 +743,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       if (!response.ok || result?.ok !== true) throw new Error(result?.error ?? 'Project Git action failed');
       if (runtime === getRuntimeKey() && token === generation.current) {
         setGitConfirm(null);
+        setGitPreview(null);
         setGitMessage('');
         setGitRevertPhrase('');
         toast.success(action === 'commit' ? 'Changes committed' : 'Changes discarded');
@@ -775,6 +779,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     setQueueActionError('');
     setGitBusy(false);
     setGitConfirm(null);
+    setGitPreview(null);
   }, [directory, runtimeKey]);
   React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
     generation.current += 1;
@@ -1230,6 +1235,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     const recovery = clearRecoveryConfirm;
     if (!recovery || !directory || queueBusy) return;
     setQueueBusy(true);
+    let dismissed = false;
     try {
       const response = await runtimeFetch('/api/build-queue/recovery/clear', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1239,6 +1245,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         const answer = queueErrorSchema.safeParse(await response.json().catch(() => null));
         throw new Error(answer.success ? answer.data.error || 'Recovery dismissal failed' : 'Recovery dismissal failed');
       }
+      dismissed = true;
       setClearRecoveryConfirm(null);
       const card = cards.find(entry => entry.sessionId === recovery.sessionId);
       if (card && destination === 'plan') {
@@ -1246,11 +1253,14 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         // can repaint the card in its old lane after the alert is dismissed.
         await placeWorkBoardCard(card, 'plan');
         const sessionDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
-        await setSessionWorkState(recovery.sessionId, sessionDirectory, 'open');
+        await setSessionWorkState(recovery.sessionId, sessionDirectory, 'open').catch(() => {
+          toast.error('Moved to Plan, but session tracking could not be updated');
+        });
       }
       await refresh();
     } catch (error) {
-      setQueueActionError(error instanceof Error ? error.message : 'Recovery dismissal failed');
+      setQueueActionError((dismissed ? 'Alert dismissed, but card move failed: ' : '')
+        + (error instanceof Error ? error.message : 'Recovery dismissal failed'));
     } finally { setQueueBusy(false); }
   };
 
@@ -1469,8 +1479,8 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     </header>
     {gitHealth?.state === 'dirty' && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-[var(--status-warning)]/40 px-3 py-2 text-xs">
       <span className="min-w-0 flex-1 truncate" title={gitHealth.repository ?? undefined}>Git changes · {gitHealth.changed} files · {gitHealth.branch}</span>
-      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitMessage(''); setGitConfirm('commit'); }}>Commit…</Button>
-      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitRevertPhrase(''); setGitConfirm('revert'); }}>Discard…</Button>
+      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitMessage(''); setGitPreview(gitHealth); setGitConfirm('commit'); }}>Commit…</Button>
+      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitRevertPhrase(''); setGitPreview(gitHealth); setGitConfirm('revert'); }}>Discard…</Button>
     </section>}
     {queuePaused && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2 text-xs">
       <span>Queue paused</span>
@@ -1652,19 +1662,23 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       </div> : null}
     </DragOverlay>
     </DndContext>}
-    <Dialog open={gitConfirm !== null} onOpenChange={open => { if (!open && !gitBusy) setGitConfirm(null); }}>
+    <Dialog open={gitConfirm !== null} onOpenChange={open => { if (!open && !gitBusy) { setGitConfirm(null); setGitPreview(null); } }}>
       <DialogContent showCloseButton={!gitBusy}>
         <DialogTitle>{gitConfirm === 'commit' ? 'Commit project changes' : 'Discard all uncommitted changes?'}</DialogTitle>
         <DialogDescription>{gitConfirm === 'commit'
           ? 'Commit staged, unstaged and untracked (non-ignored) files in the selected repository. No push is performed.'
           : 'This permanently discards all staged and unstaged changes and deletes untracked, non-ignored files. Commits, ignored files and recovery refs remain untouched.'}</DialogDescription>
-        <p className="break-all text-xs text-muted-foreground">{gitHealth?.repository} · {gitHealth?.changed ?? 0} changed files</p>
+        <p className="break-all text-xs text-muted-foreground">{gitPreview?.repository} · {gitPreview?.changed ?? 0} changed files</p>
+        <div className="max-h-36 overflow-y-auto rounded-md border border-border px-2 py-1 text-xs text-muted-foreground" aria-label="Changed files">
+          {(gitPreview?.paths ?? []).map(file => <div key={file} className="break-all py-0.5">{file}</div>)}
+          {(gitPreview?.changed ?? 0) > (gitPreview?.paths?.length ?? 0) && <div>+{(gitPreview?.changed ?? 0) - (gitPreview?.paths?.length ?? 0)} more files</div>}
+        </div>
         {gitConfirm === 'commit' ? <Input autoFocus aria-label="Commit message" placeholder="Commit message" value={gitMessage}
           maxLength={500} disabled={gitBusy} onChange={event => setGitMessage(event.target.value)} />
           : <Input aria-label="Type DISCARD to confirm" placeholder="Type DISCARD to confirm" value={gitRevertPhrase}
             disabled={gitBusy} onChange={event => setGitRevertPhrase(event.target.value)} />}
         <DialogFooter>
-          <Button variant="outline" disabled={gitBusy} onClick={() => setGitConfirm(null)}>Cancel</Button>
+          <Button variant="outline" disabled={gitBusy} onClick={() => { setGitConfirm(null); setGitPreview(null); }}>Cancel</Button>
           <Button variant={gitConfirm === 'revert' ? 'destructive' : 'default'} disabled={gitBusy ||
             (gitConfirm === 'commit' ? !gitMessage.trim() : gitRevertPhrase !== 'DISCARD')}
             onClick={() => void submitBoardGitAction()}>{gitBusy ? 'Working…' : gitConfirm === 'commit' ? 'Commit' : 'Discard changes'}</Button>
