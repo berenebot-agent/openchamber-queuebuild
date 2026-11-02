@@ -3048,7 +3048,7 @@ export function createMessageQueueRuntime({
 
   // Read-only Git health for the board. The repository is resolved by the
   // project's server-side choice; the caller never supplies a Git path.
-  const readQueueGitHealth = async (directoryInput) => {
+  const readQueueGitHealth = async (directoryInput, { includeFingerprint = true } = {}) => {
     const directory = directoryKey(directoryInput);
     if (!directory) throw new TypeError('A project directory is required');
     await load();
@@ -3070,7 +3070,7 @@ export function createMessageQueueRuntime({
       if (resolvedRoot !== await fs.promises.realpath(repository)) throw new Error('Selected path is not a Git worktree root');
       const paths = porcelain ? porcelain.split('\n').slice(0, 200).map(line => line.slice(3)) : [];
       const changed = porcelain ? porcelain.split('\n').length : 0;
-      const fingerprint = changed ? await readGitChangeFingerprint(repository) : null;
+      const fingerprint = changed && includeFingerprint ? await readGitChangeFingerprint(repository) : null;
       return { state: changed ? 'dirty' : 'clean', repository, policy: await effectiveBuildGitPolicy(directory), branch: branch || '(detached)', head,
         changed, paths, fingerprint, checkedAt: now() };
     } catch (error) {
@@ -3212,7 +3212,7 @@ export function registerMessageQueueRoutes(app, runtime) {
     catch (error) { respondError(res, error, 'Failed to load build queue'); }
   });
   app.get('/api/build-queue/git-health', async (req, res) => {
-    try { res.json(await runtime.readQueueGitHealth(req.query?.directory)); }
+    try { res.json(await runtime.readQueueGitHealth(req.query?.directory, { includeFingerprint: req.query?.includeFingerprint === 'true' })); }
     catch (error) { respondError(res, error, 'Failed to inspect project Git'); }
   });
   app.post('/api/build-queue/git-action', async (req, res) => {
