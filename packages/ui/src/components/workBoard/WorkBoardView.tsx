@@ -650,6 +650,13 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const [queueActionError, setQueueActionError] = React.useState('');
   const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
   const [forceConfirm, setForceConfirm] = React.useState<{ itemId: string; sessionId: string; title: string } | null>(null);
+  const [resumeOpen, setResumeOpen] = React.useState(false);
+  const [resumeInput, setResumeInput] = React.useState('');
+  const [resumeClock, setResumeClock] = React.useState(Date.now());
+  React.useEffect(() => {
+    const timer = setInterval(() => setResumeClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [drag, setDrag] = React.useState<WorkBoardDrag | null>(null);
   // Search hides cards, it never unsaves them: a card the query does not match
   // keeps its lane, its order and its actions, and returns when the query is
@@ -996,6 +1003,15 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const queuePaused = queue?.paused === true;
   const toggleQueuePause = () =>
     void queueMutate('/api/build-queue/pause', 'PUT', { directory, paused: !queuePaused });
+  const scheduleResume = () => {
+    const at = new Date(resumeInput).getTime();
+    if (!Number.isSafeInteger(at) || at <= Date.now() || at > Date.now() + 7 * 86400000) {
+      setQueueActionError('Choose a future date and time within seven days.');
+      return;
+    }
+    setResumeOpen(false);
+    void queueMutate('/api/build-queue/pause', 'PUT', { directory, paused: true, resumeAt: at });
+  };
   const adoptCancelledBuild = (
     sessionId: string,
     item: { content: string; attachments?: Array<{ filename: string; mimeType: string; dataUrl?: string }> },
@@ -1268,6 +1284,11 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         </Button>
       </div>}
     </header>
+    {queuePaused && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2 text-xs">
+      <span>Project queue paused.</span>
+      {queue?.resumeAt && <span className="text-muted-foreground">Resumes {new Date(queue.resumeAt).toLocaleString()} · {Math.max(0, Math.ceil((queue.resumeAt - resumeClock) / 1000))}s remaining</span>}
+      <Button size="xs" variant="outline" onClick={() => { setResumeInput(''); setResumeOpen(true); }}>Resume at…</Button>
+    </section>}
     {(needsReview || queueIssue) && <section role="alert" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3 py-2">
       <Icon name="alert" className="size-4 shrink-0 text-status-warning" />
       <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{queueIssue || t('workBoard.needsReview')}</p>
@@ -1291,6 +1312,11 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           <div className="flex items-center gap-2 px-3 py-3">
             <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{count}</span></h2>
             {(lane === 'todo' || lane === 'plan') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane === 'plan' && !agents.some(agent => agent.name === 'plan'))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')} title={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')}><Icon name="add" className="size-4" /></Button>}
+            {lane === 'queue' && queuePaused && <Button size="sm" variant="ghost" disabled={queueBusy}
+              onClick={() => { setResumeInput(''); setResumeOpen(true); }}
+              aria-label="Schedule queue resume" title="Resume at a set time">
+              <Icon name="time" className="size-4" />
+            </Button>}
             {lane === 'queue' && <Button size="sm" variant="ghost"
               disabled={!directory || busy || queueBusy || !queue?.known || Boolean(queueError)}
               className={queuePaused ? 'text-[var(--status-warning-text)]' : undefined}
@@ -1437,6 +1463,18 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         <DialogFooter>
           <Button variant="outline" disabled={queueBusy} onClick={() => setResolveConfirm(null)}>{t('workBoard.cancel')}</Button>
           <Button disabled={queueBusy} onClick={confirmResolve}>{t('workBoard.resume')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={resumeOpen} onOpenChange={setResumeOpen}>
+      <DialogContent>
+        <DialogTitle>Schedule queue resume</DialogTitle>
+        <DialogDescription>Choose when this paused project's Build queue may start waiting work. Stored on the server, even if you close the browser.</DialogDescription>
+        <input type="datetime-local" aria-label="Resume date and time" className="w-full rounded-md border border-border bg-background p-2 text-sm"
+          value={resumeInput} onChange={event => setResumeInput(event.target.value)} />
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setResumeOpen(false)}>Cancel</Button>
+          <Button onClick={scheduleResume} disabled={!resumeInput || queueBusy}>Schedule resume</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

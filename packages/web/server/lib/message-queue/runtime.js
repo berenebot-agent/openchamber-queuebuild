@@ -429,12 +429,40 @@ export function createMessageQueueRuntime({
 
   const pausedDirectories = new Set();
   const resumingDirectories = new Set();
+  // A scheduled resume belongs to the persisted queue, not to the browser.
+  const pausedResumeAt = new Map(); // normalised directory -> Unix milliseconds
+  const pausedResumeTimers = new Map();
+  function schedulePausedResume(directory) {
+    clearTimeout(pausedResumeTimers.get(directory));
+    pausedResumeTimers.delete(directory);
+    const at = pausedResumeAt.get(directory);
+    if (!pausedDirectories.has(directory) || !Number.isSafeInteger(at) || stopped) return;
+    const timer = setTimeout(() => {
+      pausedResumeTimers.delete(directory);
+      // Compare the saved time: a subsequently edited pause must not be resumed
+      // by a stale callback, including after a storage failure.
+      if (pausedResumeAt.get(directory) !== at || !pausedDirectories.has(directory)) return;
+      void setQueuePaused(directory, false).catch(error => {
+        console.warn('[build-queue] scheduled resume failed:', error?.message ?? error);
+        // Storage is authoritative: retry rather than dispatch with an
+        // undurable release.
+        if (!stopped && pausedResumeAt.get(directory) === at) {
+          const retry = setTimeout(() => schedulePausedResume(directory), 5000);
+          retry.unref?.();
+          pausedResumeTimers.set(directory, retry);
+        }
+      });
+    }, Math.min(Math.max(0, at - now()), 2147483647));
+    timer.unref?.();
+    pausedResumeTimers.set(directory, timer);
+  }
 
   const serialize = () => ({
     version: QUEUE_FILE_VERSION,
     revision,
     nextBuildOrder,
     pausedDirectories: [...pausedDirectories],
+    pausedResumeAt: Object.fromEntries(pausedResumeAt),
     // An adopted lease tracks a turn the queue does not own and holds no queued
     // item; a restart re-detects that live build, so writing it here would only
     // park a lane whose turn is already over.
@@ -480,6 +508,12 @@ export function createMessageQueueRuntime({
     if (!Array.isArray(paused) || paused.some(directory => !directoryKey(directory))) {
       throw new TypeError('Invalid persisted build queue pause state');
     }
+    const savedResume = stored.pausedResumeAt === undefined ? {} : stored.pausedResumeAt;
+    if (!savedResume || Array.isArray(savedResume) || typeof savedResume !== 'object'
+      || Object.entries(savedResume).some(([dir, at]) =>
+        !directoryKey(dir) || !Number.isSafeInteger(at) || at <= 0 || !paused.includes(dir))) {
+      throw new TypeError('Invalid persisted build queue resume schedule');
+    }
     const sessions = {};
     for (const [sessionId, value] of Object.entries(asRecord(stored.sessions) ?? {})) {
       const entry = asRecord(value);
@@ -489,7 +523,7 @@ export function createMessageQueueRuntime({
       if (!directory || items.length === 0) continue;
       sessions[sessionId] = { directory, items };
     }
-    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, buildParticipation: asRecord(stored.buildParticipation) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, managedRecoveries: asRecord(stored.managedRecoveries) ?? {}, lastBuildOwners: asRecord(stored.lastBuildOwners) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey) };
+    return { sessions, revision: asCount(stored.revision) ?? 0, activeBuilds: asRecord(stored.activeBuilds) ?? {}, buildParticipation: asRecord(stored.buildParticipation) ?? {}, forceReservations: asRecord(stored.forceReservations) ?? {}, managedRecoveries: asRecord(stored.managedRecoveries) ?? {}, lastBuildOwners: asRecord(stored.lastBuildOwners) ?? {}, nextBuildOrder: asCount(stored.nextBuildOrder) ?? 1, pausedDirectories: paused.map(directoryKey), pausedResumeAt: savedResume };
   };
 
   const load = () => {
@@ -497,6 +531,10 @@ export function createMessageQueueRuntime({
       loadPromise = readFile()
         .then((stored) => {
           for (const directory of stored.pausedDirectories ?? []) pausedDirectories.add(directory);
+          for (const [directory, at] of Object.entries(stored.pausedResumeAt ?? {})) {
+            pausedResumeAt.set(directoryKey(directory), at);
+            schedulePausedResume(directoryKey(directory));
+          }
           for (const [sessionId, entry] of Object.entries(stored.sessions)) queues.set(sessionId, entry);
           revision = Math.max(revision, stored.revision);
           for (const [directory, value] of Object.entries(stored.activeBuilds)) {
@@ -663,6 +701,7 @@ export function createMessageQueueRuntime({
   const buildSnapshot = () => ({
     revision,
     pausedDirectories: [...pausedDirectories],
+    pausedResumeAt: Object.fromEntries(pausedResumeAt),
     recoveries: [...managedRecoveries.entries()].flatMap(([sessionId, entries]) => entries.map(entry => ({ ...entry, sessionId }))),
     preparation: Array.from(preparingBuilds, ([directory, value]) => ({ directory, phase: value.phase })),
     commits: Array.from(buildCommits, ([directory, value]) => ({ directory, ...value })),
@@ -1863,25 +1902,36 @@ export function createMessageQueueRuntime({
     return buildSnapshot();
   };
 
-  const setQueuePaused = (directoryInput, paused) => withAdmission(async () => {
+  const setQueuePaused = (directoryInput, paused, resumeAt = null) => withAdmission(async () => {
     const directory = directoryKey(directoryInput);
     if (!directory || (paused !== true && paused !== false)) throw new TypeError('directory and paused state required');
-    await load();
-    if (paused) pausedDirectories.add(directory);
-    else {
-      resumingDirectories.add(directory);
-      pausedDirectories.delete(directory);
+    if (resumeAt !== null && (!paused || !Number.isSafeInteger(resumeAt)
+      || resumeAt <= now() || resumeAt > now() + 7 * 86400000)) {
+      throw new TypeError('Scheduled resume must be a future time within seven days on a paused queue');
     }
+    await load();
+    const wasPaused = pausedDirectories.has(directory);
+    const previousAt = pausedResumeAt.get(directory);
+    // Block new dispatch throughout the persisted resume transition.
+    if (!paused) resumingDirectories.add(directory);
+    if (paused) pausedDirectories.add(directory);
+    else pausedDirectories.delete(directory);
+    if (resumeAt !== null) pausedResumeAt.set(directory, resumeAt);
+    else pausedResumeAt.delete(directory);
     revision += 1;
     await persist();
     if (persistenceError) {
-      // A failed resume must never release work behind an undurable pause state.
-      pausedDirectories.add(directory);
+      if (wasPaused) pausedDirectories.add(directory);
+      else pausedDirectories.delete(directory);
+      if (previousAt === undefined) pausedResumeAt.delete(directory);
+      else pausedResumeAt.set(directory, previousAt);
       resumingDirectories.delete(directory);
+      schedulePausedResume(directory);
       broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
       throw httpError('Cannot persist the build queue pause. Check server storage before retrying.', 503);
     }
     resumingDirectories.delete(directory);
+    schedulePausedResume(directory);
     if (paused) broadcastGlobalUiEvent?.({ type: 'openchamber:build-queue.updated', properties: { directory } });
     else wakeProject(directory);
     return buildSnapshot();
@@ -2577,6 +2627,8 @@ export function createMessageQueueRuntime({
 
   const stop = () => {
     stopped = true;
+    for (const timer of pausedResumeTimers.values()) clearTimeout(timer);
+    pausedResumeTimers.clear();
     for (const timer of buildMonitors.values()) clearTimeout(timer);
     buildMonitors.clear();
     for (const timer of forcedMonitors.values()) clearTimeout(timer);
@@ -2958,7 +3010,7 @@ export function registerMessageQueueRoutes(app, runtime) {
     catch (error) { respondError(res, error, 'Failed to load build queue'); }
   });
   app.put('/api/build-queue/pause', async (req, res) => {
-    try { res.json(await runtime.setQueuePaused(req.body?.directory, req.body?.paused)); }
+    try { res.json(await runtime.setQueuePaused(req.body?.directory, req.body?.paused, req.body?.resumeAt ?? null)); }
     catch (error) { respondError(res, error, 'Failed to pause build queue'); }
   });
   // The project's queue enablement. `{ directory }` is the only input on the

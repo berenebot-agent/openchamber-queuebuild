@@ -125,6 +125,7 @@ const queuedModelSchema = z.object({
 const queueStateSchema = z.object({
   known: z.boolean(),
   paused: z.boolean().default(false),
+  resumeAt: z.number().int().nullable().default(null),
   // The project's queue enablement, independent of whether the queue could be
   // read: the toggle shows the saved choice either way.
   enabled: z.boolean().nullable(),
