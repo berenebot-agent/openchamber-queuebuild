@@ -14,6 +14,32 @@ const remove = (dataDir) => fs.rm(dataDir, { recursive: true, force: true });
 const input = (directory = '/project') => ({ directory, text: 'Plan this' });
 
 describe('work board persistence', () => {
+  it('persists manual unread for inherited and saved cards without changing placement', async () => {
+    const { dataDir, store } = await setup();
+    try {
+      const target = { cardId: 'session:session1', sessionId: 'session1', directory: '/project',
+        createdAt: 20, updatedAt: 40 };
+      const inherited = await store.markUnread({ ...target, unread: true });
+      expect(inherited).toMatchObject({ id: target.cardId, sessionId: target.sessionId,
+        stage: 'plan', briefRemoved: true, manualUnread: true, updatedAt: 40 });
+      expect(inherited.placementAt).toBeUndefined();
+      const restarted = createWorkBoardStore({ dataDir });
+      expect((await restarted.list('/project'))[0].manualUnread).toBe(true);
+      await expect(store.markUnread({ ...target, directory: '/other', unread: true })).rejects.toMatchObject({ status: 409 });
+      expect(await restarted.clearSessionUnread('session1')).toBe(true);
+      expect(await restarted.clearSessionUnread('session1')).toBe(false);
+      expect((await createWorkBoardStore({ dataDir }).list('/project'))[0]).toMatchObject({
+        manualUnread: false, stage: 'plan', updatedAt: 40,
+      });
+      const saved = await restarted.create({ directory: '/project', text: 'Another task' });
+      const linked = await restarted.update(saved.id, { sessionId: 'session2' });
+      const marked = await restarted.markUnread({ cardId: linked.id, directory: linked.directory,
+        sessionId: 'session2', createdAt: linked.createdAt, updatedAt: linked.updatedAt, unread: true });
+      expect(marked).toMatchObject({ id: linked.id, text: linked.text, manualUnread: true, stage: linked.stage });
+      expect(marked.updatedAt).toBe(linked.updatedAt);
+    } finally { await remove(dataDir); }
+  });
+
   for (const stage of ['todo', 'plan', 'done']) {
     it(`removes a saved brief while preserving the ${stage} session placement and completion`, async () => {
       const { dataDir, store } = await setup();

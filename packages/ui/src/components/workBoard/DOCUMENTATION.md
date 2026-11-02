@@ -277,3 +277,21 @@ Git uncertainty continues to appear as a lease requiring review. It must not
 be mistaken for a safely parked attempt. An emergency Force outside the
 queue is explicitly labelled as bypassing managed verification and recovery;
 normal Force modes are refused by the server while Managed is selected.
+
+
+## Manual unread and board Git controls
+
+Linked cards offer **Mark unread / Mark read** in both the three-dot and
+right-click menus. The choice is saved in the work-board store (also for a
+session-only inherited card), leaves lane/order/completion timestamps alone,
+and is cleared when that session opens from any surface. It is independent of
+OpenCode's transient notification count.
+
+The Work Board shows **Commit…** and **Revert…** alongside a dirty Git status
+for the project's server-resolved repository. Both require a fresh server
+Git preview. Commit uses the existing Git service to stage and commit all
+non-ignored changes with a supplied message, without pushing. Revert requires
+typing REVERT and discards tracked changes and untracked non-ignored files,
+leaving ignored files, nested Git checkouts, commits, and recovery refs alone.
+Both refuse an active/preparing Build or uncertain OpenCode activity; they
+do not override managed-Git queue or recovery state.

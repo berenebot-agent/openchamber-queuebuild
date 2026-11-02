@@ -43,6 +43,8 @@ export type WorkBoardCardMenuProps = {
   /** The card's title, for the trigger's own name. */
   title: string;
   disabled: boolean;
+  manualUnread?: boolean;
+  onToggleUnread?: (() => void) | null;
   onStartPlan: (() => void) | null;
   onReturnToTodo: (() => void) | null;
   onRemove: (() => void) | null;
@@ -73,7 +75,7 @@ function useDeferredCardRename(sessionId: string | null) {
   };
 }
 
-type WorkBoardCardMenuItemsProps = Pick<WorkBoardCardMenuProps, 'sessionId' | 'directory' | 'onStartPlan' | 'onReturnToTodo' | 'onRemove' | 'onRemoveTodo'> & {
+type WorkBoardCardMenuItemsProps = Pick<WorkBoardCardMenuProps, 'sessionId' | 'directory' | 'onStartPlan' | 'onReturnToTodo' | 'onRemove' | 'onRemoveTodo' | 'manualUnread' | 'onToggleUnread'> & {
   /** True while the menu showing the items is open. */
   open: boolean;
   /** The menu root's own item and separator, so one list serves both roots. */
@@ -165,13 +167,14 @@ function WorkBoardSessionMenuItems({ sessionId, directory, open, Item, Separator
  * The card's own entries, rendered into whichever root shows them: the card's
  * three-dot dropdown, or the card's own right-click menu.
  */
-function WorkBoardCardMenuItems({ sessionId, directory, open, Item, Separator, onRequestRename, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo }: WorkBoardCardMenuItemsProps) {
+function WorkBoardCardMenuItems({ sessionId, directory, open, Item, Separator, onRequestRename, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread }: WorkBoardCardMenuItemsProps) {
   const { t } = useI18n();
   return <>
     {onStartPlan ? <Item onClick={onStartPlan}>{t('workBoard.startPlan')}</Item> : null}
     {onReturnToTodo ? <Item onClick={onReturnToTodo}>{t('workBoard.backTodo')}</Item> : null}
     {onRemoveTodo ? <Item onClick={onRemoveTodo}>{t('workBoard.removeTodo')}</Item> : null}
     {onRemove ? <Item onClick={onRemove}>{t('workBoard.remove')}</Item> : null}
+    {onToggleUnread ? <Item onClick={onToggleUnread}><Icon name="eye" className="me-1 size-4" />{manualUnread ? 'Mark read' : 'Mark unread'}</Item> : null}
     <WorkBoardSessionMenuItems sessionId={sessionId} directory={directory} open={open} Item={Item} Separator={Separator} onRequestRename={onRequestRename} />
   </>;
 }
@@ -181,7 +184,7 @@ function WorkBoardCardMenuItems({ sessionId, directory, open, Item, Separator, o
  * the session menu the sidebar offers. Pin is not here — a card carries its own
  * place on the board, so pinning it again says nothing.
  */
-export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo }: WorkBoardCardMenuProps) {
+export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread }: WorkBoardCardMenuProps) {
   const { t } = useI18n();
   const [open, setOpen] = React.useState(false);
   const rename = useDeferredCardRename(sessionId);
@@ -201,6 +204,8 @@ export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onSta
           onReturnToTodo={onReturnToTodo}
           onRemoveTodo={onRemoveTodo}
           onRemove={onRemove}
+          manualUnread={manualUnread}
+          onToggleUnread={onToggleUnread}
           Item={DropdownMenuItem}
           Separator={DropdownMenuSeparator}
           onRequestRename={rename.request}
@@ -224,7 +229,7 @@ export function WorkBoardCardContextMenu({ menu, trigger, children }: {
   /** The card's content, placed inside that element. */
   children: React.ReactNode;
 }) {
-  const { sessionId, directory, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo } = menu;
+  const { sessionId, directory, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread } = menu;
   const [open, setOpen] = React.useState(false);
   const rename = useDeferredCardRename(sessionId);
   return <>
@@ -239,6 +244,8 @@ export function WorkBoardCardContextMenu({ menu, trigger, children }: {
           onReturnToTodo={onReturnToTodo}
           onRemoveTodo={onRemoveTodo}
           onRemove={onRemove}
+          manualUnread={manualUnread}
+          onToggleUnread={onToggleUnread}
           Item={ContextMenuItem}
           Separator={ContextMenuSeparator}
           onRequestRename={rename.request}

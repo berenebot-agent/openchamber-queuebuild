@@ -114,6 +114,24 @@ export function registerWorkBoardRoutes(app, { store, resolveProjectDirectory, m
     } catch (error) { return failure(res, error); }
   });
 
+  // Explicit unread is server-persisted, including cards inherited from a
+  // session without a saved board record. Do not alter its lane or timestamps.
+  app.post('/api/work-board/:id/unread', json, async (req, res) => {
+    try {
+      const body = z.object({
+        directory: z.string().trim().min(1), sessionId: z.string().trim().min(1),
+        unread: z.boolean(), createdAt: z.number().finite(), updatedAt: z.number().finite(),
+      }).parse(req.body);
+      const directory = await resolveDirectory(req, body.directory);
+      return res.json({ card: await store.markUnread({ ...body, directory, cardId: req.params.id }) });
+    } catch (error) { return failure(res, error); }
+  });
+  // Session selection clears manual unread regardless of where it was opened.
+  app.post('/api/work-board/sessions/:sessionId/viewed', async (req, res) => {
+    try { return res.json({ cleared: await store.clearSessionUnread(req.params.sessionId) }); }
+    catch (error) { return failure(res, error); }
+  });
+
   app.patch('/api/work-board/:id', json, async (req, res) => {
     try { return res.json({ card: await store.update(req.params.id, req.body) }); }
     catch (error) { return failure(res, error); }

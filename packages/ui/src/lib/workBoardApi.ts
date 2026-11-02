@@ -9,7 +9,7 @@ const cardSchema = z.object({
   id: z.string(), directory: z.string(), text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number(), updatedAt: z.number(), completedAt: z.number().optional(), viewedAt: z.number().optional(), sessionId: z.string().optional(), stage: z.enum(['todo', 'plan', 'done']),
   placementAt: z.number().optional(), placementBefore: z.string().nullable().optional(),
-  briefRemoved: z.literal(true).optional(),
+  briefRemoved: z.literal(true).optional(), manualUnread: z.boolean().optional(),
 });
 export type WorkBoardAttachment = z.infer<typeof attachmentSchema>;
 export type WorkBoardCard = z.infer<typeof cardSchema>;
@@ -22,6 +22,7 @@ type PlacementTarget = { id: string; updatedAt: number; text: string; sessionId?
 type PlacementLane = 'todo' | 'plan' | 'build' | 'done';
 type PlacementWrite = { lane: PlacementLane; expectedUpdatedAt?: number; before?: string | null; completed?: boolean }
   | { directory: string; lane: PlacementLane; targets: PlacementTarget[]; completed?: boolean };
+type UnreadWrite = { directory: string; sessionId: string; unread: boolean; createdAt: number; updatedAt: number };
 type QueueSettingsWrite = { directory: string; enabled: boolean | null };
 type QueueRepositoryWrite = { directory: string; repository: string | null };
 type QueuePolicyWrite = { directory: string; policy: QueueGitPolicy | null };
@@ -36,7 +37,7 @@ export class WorkBoardRequestError extends Error {
   }
 }
 
-async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite | QueueSettingsWrite | QueuePolicyWrite | QueueRepositoryWrite) {
+async function request(path: string, method = 'GET', body?: BoardWrite | PlacementWrite | UnreadWrite | QueueSettingsWrite | QueuePolicyWrite | QueueRepositoryWrite) {
   const runtime = getRuntimeKey();
   const response = await runtimeFetch(path, {
     method,
@@ -86,6 +87,15 @@ export async function updateWorkBoardCard(id: string, changes: CardChanges): Pro
 export async function deleteWorkBoardCard(id: string): Promise<void> {
   z.object({ ok: z.literal(true) }).parse(await request(`/api/work-board/${encodeURIComponent(id)}`, 'DELETE'));
 }
+/** Manual unread survives reloads and is shared by clients through the board store. */
+export async function setWorkBoardCardUnread(card: Pick<WorkBoardCard, 'id' | 'directory' | 'sessionId' | 'createdAt' | 'updatedAt'>, unread: boolean): Promise<WorkBoardCard | null> {
+  if (!card.sessionId) throw new Error('Only linked sessions can be marked unread');
+  const result = z.object({ card: cardSchema.nullable() }).parse(
+    await request(`/api/work-board/${encodeURIComponent(card.id)}/unread`, 'POST',
+      { directory: card.directory, sessionId: card.sessionId, unread, createdAt: card.createdAt, updatedAt: card.updatedAt }));
+  return result.card;
+}
+
 /** Acknowledge a completed card the user opened, so every client shares it. */
 export async function markWorkBoardCardViewed(id: string): Promise<WorkBoardCard> {
   return z.object({ card: cardSchema }).parse(await request(`/api/work-board/${encodeURIComponent(id)}/viewed`, 'POST')).card;

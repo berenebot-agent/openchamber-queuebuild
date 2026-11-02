@@ -34,6 +34,7 @@ const cardSchema = z.object({
   id: nonempty, directory: nonempty, text: z.string(), attachments: z.array(attachmentSchema),
   createdAt: z.number().finite(), updatedAt: z.number().finite(),
   completedAt: z.number().finite().optional(), viewedAt: z.number().finite().optional(), sessionId: nonempty.optional(),
+  manualUnread: z.boolean().optional(),
   // When the user placed the card on the board by hand. Later session activity
   // outranks it; nothing else writes it.
   placementAt: z.number().finite().optional(),
@@ -148,6 +149,41 @@ export function createWorkBoardStore({ dataDir, fs = fsPromises, now = Date.now,
       const updated = [...cards]; updated[index] = next;
       await write(updated);
       return next;
+    }),
+    // A manual unread marker belongs to the saved board, not transient desktop
+    // notifications. It can materialize an inherited session card without
+    // placing or moving the card in any lane.
+    markUnread: input => serialized(async () => {
+      const target = z.object({
+        cardId: nonempty, directory: nonempty, sessionId: nonempty,
+        unread: z.boolean(), createdAt: z.number().finite(), updatedAt: z.number().finite(),
+      }).parse(input);
+      const cards = await read();
+      const index = cards.findIndex(card => card.id === target.cardId);
+      const current = cards[index];
+      if (current
+        ? current.directory !== target.directory || current.sessionId !== target.sessionId
+        : target.cardId !== `session:${target.sessionId}`
+          || cards.some(card => card.directory === target.directory && card.sessionId === target.sessionId)) {
+        throw Object.assign(new Error('Card changed. Refresh the board before marking it unread.'), { status: 409 });
+      }
+      if (!current && !target.unread) return null;
+      const created = { id: target.cardId, directory: target.directory, sessionId: target.sessionId,
+        text: '', attachments: [], briefRemoved: true, stage: 'plan',
+        createdAt: target.createdAt, updatedAt: target.updatedAt };
+      const next = cardSchema.parse({ ...(current ?? created), manualUnread: target.unread });
+      await write(index < 0 ? [...cards, next] : cards.map(card => card.id === target.cardId ? next : card));
+      return next;
+    }),
+    // Opening the conversation anywhere in the application acknowledges a
+    // manual unread flag. Never touch timestamps, placement or completion marks.
+    clearSessionUnread: sessionId => serialized(async () => {
+      const id = nonempty.parse(sessionId);
+      const cards = await read();
+      if (!cards.some(card => card.sessionId === id && card.manualUnread)) return false;
+      await write(cards.map(card => card.sessionId === id && card.manualUnread
+        ? { ...card, manualUnread: false } : card));
+      return true;
     }),
     parkSession: input => serialized(async () => {
       const parsed = parkSchema.safeParse(input);

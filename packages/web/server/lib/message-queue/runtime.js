@@ -3009,6 +3009,63 @@ export function createMessageQueueRuntime({
     }
   };
 
+  // Manual Git controls for the Work Board. Resolve the repository on the
+  // server, require a fresh Git health preview, and never touch a running or
+  // preparing Build. The admission chain keeps simultaneous operator actions
+  // from racing one another; the normal queue semantics remain unchanged.
+  const manualBoardGitAction = input => withAdmission(async () => {
+    const directory = directoryKey(input?.directory);
+    const action = input?.action;
+    if (!directory || !['commit', 'revert'].includes(action)) throw httpError('A project and Git action are required', 400);
+    if (action === 'commit' && (typeof input?.message !== 'string' || !input.message.trim() || input.message.length > 500)) {
+      throw httpError('A commit message of 1–500 characters is required', 400);
+    }
+    await load();
+    const state = buildSnapshot();
+    if (state.active.some(item => directoryKey(item.directory) === directory)
+      || state.forced.some(item => directoryKey(item.directory) === directory)
+      || state.preparation.some(item => directoryKey(item.directory) === directory)) {
+      throw httpError('A Build is running or preparing in this project. Finish it before changing Git.', 409);
+    }
+    // Also guard sessions started outside the queue: an absent or unreadable
+    // OpenCode activity roster is never proof that the repository is idle.
+    const liveBuild = await findLiveBuild(directory);
+    if (liveBuild === undefined) throw httpError('Cannot verify running Build sessions. Try again when OpenCode is available.', 409);
+    if (liveBuild) throw httpError('A Build is running outside the queue. Finish it before changing Git.', 409);
+    const health = await readQueueGitHealth(directory);
+    if (health.state !== 'dirty' || !health.repository || !health.branch || health.branch === '(detached)') {
+      throw httpError('A dirty, attached Git worktree is required. Refresh Git status.', 409);
+    }
+    if (health.head !== input?.expectedHead || health.branch !== input?.expectedBranch
+      || health.changed !== input?.expectedChanged
+      || JSON.stringify(health.paths) !== JSON.stringify(input?.expectedPaths)) {
+      throw httpError('Git changed since the confirmation. Refresh the board and review the changes.', 409);
+    }
+    // Revalidate the queue immediately before the actual Git operation.
+    const latest = buildSnapshot();
+    if (latest.active.some(item => directoryKey(item.directory) === directory)
+      || latest.forced.some(item => directoryKey(item.directory) === directory)
+      || latest.preparation.some(item => directoryKey(item.directory) === directory)) {
+      throw httpError('A Build became active; Git changes were not applied.', 409);
+    }
+    if (action === 'commit') {
+      // Use OpenChamber's existing commit service (identity, hooks, staging and
+      // signing) rather than implementing another Git authoring path.
+      const { commit: commitChanges } = await import('../git/service.js');
+      const result = await commitChanges(health.repository, input.message.trim(), { addAll: true });
+      return { ok: true, action, commit: result.commit ?? null };
+    }
+    // reset --hard affects tracked files only; clean -fd removes untracked,
+    // non-ignored files, but never ignored files or nested Git repositories.
+    // No commits, branches, remote refs or recovery refs are rewritten.
+    const git = (...args) => runGit('git', ['-C', health.repository, ...args], {
+      timeout: 30000, maxBuffer: 1024 * 1024, encoding: 'utf8',
+    });
+    await git('reset', '--hard', 'HEAD');
+    await git('clean', '-fd');
+    return { ok: true, action };
+  });
+
   const hasManagedWorkFor = (sessionId) => {
     const queue = queues.get(sessionId);
     if (queue && queue.items.length > 0) return true;
@@ -3044,6 +3101,7 @@ export function createMessageQueueRuntime({
     writeQueueRepository,
     queueRepositoryFor,
     readQueueGitHealth,
+    manualBoardGitAction,
     cancelScheduledTask,
     parkSession,
     remove,
@@ -3073,6 +3131,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.get('/api/build-queue/git-health', async (req, res) => {
     try { res.json(await runtime.readQueueGitHealth(req.query?.directory)); }
     catch (error) { respondError(res, error, 'Failed to inspect project Git'); }
+  });
+  app.post('/api/build-queue/git-action', async (req, res) => {
+    try { res.json(await runtime.manualBoardGitAction(req.body)); }
+    catch (error) { respondError(res, error, 'Failed to update project Git'); }
   });
   app.put('/api/build-queue/pause', async (req, res) => {
     try { res.json(await runtime.setQueuePaused(req.body?.directory, req.body?.paused, req.body?.resumeAt ?? null)); }

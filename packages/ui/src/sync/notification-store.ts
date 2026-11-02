@@ -7,6 +7,7 @@
 
 import { create } from "zustand"
 import { clearDesktopSessionNotifications } from "@/lib/desktop"
+import { runtimeFetch } from "@/lib/runtime-fetch"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -156,6 +157,11 @@ export function appendNotification(notification: Notification) {
 export function markSessionViewed(sessionId: string) {
   useNotificationStore.getState().markSessionViewed(sessionId)
   clearDesktopSessionNotifications(sessionId)
+  // Manual work-board unread is server-persisted; opening any chat, including
+  // from the sidebar, clears it without inventing a desktop notification.
+  void runtimeFetch(`/api/work-board/sessions/${encodeURIComponent(sessionId)}/viewed`, {
+    method: "POST",
+  }).catch(() => {})
 }
 
 // ---------------------------------------------------------------------------

@@ -103,3 +103,12 @@ accept this state; it offers no item-specific recovery controls.
 `pausedDirectories`. It is independent of waiting rows' `paused` values, which
 remain individual entry pauses. A failed queue read returns `known: false` and
 disables the UI pause control; it cannot establish that the queue is running.
+
+
+### Explicit manual unread
+
+`POST /api/work-board/:id/unread` stores a linked card's manual unread
+flag. An inherited card can be materialized without placing it in a lane
+or changing its timestamps. `POST /api/work-board/sessions/:sessionId/viewed`
+clears that flag when a session is opened anywhere in the application.
+The flag lives in `work-board.json`, not the ephemeral notification store.

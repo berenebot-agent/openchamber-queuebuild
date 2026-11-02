@@ -8,6 +8,26 @@ import { registerWorkBoardRoutes } from './routes.js';
 import { createWorkBoardStore } from './store.js';
 
 describe('work board HTTP routes', () => {
+  it('round-trips manual unread over HTTP, including an inherited card and session view', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-unread-'));
+    try {
+      const store = createWorkBoardStore({ dataDir });
+      const app = express();
+      registerWorkBoardRoutes(app, { store, resolveProjectDirectory: async req => ({ directory: req.query.directory }) });
+      const initial = await request(app).post('/api/work-board/session:session1/unread')
+        .send({ directory: '/repo', sessionId: 'session1', unread: true, createdAt: 100, updatedAt: 150 })
+        .expect(200);
+      expect(initial.body.card).toMatchObject({ manualUnread: true, stage: 'plan', updatedAt: 150 });
+      expect((await createWorkBoardStore({ dataDir }).list('/repo'))[0].manualUnread).toBe(true);
+      await request(app).post('/api/work-board/session:session1/unread')
+        .send({ directory: '/other', sessionId: 'session1', unread: true, createdAt: 100, updatedAt: 150 })
+        .expect(409);
+      await request(app).post('/api/work-board/sessions/session1/viewed').expect(200, { cleared: true });
+      await request(app).post('/api/work-board/sessions/session1/viewed').expect(200, { cleared: false });
+      expect((await store.list('/repo'))[0]).toMatchObject({ manualUnread: false, updatedAt: 150, stage: 'plan' });
+    } finally { await fs.rm(dataDir, { recursive: true, force: true }); }
+  });
+
   it('updates and removes a linked brief over HTTP while retaining its session and lane after restart', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'work-board-remove-brief-'));
     try {

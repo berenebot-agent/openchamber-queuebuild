@@ -3236,6 +3236,53 @@ describe('queue repository choice', () => {
     await runtime.flush();
   });
 
+  it('uses the selected project repository for guarded board Git commit and revert', async () => {
+    const root = fs.realpathSync(makeDataDir());
+    const run = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+    run('init');
+    run('config', 'user.name', 'Board Test');
+    run('config', 'user.email', 'board@test.invalid');
+    fs.writeFileSync(path.join(root, '.gitignore'), 'ignored.txt\n');
+    fs.writeFileSync(path.join(root, 'tracked.txt'), 'original\n');
+    run('add', '.');
+    run('commit', '-m', 'Baseline');
+    fs.writeFileSync(path.join(root, 'tracked.txt'), 'modified\n');
+    fs.writeFileSync(path.join(root, 'new.txt'), 'new\n');
+    fs.writeFileSync(path.join(root, 'ignored.txt'), 'keep me\n');
+    const { runtime } = createRuntime({
+      projectConfigRuntime: projectConfigRuntime(root),
+      resolveProjectIdentity: () => ({ directory: root, projectId: createProjectIdFromPath(root) }),
+      resolveRepositoryRoot: async () => root,
+    });
+    try {
+      const before = await runtime.readQueueGitHealth(root);
+      expect(before).toMatchObject({ state: 'dirty', changed: 2, repository: root });
+      const action = { directory: root, expectedHead: before.head, expectedBranch: before.branch,
+        expectedChanged: before.changed, expectedPaths: before.paths };
+      await expect(runtime.manualBoardGitAction({ ...action, action: 'revert', expectedChanged: 999 }))
+        .rejects.toMatchObject({ status: 409 });
+      await expect(runtime.manualBoardGitAction({ ...action, action: 'revert' }))
+        .resolves.toMatchObject({ ok: true, action: 'revert' });
+      expect(fs.readFileSync(path.join(root, 'tracked.txt'), 'utf8')).toBe('original\n');
+      expect(fs.existsSync(path.join(root, 'new.txt'))).toBe(false);
+      expect(fs.readFileSync(path.join(root, 'ignored.txt'), 'utf8')).toBe('keep me\n');
+      const clean = await runtime.readQueueGitHealth(root);
+      expect(clean.state).toBe('clean');
+      fs.writeFileSync(path.join(root, 'tracked.txt'), 'committed from board\n');
+      fs.writeFileSync(path.join(root, 'more.txt'), 'also committed\n');
+      const next = await runtime.readQueueGitHealth(root);
+      const committed = await runtime.manualBoardGitAction({ directory: root, action: 'commit',
+        message: 'Board commit', expectedHead: next.head, expectedBranch: next.branch,
+        expectedChanged: next.changed, expectedPaths: next.paths });
+      expect(committed).toMatchObject({ ok: true, action: 'commit' });
+      expect(run('show', '-s', '--format=%s', 'HEAD')).toBe('Board commit');
+      expect(run('status', '--porcelain')).toBe('');
+    } finally {
+      runtime.stop();
+      await runtime.flush();
+    }
+  });
+
   it('keeps a worktree on its own repository', async () => {
     const { root, nested } = makeProject();
     const worktree = fs.realpathSync(makeDataDir());

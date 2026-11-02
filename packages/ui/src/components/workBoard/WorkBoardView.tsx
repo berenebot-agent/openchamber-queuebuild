@@ -30,7 +30,7 @@ import { createChatDraftIdentity } from '@/lib/chatDraftPersistence';
 import { useWorkBoardSnapshot } from '@/hooks/useWorkBoardSnapshot';
 import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
-import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, updateQueueSettings, type WorkBoardCard, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
+import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, setWorkBoardCardUnread, fetchWorkBoardSnapshot, updateQueueSettings, type WorkBoardCard, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
 import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardCompletesMove, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -116,7 +116,7 @@ function WorkBoardCardMark({ card, waitingFor }: { card: WorkBoardCard; waitingF
       <Icon name={ANSWER_PRESENTATION[waitingFor].icon} className="size-3.5" />
     </span>;
   }
-  const state = activity ?? (unseenCount > 0 ? 'unread' : null) ?? (workBoardShowsCompletionMark(card) ? 'unread' : null);
+  const state = activity ?? (unseenCount > 0 || card.manualUnread ? 'unread' : null) ?? (workBoardShowsCompletionMark(card) ? 'unread' : null);
   return state ? <SessionActivityIndicator state={state} tooltip /> : null;
 }
 
@@ -658,6 +658,10 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     checkedAt?: number; reason?: string;
   } | null>(null);
   const [queueActionError, setQueueActionError] = React.useState('');
+  const [gitConfirm, setGitConfirm] = React.useState<'commit' | 'revert' | null>(null);
+  const [gitMessage, setGitMessage] = React.useState('');
+  const [gitRevertPhrase, setGitRevertPhrase] = React.useState('');
+  const [gitBusy, setGitBusy] = React.useState(false);
   const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
   const [forceConfirm, setForceConfirm] = React.useState<{ itemId: string; sessionId: string; title: string } | null>(null);
   const [clearRecoveryConfirm, setClearRecoveryConfirm] = React.useState<{ sessionId: string; attemptId: string; title: string } | null>(null);
@@ -705,6 +709,43 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     const timer = setInterval(() => void inspect(), 20000);
     return () => { disposed = true; clearInterval(timer); };
   }, [directory, runtimeKey]);
+  const submitBoardGitAction = async () => {
+    const preview = gitHealth;
+    const action = gitConfirm;
+    if (!directory || !preview?.repository || preview.state !== 'dirty' || !action || gitBusy) return;
+    const token = generation.current;
+    const runtime = getRuntimeKey();
+    setGitBusy(true);
+    setQueueActionError('');
+    try {
+      const response = await runtimeFetch('/api/build-queue/git-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory, action, message: action === 'commit' ? gitMessage.trim() : undefined,
+          expectedHead: preview.head, expectedBranch: preview.branch, expectedChanged: preview.changed, expectedPaths: preview.paths }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.ok !== true) throw new Error(result?.error ?? 'Project Git action failed');
+      if (runtime === getRuntimeKey() && token === generation.current) {
+        setGitConfirm(null);
+        setGitMessage('');
+        setGitRevertPhrase('');
+        toast.success(action === 'commit' ? 'Changes committed' : 'Uncommitted changes reverted');
+      }
+    } catch (error) {
+      if (runtime === getRuntimeKey() && token === generation.current) {
+        setQueueActionError(error instanceof Error ? error.message : 'Project Git action failed');
+      }
+    } finally {
+      if (runtime === getRuntimeKey() && token === generation.current) {
+        setGitBusy(false);
+        try {
+          const response = await runtimeFetch('/api/build-queue/git-health?directory=' + encodeURIComponent(directory));
+          if (response.ok) setGitHealth(await response.json());
+        } catch { /* The regular Git health poll retries. */ }
+        await refresh();
+      }
+    }
+  };
   // A saved to-do from the composer arrives as a card; the next snapshot carries
   // it, so the effect only nudges a refresh rather than merging cards by hand.
   React.useEffect(() => useWorkBoardSavedTodo.subscribe((state, previousState) => {
@@ -1404,6 +1445,11 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         </Button>
       </div>}
     </header>
+    {gitHealth?.state === 'dirty' && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-[var(--status-warning)]/40 px-3 py-2 text-xs">
+      <span className="min-w-0 flex-1 truncate" title={gitHealth.repository ?? undefined}>Git: {gitHealth.changed} changed files · {gitHealth.branch}</span>
+      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitMessage(''); setGitConfirm('commit'); }}>Commit…</Button>
+      <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => { setGitRevertPhrase(''); setGitConfirm('revert'); }}>Revert…</Button>
+    </section>}
     {queuePaused && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-border px-3 py-2 text-xs">
       <span>Project queue paused.</span>
       {queue?.resumeAt && <span className="text-muted-foreground">Resumes {new Date(queue.resumeAt).toLocaleString()} · {Math.max(0, Math.ceil((queue.resumeAt - resumeClock) / 1000))}s remaining</span>}
@@ -1517,6 +1563,10 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
                 directory: card.directory,
                 title,
                 disabled: busy || loading || Boolean(error),
+                manualUnread: Boolean(card.manualUnread),
+                onToggleUnread: card.sessionId ? () => void mutate(async () => {
+                  await setWorkBoardCardUnread(card, !card.manualUnread);
+                }) : null,
                 onStartPlan: card.sessionId ? null : () => promote(card),
                 onReturnToTodo: canReturnToTodo ? () => void mutate(async () => {
                   const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
@@ -1583,6 +1633,25 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
       </div> : null}
     </DragOverlay>
     </DndContext>}
+    <Dialog open={gitConfirm !== null} onOpenChange={open => { if (!open && !gitBusy) setGitConfirm(null); }}>
+      <DialogContent showCloseButton={!gitBusy}>
+        <DialogTitle>{gitConfirm === 'commit' ? 'Commit project changes' : 'Revert all uncommitted changes?'}</DialogTitle>
+        <DialogDescription>{gitConfirm === 'commit'
+          ? 'Commit staged, unstaged and untracked (non-ignored) files in the selected repository. No push is performed.'
+          : 'This permanently discards all staged and unstaged changes and deletes untracked, non-ignored files. Commits, ignored files and recovery refs remain untouched.'}</DialogDescription>
+        <p className="break-all text-xs text-muted-foreground">{gitHealth?.repository} · {gitHealth?.changed ?? 0} changed files</p>
+        {gitConfirm === 'commit' ? <Input autoFocus aria-label="Commit message" placeholder="Commit message" value={gitMessage}
+          maxLength={500} disabled={gitBusy} onChange={event => setGitMessage(event.target.value)} />
+          : <Input aria-label="Type REVERT to confirm" placeholder="Type REVERT to confirm" value={gitRevertPhrase}
+            disabled={gitBusy} onChange={event => setGitRevertPhrase(event.target.value)} />}
+        <DialogFooter>
+          <Button variant="outline" disabled={gitBusy} onClick={() => setGitConfirm(null)}>Cancel</Button>
+          <Button variant={gitConfirm === 'revert' ? 'destructive' : 'default'} disabled={gitBusy ||
+            (gitConfirm === 'commit' ? !gitMessage.trim() : gitRevertPhrase !== 'REVERT')}
+            onClick={() => void submitBoardGitAction()}>{gitBusy ? 'Working…' : gitConfirm === 'commit' ? 'Commit' : 'Revert changes'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <Dialog open={resolveConfirm !== null} onOpenChange={open => { if (!open && !queueBusy) setResolveConfirm(null); }}>
       <DialogContent showCloseButton={!queueBusy}>
         <DialogTitle>{resolveConfirm?.action === 'retry'

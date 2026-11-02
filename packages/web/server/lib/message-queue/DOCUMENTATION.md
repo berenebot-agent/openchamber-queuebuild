@@ -784,3 +784,17 @@ session history has to retain the final outcome and footer. There is no
 automatic completion-only retry if the agent omits the footer; the lane is
 held for reconciliation rather than assumed successful. Existing recovery
 refs are not pruned automatically.
+
+
+### Board Git controls
+
+`POST /api/build-queue/git-action` accepts `{directory,action,message?,
+expectedHead,expectedBranch,expectedChanged,expectedPaths}` where action
+is `commit` or `revert`. The server selects the project checkout and
+rechecks the Git preview before acting. A running/preparing/forced Build,
+another live unqueued Build, or unknown OpenCode activity produces a 409.
+Commit delegates to OpenChamber's existing Git service. Revert uses
+`git reset --hard HEAD` and `git clean -fd` on the selected worktree root;
+ignored files, nested repositories, commits and managed recovery refs are
+untouched. These are explicit operator actions, separate from automatic
+managed Build recovery.

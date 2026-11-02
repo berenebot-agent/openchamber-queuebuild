@@ -95,6 +95,8 @@ test('a card linked to a session carries the session menu, and rename writes the
           onReturnToTodo={() => boardCalls.push('back')}
           onRemove={() => boardCalls.push('remove')}
           onRemoveTodo={() => boardCalls.push('removeTodo')}
+          manualUnread={false}
+          onToggleUnread={() => boardCalls.push('unread')}
         />
       </SyncProvider></I18nProvider>);
       await new Promise(resolve => setTimeout(resolve, 30));
@@ -103,13 +105,16 @@ test('a card linked to a session carries the session menu, and rename writes the
     // The board's own entries, then the session's, in one menu. Removing the
     // saved brief is its own entry: the card and its session stay.
     expect(items().filter(Boolean)).toEqual([
-      'Back to To-do', 'Remove to-do', 'Remove card', 'Rename', 'Rename with AI', 'Copy session ID', 'Export Markdown', 'Track as in work', 'Archive', 'Delete',
+      'Back to To-do', 'Remove to-do', 'Remove card', 'Mark unread', 'Rename', 'Rename with AI', 'Copy session ID', 'Export Markdown', 'Track as in work', 'Archive', 'Delete',
     ]);
+    await clickItem('Mark unread');
+    expect(boardCalls).toEqual(['unread']);
+    await openMenu();
     await clickItem('Remove to-do');
-    expect(boardCalls).toEqual(['removeTodo']);
+    expect(boardCalls).toEqual(['unread', 'removeTodo']);
     await openMenu();
     await clickItem('Remove card');
-    expect(boardCalls).toEqual(['removeTodo', 'remove']);
+    expect(boardCalls).toEqual(['unread', 'removeTodo', 'remove']);
     // Renaming to what it already says is a close, not a write.
     await openMenu();
     await clickItem('Rename');
