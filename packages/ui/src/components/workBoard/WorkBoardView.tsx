@@ -263,13 +263,14 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
  * The Build queue lane. Running builds sit above the gap, and waiting items keep
  * the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, recoveries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onSetParticipation, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, recoveries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onSetParticipation, onClearRecovery, onNewBuild }: {
   rows: WorkBoardQueueRow[];
   paused: boolean;
   active: { sessionId: string; needsReview?: boolean; phase?: 'dispatching' | 'running'; startedAt: number; model?: WorkBoardQueuedModel | null; content?: string | null } | undefined;
   activeTitle: string;
   entries: WorkBoardActiveEntry[];
   recoveries: Array<{ sessionId: string; attemptId: string; reason?: string; outcome: string; stashRef: string | null }>;
+  onClearRecovery: (recovery: { sessionId: string; attemptId: string }) => void;
   order: string[];
   busy: boolean;
   error: string;
@@ -305,14 +306,17 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, reco
         busy={busy} onResolve={onResolveForced} />)}
     </div>}
     {recoveries.length > 0 && <section aria-label="Parked managed Builds" className="mt-3 space-y-2">
-      {recoveries.map((recovery, index) => <button type="button" key={recovery.sessionId + ':' + recovery.attemptId + ':' + index}
-        onClick={() => onOpen(recovery.sessionId)}
+      {recoveries.map(recovery => <div key={recovery.sessionId + ':' + recovery.attemptId}
         className="w-full rounded-md border border-[var(--status-error-text)]/50 bg-[var(--status-error-bg)] px-3 py-2 text-left text-xs">
         <span className="block font-semibold">Action required · {recovery.outcome === 'input_required' ? 'Input required' : 'Failed Build'}</span>
         <span className="mt-1 block truncate">{recovery.reason || 'Previous changes were safely parked'}</span>
-        <span className="mt-1 block truncate text-muted-foreground">{recovery.stashRef
-          ? 'Preserved: ' + recovery.stashRef : 'No file changes to recover'} · Open session to resume</span>
-      </button>)}
+        <span className="mt-1 block truncate text-muted-foreground" title={recovery.stashRef ?? undefined}>{recovery.stashRef
+          ? 'Preserved: ' + recovery.stashRef : 'No file changes to recover'}</span>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="xs" variant="outline" onClick={() => onOpen(recovery.sessionId)}>Open original card</Button>
+          <Button size="xs" variant="outline" disabled={busy} onClick={() => onClearRecovery(recovery)}>Clear alert…</Button>
+        </div>
+      </div>)}
     </section>}
     {!active && !entries.length && <Button size="xs" variant="ghost" disabled={busy} onClick={onNewBuild}
           className="mb-1 h-auto w-full flex-col items-start gap-1 rounded-md border border-dashed border-border px-2.5 py-3 text-xs font-normal text-muted-foreground"
@@ -650,6 +654,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const [queueActionError, setQueueActionError] = React.useState('');
   const [resolveConfirm, setResolveConfirm] = React.useState<{ action: 'skip' | 'retry'; issue: string } | null>(null);
   const [forceConfirm, setForceConfirm] = React.useState<{ itemId: string; sessionId: string; title: string } | null>(null);
+  const [clearRecoveryConfirm, setClearRecoveryConfirm] = React.useState<{ sessionId: string; attemptId: string; title: string } | null>(null);
   const [resumeOpen, setResumeOpen] = React.useState(false);
   const [resumeInput, setResumeInput] = React.useState('');
   const [resumeClock, setResumeClock] = React.useState(Date.now());
@@ -1080,6 +1085,27 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // request to the build the user is looking at.
   const resolveForcedBuild = (row: { itemId: string; sessionId: string }) =>
     void queueMutate('/api/build-queue/resolve', 'POST', { directory, itemId: row.itemId, action: 'skip' });
+  const clearRecoveredBuild = async (destination: 'plan' | 'build' | 'done') => {
+    const recovery = clearRecoveryConfirm;
+    if (!recovery || !directory || queueBusy) return;
+    setQueueBusy(true);
+    try {
+      const response = await runtimeFetch('/api/build-queue/recovery/clear', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory, sessionId: recovery.sessionId, attemptId: recovery.attemptId }),
+      });
+      if (!response.ok) {
+        const answer = queueErrorSchema.safeParse(await response.json().catch(() => null));
+        throw new Error(answer.success ? answer.data.error || 'Recovery dismissal failed' : 'Recovery dismissal failed');
+      }
+      setClearRecoveryConfirm(null);
+      const card = cards.find(entry => entry.sessionId === recovery.sessionId);
+      if (card) place([card], destination);
+      await refresh();
+    } catch (error) {
+      setQueueActionError(error instanceof Error ? error.message : 'Recovery dismissal failed');
+    } finally { setQueueBusy(false); }
+  };
 
   /**
    * Move one card to a lane, or to a place inside one. `before` names the card it
@@ -1175,7 +1201,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // entry renders once per session with its queue-participation action.
   const queueLiveBuilds = new Map<string, { sessionId: string; title: string; checking: boolean; unavailable: boolean }>();
   for (const card of orderedLanes.get('queue') ?? []) {
-    if (card.sessionId && !queueStateFor(card)) {
+    if (card.sessionId && !(queue?.recoveries ?? []).some(item => item.sessionId === card.sessionId) && !queueStateFor(card)) {
       queueLiveBuilds.set(card.sessionId, {
         sessionId: card.sessionId,
         title: sessionTitleFor(card.sessionId),
@@ -1292,6 +1318,8 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
     {(needsReview || queueIssue) && <section role="alert" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--status-warning)]/40 bg-[color-mix(in_srgb,var(--status-warning)_7%,transparent)] px-3 py-2">
       <Icon name="alert" className="size-4 shrink-0 text-status-warning" />
       <p className="min-w-0 flex-1 text-xs leading-5 text-muted-foreground">{queueIssue || t('workBoard.needsReview')}</p>
+      {needsReview && activeBuild?.sessionId && <Button size="sm" variant="outline"
+        onClick={() => open(activeBuild.sessionId, directory)}>Open blocking Build</Button>}
       {needsReview && <Button size="sm" variant="outline" disabled={!directory || queueBusy}
         onClick={() => setResolveConfirm({ action: 'skip', issue: queueIssue || t('workBoard.needsReview') })}>
         {t('buildQueue.recovery.continue')}
@@ -1338,6 +1366,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             activeTitle={activeBuild ? sessionTitleFor(activeBuild.sessionId) : ''}
             entries={activeEntries}
             recoveries={queue?.recoveries ?? []}
+            onClearRecovery={item => setClearRecoveryConfirm({ ...item, title: sessionTitleFor(item.sessionId) })}
             order={queueOrder}
             busy={queueBusy}
             error={queueActionError}
@@ -1463,6 +1492,18 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         <DialogFooter>
           <Button variant="outline" disabled={queueBusy} onClick={() => setResolveConfirm(null)}>{t('workBoard.cancel')}</Button>
           <Button disabled={queueBusy} onClick={confirmResolve}>{t('workBoard.resume')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={clearRecoveryConfirm !== null} onOpenChange={isOpen => { if (!isOpen && !queueBusy) setClearRecoveryConfirm(null); }}>
+      <DialogContent>
+        <DialogTitle>Clear recovered Build alert?</DialogTitle>
+        <DialogDescription>Dismiss {clearRecoveryConfirm?.title ?? 'this Build'} without running it. Pinned recovery refs remain preserved for manual retrieval.</DialogDescription>
+        <DialogFooter>
+          <Button variant="outline" disabled={queueBusy} onClick={() => setClearRecoveryConfirm(null)}>Cancel</Button>
+          <Button disabled={queueBusy} onClick={() => void clearRecoveredBuild('plan')}>Move to Plan</Button>
+          <Button disabled={queueBusy} onClick={() => void clearRecoveredBuild('build')}>Build complete</Button>
+          <Button disabled={queueBusy} onClick={() => void clearRecoveredBuild('done')}>Done</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

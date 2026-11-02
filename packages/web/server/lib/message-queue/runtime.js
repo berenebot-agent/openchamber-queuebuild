@@ -2440,6 +2440,34 @@ export function createMessageQueueRuntime({
    * Removes the item and hands its full payload back so the composer can
    * restore a cancelled message instead of losing what the user typed.
    */
+  // Safely parked attempts are not leases. Clearing their alert leaves Git
+  // recovery refs available rather than silently destroying the only copy.
+  const clearManagedRecovery = (directoryInput, sessionIdInput, attemptIdInput) => withAdmission(async () => {
+    const directory = directoryKey(directoryInput);
+    const sessionId = requireSessionId(sessionIdInput);
+    const attemptId = asNonEmptyString(attemptIdInput);
+    if (!directory || !attemptId) throw new TypeError('directory and attemptId required');
+    await load();
+    if (Array.from(activeBuilds.values()).some(lease => lease.sessionId === sessionId) || sending.has(sessionId)) {
+      throw httpError('The session still owns active or uncertain work; settle it before clearing this alert.', 409);
+    }
+    const previous = managedRecoveries.get(sessionId) ?? [];
+    if (!previous.some(entry => entry.attemptId === attemptId && directoryKey(entry.directory) === directory)) {
+      throw httpError('Recovery alert changed; refresh before clearing it.', 409);
+    }
+    const rest = previous.filter(entry => !(entry.attemptId === attemptId && directoryKey(entry.directory) === directory));
+    if (rest.length) managedRecoveries.set(sessionId, rest);
+    else managedRecoveries.delete(sessionId);
+    commit(sessionId);
+    await writePromise;
+    if (persistenceError) {
+      managedRecoveries.set(sessionId, previous);
+      throw httpError('Recovery dismissal could not be saved; repair queue storage.', 503);
+    }
+    wakeProject(directory);
+    return buildSnapshot();
+  });
+
   const remove = async (sessionIdInput, itemId) => {
     const sessionId = requireSessionId(sessionIdInput);
     await load();
@@ -2969,6 +2997,7 @@ export function createMessageQueueRuntime({
     setQueuePaused,
     setBuildQueueParticipation,
     resolveBuild,
+    clearManagedRecovery,
     forceDispatch,
     sessionSnapshot,
     enqueue,
@@ -3051,6 +3080,10 @@ export function registerMessageQueueRoutes(app, runtime) {
   app.post('/api/build-queue/resolve', async (req, res) => {
     try { res.json(await runtime.resolveBuild(req.body?.directory, req.body?.action, req.body?.itemId)); }
     catch (error) { respondError(res, error, 'Failed to resolve build queue'); }
+  });
+  app.post('/api/build-queue/recovery/clear', async (req, res) => {
+    try { res.json(await runtime.clearManagedRecovery(req.body?.directory, req.body?.sessionId, req.body?.attemptId)); }
+    catch (error) { respondError(res, error, 'Failed to clear recovered Build alert'); }
   });
   app.post('/api/build-queue/force', async (req, res) => {
     try { res.json(await runtime.forceDispatch(req.body?.directory, req.body?.sessionId, req.body?.itemId, req.body?.mode, req.body?.ignoreManagedGit === true)); }

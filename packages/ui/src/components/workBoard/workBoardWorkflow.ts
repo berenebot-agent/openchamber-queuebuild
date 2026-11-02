@@ -281,6 +281,7 @@ export function workBoardBuildBadges(
     forced?: readonly { directory: string; counts?: boolean }[];
     issues?: readonly { directory: string; issue: string }[];
     pausedDirectories?: readonly string[];
+    recoveries?: readonly { directory: string; sessionId: string }[];
   } | null,
   queueError: boolean,
 ): Map<string, WorkBoardBuildBadge> {
@@ -308,6 +309,7 @@ export function workBoardBuildBadges(
   // A lease awaiting review is a waiting project, and it outranks a Git hold
   // when both apply: the review is the thing only the user can clear.
   const paused = new Map<string, 'review' | 'git' | 'manual'>();
+  for (const recovery of queue.recoveries ?? []) paused.set(workBoardDirectoryKey(recovery.directory), 'review');
   for (const lease of queue.active) {
     if (lease.needsReview) paused.set(workBoardDirectoryKey(lease.directory), 'review');
   }

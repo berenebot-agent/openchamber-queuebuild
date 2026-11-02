@@ -130,7 +130,10 @@ function queueForDirectory(queue, directory) {
   const queued = (queue?.queued ?? []).filter(item => matches(item.directory));
   const active = (queue?.active ?? []).find(item => matches(item.directory));
   const forced = (queue?.forced ?? []).filter(item => matches(item.directory));
-  const recoveries = (queue?.recoveries ?? []).filter(item => matches(item.directory));
+  // Keep one visible card per session; the journal retains earlier attempts.
+  const latestRecovery = new Map();
+  for (const item of queue?.recoveries ?? []) if (matches(item.directory)) latestRecovery.set(item.sessionId, item);
+  const recoveries = [...latestRecovery.values()];
   const issue = (queue?.issues ?? []).find(item => matches(item.directory))?.issue;
   return {
     paused: (queue?.pausedDirectories ?? []).some(matches),
@@ -300,6 +303,7 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       ...(queueState?.rows ?? []).map(row => row.sessionId),
       ...(queueState?.active ? [queueState.active.sessionId] : []),
       ...(queueState?.forced ?? []).map(item => item.sessionId),
+      ...(queueState?.recoveries ?? []).map(item => item.sessionId),
     ]);
 
     // A session that waits for the user's answer stays `busy` in OpenCode's own
