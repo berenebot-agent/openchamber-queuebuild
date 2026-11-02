@@ -2987,7 +2987,7 @@ export function createMessageQueueRuntime({
     const identity = await projectIdentityOf({ directory });
     if (!asNonEmptyString(identity?.projectId)) throw httpError('This directory is not a project', 400);
     const repository = await queueRepositoryFor(directory);
-    if (!repository) return { state: 'unavailable', repository: null, reason: 'No Git repository selected or detected' };
+    if (!repository) return { state: 'unavailable', repository: null, policy: await effectiveBuildGitPolicy(directory), reason: 'No Git repository selected or detected' };
     try {
       const execGit = async (...args) => (await runGit('git', ['-C', repository, ...args], {
         timeout: 10000, maxBuffer: 1024 * 1024, encoding: 'utf8',
@@ -3002,10 +3002,10 @@ export function createMessageQueueRuntime({
       if (resolvedRoot !== await fs.promises.realpath(repository)) throw new Error('Selected path is not a Git worktree root');
       const paths = porcelain ? porcelain.split('\n').slice(0, 200).map(line => line.slice(3)) : [];
       const changed = porcelain ? porcelain.split('\n').length : 0;
-      return { state: changed ? 'dirty' : 'clean', repository, branch: branch || '(detached)', head,
+      return { state: changed ? 'dirty' : 'clean', repository, policy: await effectiveBuildGitPolicy(directory), branch: branch || '(detached)', head,
         changed, paths, checkedAt: now() };
     } catch (error) {
-      return { state: 'unavailable', repository, reason: error?.message ?? 'Git check failed', checkedAt: now() };
+      return { state: 'unavailable', repository, policy: await effectiveBuildGitPolicy(directory), reason: error?.message ?? 'Git check failed', checkedAt: now() };
     }
   };
 

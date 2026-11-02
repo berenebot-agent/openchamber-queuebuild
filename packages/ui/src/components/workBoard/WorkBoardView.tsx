@@ -32,8 +32,8 @@ import { useBuildQueueSnapshot } from '@/hooks/useBuildQueueSnapshot';
 import { useGlobalBlockingRequestsStore } from '@/sync/global-blocking-requests';
 import { updateWorkBoardCard, saveSessionToTodo, deleteWorkBoardCard, placeWorkBoardCard, placeWorkBoardCards, markWorkBoardCardViewed, fetchWorkBoardSnapshot, updateQueueSettings, type WorkBoardCard, type WorkBoardSnapshotCard, type WorkBoardQueuedModel, type WorkBoardWaitingKind } from '@/lib/workBoardApi';
 import { workBoardMoved, workBoardOrderNeighbour, workBoardFeedback, workBoardShowsCompletionMark, workBoardReviewConfirmWording, startWorkBoardPlan, workBoardBuildBadges, workBoardTabAsks, workBoardsNeedingAttention, workBoardReordered, workBoardActiveEntries, workBoardCardLane, workBoardCompletesMove, workBoardSnapshotRows, workBoardSnapshotOrder, workBoardQueueFromSnapshot, type WorkBoardActiveEntry, type WorkBoardActivity, type WorkBoardCardLane, type WorkBoardLane, type WorkBoardQueueRow, type WorkBoardQueueState, type WorkBoardQueueWrite } from './workBoardWorkflow';
-import { DndContext, DragOverlay, MouseSensor, TouchSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, pointerWithin, rectIntersection, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
 import { runSessionSubtreeAction } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
@@ -653,7 +653,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const sessionsLoading = useGlobalSessionsStore(state => !state.hasLoaded && state.status !== 'error');
   const [queueBusy, setQueueBusy] = React.useState(false);
   const [gitHealth, setGitHealth] = React.useState<{
-    state: 'clean' | 'dirty' | 'unavailable'; repository: string | null;
+    state: 'clean' | 'dirty' | 'unavailable'; repository: string | null; policy?: string;
     branch?: string; head?: string; changed?: number; paths?: string[];
     checkedAt?: number; reason?: string;
   } | null>(null);
@@ -681,6 +681,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const generation = React.useRef(0);
   const cards = React.useMemo<WorkBoardSnapshotCard[]>(() => snapshot?.cards ?? [], [snapshot]);
@@ -1641,10 +1642,10 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           <Button variant="outline" disabled={queueBusy} onClick={() => setForceConfirm(null)}>{t('workBoard.cancel')}</Button>
           <Button variant="outline" disabled={queueBusy} onClick={() => confirmForce('separate')}>{t('buildQueue.force.confirmOutsideQueue')}</Button>
           <Button disabled={queueBusy} onClick={() => confirmForce('queue')}>{t('buildQueue.force.confirmInQueue')}</Button>
-          <Button variant="destructive" disabled={queueBusy} onClick={() => confirmForce('separate', true)}
+          {gitHealth?.policy === 'managed' && <Button variant="destructive" disabled={queueBusy} onClick={() => confirmForce('separate', true)}
             title="Emergency override: bypasses managed Git verification and recovery. Concurrent changes can conflict.">
             Emergency: bypass managed Git
-          </Button>
+          </Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>
