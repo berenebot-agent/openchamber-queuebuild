@@ -287,11 +287,17 @@ session-only inherited card), leaves lane/order/completion timestamps alone,
 and is cleared when that session opens from any surface. It is independent of
 OpenCode's transient notification count.
 
-The Work Board shows **Commit…** and **Revert…** alongside a dirty Git status
+The Work Board shows **Commit…** and **Discard…** beside a dirty Git status
 for the project's server-resolved repository. Both require a fresh server
 Git preview. Commit uses the existing Git service to stage and commit all
 non-ignored changes with a supplied message, without pushing. Revert requires
-typing REVERT and discards tracked changes and untracked non-ignored files,
+typing DISCARD and discards tracked changes and untracked non-ignored files,
 leaving ignored files, nested Git checkouts, commits, and recovery refs alone.
-Both refuse an active/preparing Build or uncertain OpenCode activity; they
-do not override managed-Git queue or recovery state.
+The confirmation pins a full content fingerprint even when the regular status
+poll refreshes. Both refuse running project sessions, background shells,
+active Builds, unresolved managed recoveries or uncertain OpenCode activity.
+The workboard offers a single **Clean up completed…** action with age and
+Move to Done/Archive choices; it rechecks eligibility before each operation.
+Failed-build dismissal clears the session's visible alerts while keeping pinned
+Git refs, and offers only Dismiss or Move to Plan—not unverified completion.
+The scheduled-resume countdown is isolated from the rest of the board.
