@@ -70,6 +70,8 @@ import { titlebarControlsWidthReaderRef } from './titlebarControlsWidth';
 import { useLayoutAnimationMs } from '@/hooks/useLayoutAnimationMs';
 import { LAYOUT_ANIMATION_EASING } from '@/lib/layoutAnimation';
 import { findWorktreeHoldingDirectory } from '@/lib/worktrees/worktreePaths';
+import { WorkBoardSessionTabsPortal } from './workBoardHeaderSlots';
+import { useWorkBoardHeaderSlots } from './workBoardHeaderSlotsContext';
 
 // Like the icon rail: muted at rest, full strength on hover, while its menu is
 // open or while what it controls is on, and no hover fill.
@@ -99,6 +101,8 @@ export const Header: React.FC = () => {
   // The spacers move with the sidebar, so they follow its animation setting.
   const layoutAnimationMs = useLayoutAnimationMs();
   const sessionTabsEnabled = useUIStore((state) => state.sessionTabsEnabled);
+  const isWorkBoardOpen = useUIStore((state) => state.isWorkBoardOpen);
+  const { setProjectTabs } = useWorkBoardHeaderSlots();
 
   const isNewSessionDraftOpen = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
@@ -144,6 +148,7 @@ export const Header: React.FC = () => {
   const loadQuotaSettings = useQuotaStore((state) => state.loadSettings);
 
   const { isMobile } = useDeviceInfo();
+  const workBoardHeaderLayout = isWorkBoardOpen && !isMobile;
   const headerRef = React.useRef<HTMLElement | null>(null);
 
   const [isDesktopApp, setIsDesktopApp] = React.useState<boolean>(() => {
@@ -626,10 +631,8 @@ export const Header: React.FC = () => {
     if (isSourceBoardSurfaceOpen) {
       return { title: t('sourceBoard.title'), subtitle: null };
     }
-    // The work board is a place sessions live, not a view of one. It keeps the
-    // header's session tabs and controls: its own title row would push the tab
-    // strip down and print the board's name twice, since the board names itself
-    // and leads the titlebar.
+    // The work board supplies project tabs to the titlebar and moves the session
+    // tabs into its own header below, so it does not add a title here.
     if (worktreesSurfaceProjectId) {
       return {
         title: t('sessions.worktreesPage.title', { project: surfaceProjectLabel ?? '' }),
@@ -1056,6 +1059,7 @@ export const Header: React.FC = () => {
           TitlebarLeftControls overlay; the spacers above reserve its footprint
           while the sidebar is closed. */}
       <div className="flex min-w-0 flex-1 items-center">
+        <WorkBoardSessionTabsPortal>
         {activeSurfaceHeader ? (
           <>
           <Tooltip>
@@ -1291,8 +1295,9 @@ export const Header: React.FC = () => {
             </SessionTabsStrip>
           </div>
         )}
-
-        {activeSurfaceHeader || isVSCode || !sessionTabsEnabled ? <div className="flex-1" /> : null}
+        </WorkBoardSessionTabsPortal>
+        {workBoardHeaderLayout && <div ref={setProjectTabs} className="app-region-no-drag flex h-full min-w-0 flex-1 items-stretch" />}
+        {!workBoardHeaderLayout && (activeSurfaceHeader || isVSCode || !sessionTabsEnabled) ? <div className="flex-1" /> : null}
 
         {/* Spacing comes from the gap only, so whichever control ends up last
             sits on the header's own right padding with no trailing margin. */}

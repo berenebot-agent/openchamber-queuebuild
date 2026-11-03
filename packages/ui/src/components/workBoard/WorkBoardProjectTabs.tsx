@@ -75,13 +75,8 @@ type WorkBoardProjectTabProps = {
 const FILLET_PX = 5;
 
 /**
- * One connected project tab: a rounded rectangle whose top corners curve away
- * from the board header and whose base reaches the header's lower edge. The
- * selected tab is filled with the board's own surface, so the line drawn behind
- * the strip breaks under it and the tab reads as continuous with the board
- * below rather than as a separate chip. Its base flares outward through two
- * concave fillets, so the surface curves into the board on either side instead
- * of meeting the line at a right angle.
+ * One project tab in the app titlebar. Its base reaches the row's lower edge,
+ * and the selected surface flares into that edge through two concave fillets.
  */
 function WorkBoardProjectTab({
   project,

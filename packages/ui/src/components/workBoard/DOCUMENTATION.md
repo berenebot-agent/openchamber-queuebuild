@@ -44,9 +44,7 @@ not classify sessions itself.
 - `WorkBoardMobileProjectPicker.tsx` — the phone's replacement for the tab strip:
   one control naming the board on screen, opening the device's recent-first list
   with each board's marks. Each tab carries its project's build load and,
-  beside it, the asks waiting for the user (a question, a permission); the strip
-  draws the header's separator behind itself so the selected tab's fill breaks
-  the line and its base flares into the board.
+  beside it, the asks waiting for the user (a question, a permission).
 - `useSavedTodoComposer.ts`, `workBoardSavedTodo.ts` — the saved-brief surfaces
   shared with the chat composer: the card the board opened is handed to its
   composer as the draft, and the save returns the user to the board. A brief
@@ -208,17 +206,17 @@ The Work board button leads the titlebar cluster on every screen
 opens the board on the project of the session on screen
 (`rememberWorkBoardReturn`). A chip over the chat
 (`MainLayout`, shown on chats once a board has been visited) is the same way
-back from the chat itself. The board does not render its own title row or its
-own close: it keeps the app header's session tabs and controls on the top row
-and names itself nowhere, so nothing stacks two headers above the lanes.
+back from the chat itself. On desktop, the project's tabs join the app titlebar
+after its persistent controls. The session tabs move into the Work Board header
+below them, beside the board controls, so project selection leads while session
+switching stays available. The board does not add its own title or close button.
 
-### Why the board sits under the app header rather than replacing it
+### Why project tabs lead and session tabs follow
 
-An earlier version gave the board the whole header (its name and a back arrow
-in place of the session tabs) and drew a second header of its own under it. Two
-rows of chrome pushed the session tabs off the top of the window and printed
-the board's name twice. The tabs stay: they are how a session is picked, and
-they now sit above the board like they sit above a chat.
+Project tabs identify the workspace shown by the board, so they sit in the app's
+top row beside the logo and persistent controls. Session tabs stay available in
+the row beneath them, next to board controls. The mobile layout keeps its compact
+project picker and does not move the app's session header.
 
 ### Why the `+` menu also adds a folder
 

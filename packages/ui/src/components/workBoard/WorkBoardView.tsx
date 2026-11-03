@@ -36,6 +36,8 @@ import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, poin
 import { SortableContext, useSortable, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { WorkBoardProjectTabs } from './WorkBoardProjectTabs';
+import { WorkBoardProjectTabsPortal } from '@/components/layout/workBoardHeaderSlots';
+import { useWorkBoardHeaderSlots } from '@/components/layout/workBoardHeaderSlotsContext';
 import { runSessionSubtreeAction } from '@/components/session/sidebar/sessions/sessionSubtreeActions';
 import { WorkBoardCardMenu, WorkBoardCardContextMenu, WorkBoardQueueMenu, WorkBoardQueueContextMenu, WorkBoardActiveBuildMenu, type WorkBoardCardMenuProps, type WorkBoardQueueMenuProps } from './WorkBoardCardMenu';
 import { readMobileWorkBoardLane, rememberMobileWorkBoardLane } from './workBoardMobileLane';
@@ -651,6 +653,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   onPickerOpenChange?: (open: boolean) => void;
 } = {}) {
   const { t } = useI18n();
+  const { setSessionTabs } = useWorkBoardHeaderSlots();
   // The phone and tablet shells show one lane at a time. The remembered lane
   // belongs to this client and the connected server, so each server reopens on
   // its own last lane.
@@ -1502,23 +1505,16 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   const visibleLanes = mobile ? lanes.filter(lane => lane === mobileLane) : lanes;
 
   return <div className={mobile ? 'flex h-full min-h-0 flex-col bg-background' : 'absolute inset-0 z-10 flex flex-col bg-background'} aria-label={t('workBoard.title')}>
-    {/* items-end + pt-3-only puts the project tabs on the header's lower edge, so
-        a selected tab can flow into the board; the controls carry their
-        own bottom padding and stay vertically centred. The header owns a surface
-        because the selected tab is filled with the board's colour — against the
-        bare board background the connection would read as an outline.
-        The board names itself nowhere here: the titlebar's Work board button and
-        the window title already do, and a title row above the tabs would push
-        them into a second row under the app header.
+    {/* The project tabs sit in the app titlebar. The session tabs move into this
+        row beneath them, beside the board controls, so the project selector leads.
         A phone has no room for a tab strip and five lanes at once, so the tabs
         become a lane picker whose counts show where the work is. The fullscreen
         surface already carries the board's title and its close. */}
     <header className={mobile
       ? 'flex shrink-0 flex-col gap-3 border-b border-border bg-surface-muted px-3 py-3'
-      : 'relative flex flex-wrap items-end gap-3 bg-surface-muted px-4 pt-3'}>
-      {/* The strip's separator is drawn behind the tabs rather than as the
-          header's own border, so a selected tab's fill paints over it and the
-          line breaks under that tab alone. The strip is lifted above it. */}
+      : 'relative flex flex-wrap items-center gap-3 bg-surface-muted px-4 py-1.5'}>
+      {/* The separator sits behind the session tabs, which share this row with
+          the board's controls. */}
       {!mobile && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border" />}
       {mobile ? <>
         <WorkBoardMobileProjectPicker
@@ -1547,31 +1543,34 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             <span>{t(`workBoard.${lane}`)}</span><span className="tabular-nums">{laneCounts.get(lane) ?? 0}</span>
           </button>)}
         </div>
-      </> : <WorkBoardProjectTabs
-        projects={projects}
-        openProjectIds={visibleProjectTabs.map(project => project.id)}
-        activeProjectId={projectId}
-        disabled={busy}
-        badges={buildBadges}
-        asks={tabAsks}
-        onSelect={nextProjectId => setWorkBoardProjectTabs(runtimeKey, {
-          projectIds: visibleProjectTabs.map(project => project.id),
-          activeProjectId: nextProjectId,
-        })}
-        onAdd={addProjectTab}
-        onAddProject={() => sessionEvents.requestDirectoryDialog()}
-        onClose={closeProjectTab}
-        onReorder={reorderProjectTab}
-      />}
+      </> : <>
+        <div ref={setSessionTabs} className="app-region-no-drag flex h-10 min-w-0 flex-1 items-center" />
+        <WorkBoardProjectTabsPortal>
+          <WorkBoardProjectTabs
+            projects={projects}
+            openProjectIds={visibleProjectTabs.map(project => project.id)}
+            activeProjectId={projectId}
+            disabled={busy}
+            badges={buildBadges}
+            asks={tabAsks}
+            onSelect={nextProjectId => setWorkBoardProjectTabs(runtimeKey, {
+              projectIds: visibleProjectTabs.map(project => project.id),
+              activeProjectId: nextProjectId,
+            })}
+            onAdd={addProjectTab}
+            onAddProject={() => sessionEvents.requestDirectoryDialog()}
+            onClose={closeProjectTab}
+            onReorder={reorderProjectTab}
+          />
+        </WorkBoardProjectTabsPortal>
+      </>}
       {/* The board's own controls sit in one right-aligned cluster: the search
           field, the project queue's on/off switch, the way into its Settings
-          page, and Close. The header keeps items-end so a selected project tab
-          still flows into the board; the cluster centres its own children
-          against that baseline. Mobile drops the cluster. The fullscreen surface
+          page, and Close. Mobile drops the cluster. The fullscreen surface
           closes itself, the queue switch sits in the picker above, board
           Settings is reachable from the mobile Settings list, and the search
           field goes with it: a phone shows one lane at a time. */}
-      {!mobile && <div className="mb-2 ms-auto flex items-center gap-2">
+      {!mobile && <div className="ms-auto flex items-center gap-2">
         <div role="search" className="relative">
           <Icon name="search" className="pointer-events-none absolute inset-s-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input inputSize="compact" value={search} className="w-48 ps-7"

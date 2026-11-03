@@ -179,15 +179,13 @@ test('reordering keeps every tab and ignores ids that name no open tab', () => {
   expect(reorderWorkBoardProjectTabs(['a', 'b'], 'closed', 'a')).toEqual(['a', 'b']);
 });
 
-test('the selected tab is connected to the board rather than drawn as a chip', async () => {
+test('the selected tab reaches the app titlebar edge', async () => {
   const root = await renderTabs(<Harness initialProjectIds={['alpha', 'beta']} />);
   const selected = container.querySelector('nav button[aria-current="page"]');
   if (!selected) throw new Error('Missing selected tab');
   const tab = selected.parentElement;
   if (!tab) throw new Error('Missing selected tab container');
-  // Filled with the board's surface, so the header's separator line breaks under
-  // it, and its own full-strength label; the negative margin that used to fake
-  // the break shifted the whole tab down a pixel and is gone.
+  // The selected tab uses the app surface and reaches the titlebar's lower edge.
   expect(tab.className).toContain('bg-background');
   expect(tab.className).toContain('text-foreground');
   expect(tab.className).toContain('rounded-ts-md');

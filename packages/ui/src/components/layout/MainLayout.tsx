@@ -13,6 +13,7 @@ import { ZoneDropOverlay } from './ZoneDropOverlay';
 import { ZoneFitArbiter } from './ZoneFitArbiter';
 import { followZonePlacementOfOtherWindows } from './zoneSync';
 import { ContextPanelRail } from './ContextPanelRail';
+import { WorkBoardHeaderSlotsProvider } from './workBoardHeaderSlots';
 import { GuestHosts } from './GuestHosts';
 import { PluginPane } from './PluginPane';
 import { surfaceShouldDismiss } from './mainSurfaceDismissal';
@@ -190,6 +191,7 @@ export const MainLayout: React.FC = () => {
     return (
         <DiagnosticDialogAvailableContext.Provider value><DiffWorkerProvider>
             <ProjectActionsProvider>
+            <WorkBoardHeaderSlotsProvider>
             <div
                 data-page-scroll-lock="true"
                 className="main-content-safe-area relative flex h-[100dvh] bg-background"
@@ -303,6 +305,7 @@ export const MainLayout: React.FC = () => {
                     />
                 ) : null}
             </div>
+            </WorkBoardHeaderSlotsProvider>
             </ProjectActionsProvider>
         </DiffWorkerProvider></DiagnosticDialogAvailableContext.Provider>
     );
