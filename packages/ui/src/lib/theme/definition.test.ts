@@ -302,4 +302,12 @@ describe('theme values written into CSS', () => {
       expect(themeSchema.safeParse(compactTheme(theme)).success).toBe(true);
     }
   });
+
+  test('Olympus is a dark-only built-in with its own colours', () => {
+    const olympus = themes.find((theme) => theme.metadata.id === 'olympus-dark');
+    expect(olympus?.metadata.variant).toBe('dark');
+    expect(olympus?.colors.surface.background).toBe('#10151f');
+    expect(olympus?.colors.primary.base).toBe('#668aff');
+    expect(themes.some((theme) => theme.metadata.id.startsWith('olympus') && theme.metadata.variant === 'light')).toBe(false);
+  });
 });

@@ -53,6 +53,7 @@ import vercel_light_Raw from './vercel-light.json';
 import mono_plus_dark_Raw from './mono-plus-dark.json';
 import mono_plus_light_Raw from './mono-plus-light.json';
 import mono_dark_Raw from './mono-dark.json';
+import olympus_dark_Raw from './olympus-dark.json';
 import mono_light_Raw from './mono-light.json';
 import vitesse_dark_dark_Raw from './vitesse-dark-dark.json';
 import vitesse_light_light_Raw from './vitesse-light-light.json';
@@ -110,6 +111,7 @@ export const presetThemes: Theme[] = [
   mono_plus_light_Raw,
   mono_dark_Raw,
   mono_light_Raw,
+  olympus_dark_Raw,
   vitesse_dark_dark_Raw,
   vitesse_light_light_Raw,
 ].map((theme) => withPrColors(requireTheme(theme)));

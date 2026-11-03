@@ -2,9 +2,12 @@ import React from 'react';
 import { useFontPreferences } from '@/hooks/useFontPreferences';
 import { CODE_FONT_OPTION_MAP, CUSTOM_FONT_ID, DEFAULT_MONO_FONT, DEFAULT_UI_FONT, UI_FONT_OPTION_MAP, customFontStack } from '@/lib/fontOptions';
 import { loadMonoFont, loadUiFont } from '@/lib/fontLoader';
+import { useOptionalThemeSystem } from '@/contexts/useThemeSystem';
+import { getBundledThemeFontStack, loadBundledThemeFont } from '@/lib/theme/themeFonts';
 
 export function useAppFontEffects() {
   const { uiFont, monoFont, customUiFont, customMonoFont } = useFontPreferences();
+  const themeId = useOptionalThemeSystem()?.currentTheme.metadata.id ?? '';
 
   React.useEffect(() => {
     if (typeof document === 'undefined') {
@@ -14,9 +17,14 @@ export function useAppFontEffects() {
     const root = document.documentElement;
     const defaultUiStack = UI_FONT_OPTION_MAP[DEFAULT_UI_FONT].stack;
     const defaultMonoStack = CODE_FONT_OPTION_MAP[DEFAULT_MONO_FONT].stack;
-    const uiStack = uiFont === CUSTOM_FONT_ID
+    // A theme with its own font supplies the UI font until the user picks one.
+    const themeFontStack = uiFont === DEFAULT_UI_FONT ? getBundledThemeFontStack(themeId) : undefined;
+    if (themeFontStack) {
+      loadBundledThemeFont(themeId);
+    }
+    const uiStack = themeFontStack ?? (uiFont === CUSTOM_FONT_ID
       ? customFontStack(customUiFont, defaultUiStack)
-      : UI_FONT_OPTION_MAP[uiFont]?.stack ?? defaultUiStack;
+      : UI_FONT_OPTION_MAP[uiFont]?.stack ?? defaultUiStack);
     const monoStack = monoFont === CUSTOM_FONT_ID
       ? customFontStack(customMonoFont, defaultMonoStack)
       : CODE_FONT_OPTION_MAP[monoFont]?.stack ?? defaultMonoStack;
@@ -33,5 +41,5 @@ export function useAppFontEffects() {
     if (document.body) {
       document.body.style.fontFamily = uiStack;
     }
-  }, [uiFont, monoFont, customUiFont, customMonoFont]);
+  }, [uiFont, monoFont, customUiFont, customMonoFont, themeId]);
 }

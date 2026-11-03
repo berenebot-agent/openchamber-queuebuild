@@ -189,3 +189,25 @@ across composer menus, mobile controls and message footers. Weak keys release
 obsolete snapshots. A theme or roster replacement recomputes assignments; ordinary
 message renders and unrelated config changes reuse them. CSS classes and inline
 labels resolve the same existing theme variables, with no separate agent palette.
+
+## Olympus
+
+Olympus (`olympus-dark`) is a dark-only palette taken from the Olympus swarm
+workboard. It has no light companion, so the light dropdown keeps its own
+choice. Beyond colours it changes three things, each scoped to its theme id:
+
+- `ThemeSystemContext` writes the active theme id to `data-theme-id` on the root.
+  `styles/olympus.css` keys on it to give the work board lanes a dashed outline,
+  small spaced-capital lane titles, lit gradient cards, and an unread border on
+  the card (Plan blue, Build green, otherwise primary, with a glow on the first
+  two). Its rules use theme tokens only, so they follow an edit to the palette.
+- `themeFonts.ts` bundles Inter (latin 400/500/600, OFL, under
+  `assets/fonts/inter`) and `useAppFontEffects` uses it as the UI font while the
+  user's font setting is still the default. An explicit font choice wins. The files
+  load from the app bundle, so Olympus needs no CDN and works in enterprise mode.
+
+### Why a theme id hook and not theme JSON for the board look
+
+Theme JSON carries colours, fonts and transitions only. Borders, radii, shadows
+and the unread border are shape, so they live in a stylesheet scoped to the
+palette, and every other palette renders the board as before.

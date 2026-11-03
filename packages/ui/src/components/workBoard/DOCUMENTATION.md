@@ -320,3 +320,13 @@ Move to Done/Archive choices; it rechecks eligibility before each operation.
 Failed-build dismissal clears the session's visible alerts while keeping pinned
 Git refs, and offers only Dismiss or Move to Plan—not unverified completion.
 The scheduled-resume countdown is isolated from the rest of the board.
+
+## Card and lane styling hooks
+
+Cards carry `data-work-board-card` and, when the card has news the user has not
+seen, `data-work-board-unread` set to `plan`, `build` or `other` (the lane).
+Unread follows the same condition as the card's unread dot: unseen
+notifications, a manual unread, or an unacknowledged completion, unless a turn
+is running or an answer is pending. Lane titles carry `data-work-board-lane-title`.
+The default look ignores these attributes; the Olympus palette styles them
+(`styles/olympus.css`).

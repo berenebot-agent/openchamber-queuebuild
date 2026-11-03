@@ -365,6 +365,8 @@ export function ThemeSystemProvider({ children, defaultThemeId }: ThemeSystemPro
     const root = document.documentElement;
     root.classList.remove('light', 'dark');
     root.classList.add(currentTheme.metadata.variant);
+    // Lets a stylesheet restyle a surface for one palette (see `olympus.css`).
+    root.dataset.themeId = currentTheme.metadata.id;
     // The splash script sets an inline color-scheme for the theme it starts
     // with; it has to follow a switch, or native controls keep the old scheme
     // and an extension frame whose scheme no longer matches the page paints

@@ -3,6 +3,7 @@
 @import "./styles/design-system.css";
 @import "./styles/typography.css";
 @import "./styles/mobile.css";
+@import "./styles/olympus.css";
 /* KaTeX styles are loaded eagerly through `styles/katex-css` (a JS import) at
    every app entry point. Keeping them eager avoids a late stylesheet injection
    on the first markdown render, whose style recalc briefly lost the layered

@@ -1,0 +1,114 @@
+{
+  "metadata": {
+    "id": "olympus-dark",
+    "name": "Olympus",
+    "variant": "dark",
+    "description": "The Olympus swarm workboard look - deep navy surfaces, periwinkle blue accent, mint green, Inter (dark only)",
+    "version": "1.0.0",
+    "author": "OpenChamber",
+    "tags": [
+      "dark",
+      "navy",
+      "olympus",
+      "blue"
+    ]
+  },
+  "colors": {
+    "primary": {
+      "base": "#668aff",
+      "hover": "#7e9cff",
+      "active": "#93adff",
+      "muted": "#668aff80"
+    },
+    "surface": {
+      "background": "#10151f",
+      "foreground": "#dfe5ef",
+      "muted": "#121a25",
+      "mutedForeground": "#8c99ac",
+      "elevated": "#1b2637",
+      "subtle": "#141b27"
+    },
+    "interactive": {
+      "border": "#263040",
+      "selection": "#577dfd2e",
+      "borderHover": "#334054",
+      "focusRing": "#7594ff66",
+      "hover": "#ffffff0d",
+      "active": "#ffffff17"
+    },
+    "status": {
+      "error": "#e5606a",
+      "warning": "#e0a24a",
+      "success": "#55cda4",
+      "info": "#78a4ff"
+    },
+    "syntax": {
+      "base": {
+        "background": "#0e1522",
+        "comment": "#6c7f9d",
+        "keyword": "#8fb5ff",
+        "string": "#70dbb0",
+        "number": "#e0a24a",
+        "function": "#a8c2ff",
+        "variable": "#dbe4f2",
+        "type": "#b79cff",
+        "operator": "#8fa6c9"
+      },
+      "tokens": {
+        "commentDoc": "#7b8ead",
+        "variableProperty": "#aebfd9",
+        "className": "#b79cff",
+        "punctuation": "#8b9bb3"
+      },
+      "highlights": {
+        "diffAdded": "#55cda4",
+        "diffRemoved": "#e5606a",
+        "diffModified": "#78a4ff"
+      }
+    },
+    "pr": {
+      "open": "#55cda4",
+      "blocked": "#e0a24a",
+      "merged": "#b79cff"
+    },
+    "chat": {
+      "userMessageBackground": "#1a2740",
+      "divider": "#212b39",
+      "background": "#10151f"
+    },
+    "markdown": {
+      "link": "#8fb5ff",
+      "linkHover": "#b3ccff",
+      "inlineCode": "#a8c2ff",
+      "inlineCodeBackground": "#101820",
+      "blockquote": "#8c99ac",
+      "blockquoteBorder": "#2b3a52",
+      "listMarker": "#668aff99",
+      "bold": "#eaf0ff",
+      "italic": "#dfe5ef"
+    },
+    "tools": {
+      "border": "#29395473",
+      "icon": "#8c99ac",
+      "title": "#dbe4f2",
+      "description": "#6c7f9d",
+      "edit": {
+        "addedBackground": "#55cda425",
+        "removedBackground": "#e5606a25",
+        "lineNumber": "#6c7f9d"
+      }
+    }
+  },
+  "config": {
+    "fonts": {
+      "sans": "\"Inter\", system-ui, sans-serif",
+      "mono": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      "heading": "system-ui, sans-serif"
+    },
+    "transitions": {
+      "fast": "150ms ease",
+      "normal": "250ms ease",
+      "slow": "350ms ease"
+    }
+  }
+}

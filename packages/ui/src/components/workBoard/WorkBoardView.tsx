@@ -137,6 +137,19 @@ function WorkBoardCardMark({ card, waitingFor }: { card: WorkBoardCard; waitingF
 }
 
 /**
+ * Whether the card carries news the user has not seen: the same condition under
+ * which `WorkBoardCardMark` draws its unread dot. A running turn or a pending
+ * answer outranks it, as it does there.
+ */
+function useWorkBoardCardUnread(card: WorkBoardCard, waitingFor: WorkBoardWaitingKind | undefined): boolean {
+  const sessionId = card.sessionId ?? '';
+  const activity = useSessionTurnActivity(sessionId);
+  const unseenCount = useSessionUnseenCount(sessionId);
+  if (waitingFor || activity) return false;
+  return unseenCount > 0 || Boolean(card.manualUnread) || workBoardShowsCompletionMark(card);
+}
+
+/**
  * The card and the line under it must agree about the notice, so the card reads
  * its own feedback through the same two hooks the line uses. The hooks stay
  * unconditional, like `WorkBoardCardMark`, so render order never changes.
@@ -522,6 +535,7 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
   // The card and the notice under it read the same inputs, so the amber
   // treatment and the notice it belongs to can never disagree.
   const feedback = useWorkBoardCardFeedback(card, activity, statusUnknown, needsReview);
+  const unread = useWorkBoardCardUnread(card, waitingFor);
   // A plan turn running now: its card carries the band and the blue treatment,
   // and it is one of the two states that take the larger box. A turn waiting for
   // the user's answer is not running, however busy OpenCode reports it.
@@ -553,6 +567,8 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
       aria-label={t('workBoard.dragCard', { title })}
       onClick={openCard}
       style={{ transform: CSS.Translate.toString(sortable.transform), transition: sortable.transition }}
+      data-work-board-card=""
+      data-work-board-unread={unread ? (lane === 'plan' || lane === 'build' ? lane : 'other') : undefined}
       data-work-board-feedback={feedback ?? undefined}
       data-work-board-working={activePlan ? '' : undefined}
       data-work-board-build-active={activeBuild ? '' : undefined}
@@ -1555,7 +1571,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         const count = laneCounts.get(lane) ?? inLane.length;
         return <WorkBoardLaneColumn key={lane} lane={lane} droppable={lane !== 'queue'} count={count} mobile={mobile}>
           <div className="flex items-center gap-2 px-3 py-3">
-            <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(lane === 'queue' ? 'workBoard.queueHeading' : `workBoard.${lane}`)}{lane === 'queue' && gitHealth
+            <h2 data-work-board-lane-title="" className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(lane === 'queue' ? 'workBoard.queueHeading' : `workBoard.${lane}`)}{lane === 'queue' && gitHealth
               ? <WorkBoardGitPill health={gitHealth} onClick={() => openBoardSettings()} />
               : <span className="text-muted-foreground">{count}</span>}</h2>
             {(lane === 'todo' || lane === 'plan') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane === 'plan' && !agents.some(agent => agent.name === 'plan'))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')} title={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')}><Icon name="add" className="size-4" /></Button>}

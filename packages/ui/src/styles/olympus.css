@@ -1,0 +1,63 @@
+/*
+ * Olympus: the work board dressed like the Olympus swarm workboard. Everything
+ * here is scoped to the Olympus palette (`ThemeSystemContext` sets
+ * `data-theme-id` on the root) and takes its colours from theme tokens, so no
+ * other palette changes. Cards and lanes keep the border colours the state
+ * rules in `index.css` set; those rules come later and win over the `:where`
+ * defaults below.
+ */
+
+/* Lanes: a dashed outline and rounder corners. */
+:where(:root[data-theme-id='olympus-dark']) [data-work-board-lane] {
+  border: 1px dashed var(--interactive-border);
+  border-radius: 0.8125rem;
+}
+
+/* Lane titles: small, spaced capitals in the muted text colour. */
+:root[data-theme-id='olympus-dark'] [data-work-board-lane-title] {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--surface-muted-foreground);
+}
+
+/* Cards: a lit gradient on the elevated surface, a visible border, a soft shadow. */
+:where(:root[data-theme-id='olympus-dark']) [data-work-board-card] {
+  border-color: var(--interactive-border-hover);
+  border-radius: 0.625rem;
+  background-image: linear-gradient(150deg, rgb(255 255 255 / 0.04), transparent);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+
+:root[data-theme-id='olympus-dark'] [data-work-board-card][data-work-board-dragging] {
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.5);
+}
+
+/*
+ * Unread: the card itself wears the marker as a border, in the colour of the
+ * turn that finished (Plan blue, Build green, anything else the primary blue).
+ * Plan and Build also glow.
+ */
+:root[data-theme-id='olympus-dark'] [data-work-board-card][data-work-board-unread] {
+  --olympus-unread: var(--primary-base);
+  border-color: var(--olympus-unread);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--olympus-unread) 30%, transparent),
+    0 2px 8px rgb(0 0 0 / 0.2);
+}
+
+:root[data-theme-id='olympus-dark'] [data-work-board-card][data-work-board-unread='plan'] {
+  --olympus-unread: var(--status-info);
+}
+
+:root[data-theme-id='olympus-dark'] [data-work-board-card][data-work-board-unread='build'] {
+  --olympus-unread: var(--status-success);
+}
+
+:root[data-theme-id='olympus-dark'] [data-work-board-card][data-work-board-unread='plan'],
+:root[data-theme-id='olympus-dark'] [data-work-board-card][data-work-board-unread='build'] {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--olympus-unread) 35%, transparent),
+    0 0 12px color-mix(in srgb, var(--olympus-unread) 18%, transparent),
+    0 2px 8px rgb(0 0 0 / 0.2);
+}
