@@ -1738,13 +1738,15 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           ? t('settings.openchamber.buildQueue.policy.retry')
           : reviewConfirmWording === 'adopt'
             ? t('buildQueue.adopt.title')
-            : t('buildQueue.recovery.continue')}</DialogTitle>
+            : t('buildQueue.recovery.title')}</DialogTitle>
         <DialogDescription>{reviewConfirmWording === 'adopt'
           ? t('buildQueue.adopt.description')
           : resolveConfirm?.issue}</DialogDescription>
         <DialogFooter>
           <Button variant="outline" disabled={queueBusy} onClick={() => setResolveConfirm(null)}>{t('workBoard.cancel')}</Button>
-          <Button disabled={queueBusy} onClick={confirmResolve}>{t('workBoard.resume')}</Button>
+          <Button disabled={queueBusy} onClick={confirmResolve}>{resolveConfirm?.action === 'retry'
+            ? t('settings.openchamber.buildQueue.policy.retry')
+            : t('buildQueue.recovery.confirm')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

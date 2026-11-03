@@ -328,6 +328,16 @@ test('an idle Build session is Build complete, and a build the queue holds for r
     expect(container.querySelector('[aria-label="Actions for Build needing review"]')).toBeNull();
     expect(container.querySelector('section[aria-label="Build complete"]')!.textContent).toContain('Finished build');
     expect(container.querySelector('[aria-label="Actions for Finished build"]')).not.toBeNull();
+    // Continue confirms in a dialog, and its buttons name their own action:
+    // the card's "Resume {title}" label has no title here to fill in.
+    const confirm = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Continue queue');
+    if (!confirm) throw new Error('Missing review confirmation trigger');
+    await act(async () => { confirm.click(); await new Promise(resolve => setTimeout(resolve, 30)); });
+    const dialog = document.querySelector('[role="dialog"]');
+    if (!dialog) throw new Error('Missing review confirmation dialog');
+    expect(dialog.textContent).toContain('Continue the queue?');
+    expect([...dialog.querySelectorAll('button')].some(button => button.textContent === 'Acknowledge and continue')).toBe(true);
+    expect(document.body.textContent).not.toContain('{title}');
   } finally {
     await act(async () => root.unmount());
     fetchSpy.mockRestore();
