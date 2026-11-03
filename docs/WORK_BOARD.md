@@ -45,6 +45,17 @@ no card for, so it never shows a shorter queue than the project actually has.
 Rows act on the queue's own order, so a move keeps the builds the board cannot
 see. A queued build with no board card has no card action: it is queue work.
 
+The column's header reads **Build** and carries a Git pill in place of the count.
+The pill is green when the project's repository is clean, grey when it is dirty,
+and dimmer when Git could not be read. A dirty pill shows the working tree's
+added lines in green and removed lines in red, read from `git diff --numstat HEAD`
+on the board's 20-second Git check, so untracked files add no lines. The tooltip
+names the repository, branch, changed files and when it was read, and clicking
+the pill opens the project's board settings. Builds on a dirty tree are normal
+while the queue runs, so the pill is all the board shows then. A full-width Git
+bar with **Commit…** and **Discard…** appears only when the queue is held by Git
+(the Pause or Managed policy is waiting on a dirty tree) or when the queue is off.
+
 The pause button in the Build queue column header pauses that directory's whole
 queue, including new Build entries submitted afterwards. Prompts and attachments
 stay queued in order. The running build continues. The button also works with an

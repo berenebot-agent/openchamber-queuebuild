@@ -287,8 +287,17 @@ session-only inherited card), leaves lane/order/completion timestamps alone,
 and is cleared when that session opens from any surface. It is independent of
 OpenCode's transient notification count.
 
-The Work Board shows **Commit…** and **Discard…** beside a dirty Git status
-for the project's server-resolved repository. Both require a fresh server
+The Build lane's head shows a Git pill (`WorkBoardGitPill`) in place of the lane
+count, fed by the same 20-second `GET /api/build-queue/git-health` poll that
+drives the bar. The response carries `added` and `removed` (summed from
+`git diff --numstat HEAD`, so untracked files add nothing) and `blocked`. The
+server sets `blocked` only under the `pause` or `managed` policy while a Build
+waits on the held queue, so the UI never infers a Git hold from `dirty` alone.
+
+The Work Board shows **Commit…** and **Discard…** in a Git bar for the project's
+server-resolved repository, only when the tree is dirty and either `blocked` is
+true or the queue is switched off. A dirty tree under a running queue gets the
+pill and no bar, because it is the build's own work. Both require a fresh server
 Git preview. Commit uses the existing Git service to stage and commit all
 non-ignored changes with a supplied message, without pushing. Revert requires
 typing DISCARD and discards tracked changes and untracked non-ignored files,

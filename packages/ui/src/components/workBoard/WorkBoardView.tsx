@@ -276,6 +276,34 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
   </WorkBoardQueueContextMenu>;
 }
 
+type GitHealth = {
+  state: 'clean' | 'dirty' | 'unavailable'; repository: string | null; policy?: string; fingerprint?: string | null;
+  branch?: string; head?: string; changed?: number; paths?: string[];
+  added?: number; removed?: number; blocked?: boolean;
+  checkedAt?: number; reason?: string;
+};
+
+/**
+ * The project's Git state beside the Build lane's name: green when clean, grey
+ * with the working tree's added and removed lines when dirty, dimmer when the
+ * check could not run. The tooltip carries the repository detail.
+ */
+function WorkBoardGitPill({ health, onClick }: { health: GitHealth; onClick: () => void }) {
+  const tone = health.state === 'clean'
+    ? 'bg-[color-mix(in_srgb,var(--status-success)_18%,transparent)] text-[var(--status-success-text)]'
+    : health.state === 'dirty' ? 'bg-muted text-muted-foreground' : 'bg-muted/50 text-muted-foreground';
+  const title = [health.state === 'clean' ? 'Git clean' : health.state === 'dirty' ? 'Git dirty' : 'Git unavailable',
+    health.repository, health.branch, health.head, health.changed ? health.changed + ' changed files' : '',
+    health.checkedAt && new Date(health.checkedAt).toLocaleString(),
+    health.reason, ...(health.paths ?? [])].filter(Boolean).join('\n');
+  return <button type="button" onClick={onClick} aria-label="Project Git status" title={title}
+    className={'inline-flex h-[18px] items-center gap-1 rounded-full px-2 text-[10px] font-extrabold ' + tone}>
+    Git
+    {health.state === 'dirty' && Boolean(health.added) && <span className="font-normal text-[var(--status-success-text)]">+{health.added}</span>}
+    {health.state === 'dirty' && Boolean(health.removed) && <span className="font-normal text-[var(--status-error-text)]">−{health.removed}</span>}
+  </button>;
+}
+
 /**
  * The Build queue lane. Running builds sit above the gap, and waiting items keep
  * the queue's dispatch order and controls.
@@ -668,11 +696,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // than claim to be empty and then gain cards.
   const sessionsLoading = useGlobalSessionsStore(state => !state.hasLoaded && state.status !== 'error');
   const [queueBusy, setQueueBusy] = React.useState(false);
-  const [gitHealth, setGitHealth] = React.useState<{
-    state: 'clean' | 'dirty' | 'unavailable'; repository: string | null; policy?: string; fingerprint?: string | null;
-    branch?: string; head?: string; changed?: number; paths?: string[];
-    checkedAt?: number; reason?: string;
-  } | null>(null);
+  const [gitHealth, setGitHealth] = React.useState<GitHealth | null>(null);
   const [queueActionError, setQueueActionError] = React.useState('');
   const [gitConfirm, setGitConfirm] = React.useState<'commit' | 'revert' | null>(null);
   // Freeze the reviewed Git snapshot when the dialog opens. The 20s health poll
@@ -1490,23 +1514,13 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
           <Switch aria-label={t('workBoard.queueEnabledLabel')} checked={queueEnabled === true}
             disabled={!directory || busy} onCheckedChange={toggleQueueEnabled} />
         </div>
-        {gitHealth && gitHealth.state !== 'dirty' && <button type="button" onClick={openBoardSettings}
-          aria-label="Project Git status" title={[gitHealth.repository, gitHealth.branch, gitHealth.head,
-            gitHealth.checkedAt && new Date(gitHealth.checkedAt).toLocaleString(),
-            gitHealth.reason, ...(gitHealth.paths ?? [])].filter(Boolean).join('\n')}
-          className={'rounded-md border px-2 py-1 text-xs ' +
-            (gitHealth.state === 'clean' ? 'border-[var(--status-success)] text-[var(--status-success-text)]' :
-              gitHealth.state === 'dirty' ? 'border-[var(--status-warning)] text-[var(--status-warning-text)]' : 'border-border text-muted-foreground')}>
-          {gitHealth.state === 'clean' ? 'Git clean' : gitHealth.state === 'dirty'
-            ? 'Git dirty · ' + gitHealth.changed + ' files' : 'Git unavailable'}
-        </button>}
         <Button size="icon" variant="ghost" aria-label={t('workBoard.settings')} title={t('workBoard.settings')}
           onClick={() => openBoardSettings()}>
           <Icon name="settings-3" className="size-4" />
         </Button>
       </div>}
     </header>
-    {gitHealth?.state === 'dirty' && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-[var(--status-warning)]/40 px-3 py-2 text-xs">
+    {gitHealth?.state === 'dirty' && (gitHealth.blocked || queueEnabled === false) && <section role="status" className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-md border border-[var(--status-warning)]/40 px-3 py-2 text-xs">
       <span className="min-w-0 flex-1 truncate" title={gitHealth.repository ?? undefined}>Git changes · {gitHealth.changed} files · {gitHealth.branch}</span>
       <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => void openGitConfirmation('commit')}>Commit…</Button>
       <Button size="xs" variant="outline" disabled={gitBusy || busy || !directory} onClick={() => void openGitConfirmation('revert')}>Discard…</Button>
@@ -1539,7 +1553,9 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         const count = laneCounts.get(lane) ?? inLane.length;
         return <WorkBoardLaneColumn key={lane} lane={lane} droppable={lane !== 'queue'} count={count} mobile={mobile}>
           <div className="flex items-center gap-2 px-3 py-3">
-            <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(`workBoard.${lane}`)}<span className="text-muted-foreground">{count}</span></h2>
+            <h2 className="flex flex-1 items-center gap-2 text-sm font-semibold">{t(lane === 'queue' ? 'workBoard.queueHeading' : `workBoard.${lane}`)}{lane === 'queue' && gitHealth
+              ? <WorkBoardGitPill health={gitHealth} onClick={() => openBoardSettings()} />
+              : <span className="text-muted-foreground">{count}</span>}</h2>
             {(lane === 'todo' || lane === 'plan') && <Button size="sm" variant="ghost" disabled={!directory || busy || (lane === 'plan' && !agents.some(agent => agent.name === 'plan'))} onClick={() => newCard(lane)} aria-label={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')} title={t(lane === 'todo' ? 'workBoard.newTodo' : 'workBoard.newPlan')}><Icon name="add" className="size-4" /></Button>}
             {lane === 'queue' && queuePaused && <Button size="sm" variant="ghost" disabled={queueBusy}
               onClick={() => { setResumeInput(''); setResumeError(''); setResumeOpen(true); }}

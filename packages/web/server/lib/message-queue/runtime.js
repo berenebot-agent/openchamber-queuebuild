@@ -3055,7 +3055,8 @@ export function createMessageQueueRuntime({
     const identity = await projectIdentityOf({ directory });
     if (!asNonEmptyString(identity?.projectId)) throw httpError('This directory is not a project', 400);
     const repository = await queueRepositoryFor(directory);
-    if (!repository) return { state: 'unavailable', repository: null, policy: await effectiveBuildGitPolicy(directory), reason: 'No Git repository selected or detected' };
+    const policy = await effectiveBuildGitPolicy(directory);
+    if (!repository) return { state: 'unavailable', repository: null, policy, reason: 'No Git repository selected or detected' };
     try {
       const execGit = async (...args) => (await runGit('git', ['-C', repository, ...args], {
         timeout: 10000, maxBuffer: 1024 * 1024, encoding: 'utf8',
@@ -3071,10 +3072,22 @@ export function createMessageQueueRuntime({
       const paths = porcelain ? porcelain.split('\n').slice(0, 200).map(line => line.slice(3)) : [];
       const changed = porcelain ? porcelain.split('\n').length : 0;
       const fingerprint = changed && includeFingerprint ? await readGitChangeFingerprint(repository) : null;
-      return { state: changed ? 'dirty' : 'clean', repository, policy: await effectiveBuildGitPolicy(directory), branch: branch || '(detached)', head,
-        changed, paths, fingerprint, checkedAt: now() };
+      // shortcut: untracked files have no numstat and add no lines, count them when the board needs it.
+      const numstat = changed ? await execGit('diff', '--numstat', 'HEAD').catch(() => '') : '';
+      let added = 0;
+      let removed = 0;
+      for (const line of numstat ? numstat.split('\n') : []) {
+        const [plus, minus] = line.split('\t');
+        added += Number(plus) || 0;
+        removed += Number(minus) || 0;
+      }
+      // Only these policies hold a Build on a dirty tree; a queue issue under
+      // any other policy is not a Git hold.
+      const blocked = (policy === 'pause' || policy === 'managed') && buildProblems.has(directory) && pendingBuilds(directory).length > 0;
+      return { state: changed ? 'dirty' : 'clean', repository, policy, branch: branch || '(detached)', head,
+        changed, paths, added, removed, blocked, fingerprint, checkedAt: now() };
     } catch (error) {
-      return { state: 'unavailable', repository, policy: await effectiveBuildGitPolicy(directory), reason: error?.message ?? 'Git check failed', checkedAt: now() };
+      return { state: 'unavailable', repository, policy, reason: error?.message ?? 'Git check failed', checkedAt: now() };
     }
   };
 

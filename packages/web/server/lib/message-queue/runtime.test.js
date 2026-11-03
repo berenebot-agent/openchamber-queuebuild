@@ -3256,7 +3256,7 @@ describe('queue repository choice', () => {
     });
     try {
       const before = await runtime.readQueueGitHealth(root);
-      expect(before).toMatchObject({ state: 'dirty', changed: 2, repository: root });
+      expect(before).toMatchObject({ state: 'dirty', changed: 2, repository: root, added: 1, removed: 1, blocked: false });
       expect(before.fingerprint).toMatch(/^[a-f0-9]{64}$/);
       const action = { directory: root, expectedHead: before.head, expectedBranch: before.branch,
         expectedChanged: before.changed, expectedPaths: before.paths, expectedFingerprint: before.fingerprint };
@@ -3287,6 +3287,34 @@ describe('queue repository choice', () => {
       expect(committed).toMatchObject({ ok: true, action: 'commit' });
       expect(run('show', '-s', '--format=%s', 'HEAD')).toBe('Board commit');
       expect(run('status', '--porcelain')).toBe('');
+    } finally {
+      runtime.stop();
+      await runtime.flush();
+    }
+  });
+
+  it('reports the queue as blocked by Git only while a Build waits on a dirty tree', async () => {
+    const root = fs.realpathSync(makeDataDir());
+    const run = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
+    run('init');
+    run('config', 'user.name', 'Board Test');
+    run('config', 'user.email', 'board@test.invalid');
+    fs.writeFileSync(path.join(root, 'tracked.txt'), 'original\n');
+    run('add', '.');
+    run('commit', '-m', 'Baseline');
+    fs.writeFileSync(path.join(root, 'tracked.txt'), 'modified\nmore\n');
+    const { runtime } = createRuntime({
+      checkBuildGit: async () => 'Repository has uncommitted or untracked changes.',
+      buildRecheckMs: 10,
+      projectConfigRuntime: projectConfigRuntime(root),
+      resolveProjectIdentity: () => ({ directory: root, projectId: createProjectIdFromPath(root) }),
+      resolveRepositoryRoot: async () => root,
+    });
+    try {
+      expect(await runtime.readQueueGitHealth(root)).toMatchObject({ state: 'dirty', added: 2, removed: 1, blocked: false });
+      await runtime.enqueue(SESSION, root, item({ buildQueue: true }));
+      await settle(80);
+      expect(await runtime.readQueueGitHealth(root)).toMatchObject({ state: 'dirty', blocked: true });
     } finally {
       runtime.stop();
       await runtime.flush();

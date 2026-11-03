@@ -95,7 +95,7 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect([...openButtons()].map(button => button.textContent)).toHaveLength(2);
     expect(lane('Build queue').textContent).toContain('direct-a');
     expect(lane('Build queue').textContent).toContain('direct-b');
-    expect(lane('Build queue').querySelector('h2')?.textContent).toBe('Build queue2');
+    expect(lane('Build queue').querySelector('h2')?.textContent).toBe('Build2');
     // A live build outside the queue offers inclusion, while keeping the queue
     // row's own create and cancel controls away.
     expect(lane('Build queue').querySelector('button[aria-label="New Build session"]')).toBeNull();
@@ -155,7 +155,7 @@ test('live builds without queue entries remain visible and reconcile without dup
     expect(openButtons()[0].querySelector('.oc-build-stripes-queue')).not.toBeNull();
     expect(lane('Build queue').querySelector('.oc-build-stripes-plan')).toBeNull();
     expect(lane('Build queue').querySelectorAll('button[aria-label="Cancel direct-b"]')).toHaveLength(1);
-    expect(lane('Build queue').querySelector('h2')?.textContent).toBe('Build queue2');
+    expect(lane('Build queue').querySelector('h2')?.textContent).toBe('Build2');
     // Opening a build/queue session must also dismiss the board.
     expect(closeSurfacesSpy.mock.calls).toHaveLength(1);
 

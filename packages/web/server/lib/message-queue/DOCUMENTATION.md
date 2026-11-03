@@ -791,6 +791,7 @@ refs are not pruned automatically.
 `POST /api/build-queue/git-action` accepts `{directory,action,message?,
 expectedHead,expectedBranch,expectedChanged,expectedPaths,expectedFingerprint}`
 where action is `commit` or `revert` (labelled **Discard** in the UI).
+The health response also carries `added` and `removed` (from `git diff --numstat HEAD`; untracked files add no lines) and `blocked`, true only under the `pause` or `managed` policy while a Build waits on a recorded queue problem. The board shows its Git bar from `blocked` or a disabled queue, never from `dirty` alone.
 The ordinary Git health poll skips content hashing; the confirmation requests
 `GET /api/build-queue/git-health?directory=...&includeFingerprint=true` and
 pins the full SHA-256 fingerprint of staged and working-tree changes, including
