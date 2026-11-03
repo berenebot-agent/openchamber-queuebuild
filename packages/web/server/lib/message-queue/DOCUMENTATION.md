@@ -743,7 +743,10 @@ OPENCHAMBER_TURN_COMPLETE: {"attempt_id":"<queue-item-id>","outcome":"success","
 ```
 
 Allowed outcomes: `success`, `failed`, `input_required`. This is an agent
-report, **not** permission to release a lease. The server independently requires
+report, **not** permission to release a lease. Only the reply's text blocks are
+read, from OpenCode's `content[]` (a legacy `parts[]` reply is read the same
+way); a block without `type: 'text'` never counts. The footer must still be the
+last line of the response. The server independently requires
 a native terminal succeeded record, no running descendants/background shell
 commands, a matching attempt id, the original branch, a HEAD descended from
 the baseline, and a clean worktree for verified success.

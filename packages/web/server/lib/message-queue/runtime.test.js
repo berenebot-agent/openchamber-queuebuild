@@ -3782,8 +3782,8 @@ describe('managed Build journal and recovery', () => {
       const at = Date.now();
       openCode.state.tail = [
         { type: 'idle', outcome: 'succeeded', time: { created: at } },
-        { type: 'assistant', time: { created: at, completed: at }, parts: [
-          { text: 'Done\nOPENCHAMBER_TURN_COMPLETE: {"attempt_id":"' + queued.itemId + '","outcome":"success"}' },
+        { type: 'assistant', time: { created: at, completed: at }, content: [
+          { type: 'text', text: 'Done\nOPENCHAMBER_TURN_COMPLETE: {"attempt_id":"' + queued.itemId + '","outcome":"success"}' },
         ] },
       ];
       await settle(180);
@@ -3841,7 +3841,7 @@ describe('managed Build journal and recovery', () => {
       const at = Date.now();
       openCode.state.tail = [
         { type: 'idle', outcome: 'succeeded', time: { created: at } },
-        { type: 'assistant', time: { created: at, completed: at }, parts: [{ text: 'Done without footer' }] },
+        { type: 'assistant', time: { created: at, completed: at }, content: [{ type: 'text', text: 'Done without footer' }] },
       ];
       await settle(120);
       expect(runtime.buildSnapshot().active[0]).toMatchObject({

@@ -56,9 +56,31 @@ test('changed branch fails closed without altering either checkout', async () =>
   assert.equal(await fs.readFile(path.join(dir, 'file.txt'), 'utf8'), 'keep\n');
 }));
 test('footer needs matching attempt and terminal success', () => {
-  const history = [{ type: 'idle', outcome: 'succeeded', time: { created: 120 } },
-    { type: 'assistant', time: { created: 110 }, parts: [{ text: 'Finished\nOPENCHAMBER_TURN_COMPLETE: {"attempt_id":"a","outcome":"success"}' }] }];
-  assert.equal(readManagedReport(history, 'a', 100).outcome, 'success');
-  assert.equal(readManagedReport(history, 'b', 100).outcome, 'unknown');
+  const footer = '\nOPENCHAMBER_TURN_COMPLETE: {"attempt_id":"a","outcome":"success"}';
+  // The live wire shape: reply text lives in `content[]`, not `parts[]`.
+  const live = [{ type: 'idle', outcome: 'succeeded', time: { created: 120 } },
+    { type: 'assistant', time: { created: 110 }, content: [{ type: 'tool', name: 'shell' }, { type: 'text', text: 'Finished' + footer }] }];
+  // A reply split over several text blocks still ends the response with the footer.
+  const split = [{ type: 'idle', outcome: 'succeeded', time: { created: 120 } },
+    { type: 'assistant', time: { created: 110 }, content: [{ type: 'text', text: 'Fixed and shipped.' }, { type: 'text', text: 'Summary.' + footer }] }];
+  assert.equal(readManagedReport(live, 'a', 100).outcome, 'success');
+  assert.equal(readManagedReport(split, 'a', 100).outcome, 'success');
+  assert.equal(readManagedReport(live, 'b', 100).outcome, 'unknown');
   assert.equal(readManagedReport([{ type: 'idle', outcome: 'interrupted', time: { created: 120 } }], 'a', 100).outcome, 'failed');
+  // A footer that is not the last line of the response is still not a report.
+  assert.equal(readManagedReport([{ type: 'idle', outcome: 'succeeded', time: { created: 120 } },
+    { type: 'assistant', time: { created: 110 }, content: [{ type: 'text', text: 'OPENCHAMBER_TURN_COMPLETE: {"attempt_id":"a","outcome":"success"}\nMore work.' }] }],
+  'a', 100).outcome, 'unknown');
+  // Only text blocks count: an untyped block, or text nested inside a tool call,
+  // is not the agent's report.
+  assert.equal(readManagedReport([{ type: 'idle', outcome: 'succeeded', time: { created: 120 } },
+    { type: 'assistant', time: { created: 110 }, content: [{ text: 'Untyped block' + footer }] }], 'a', 100).outcome, 'unknown');
+  assert.equal(readManagedReport([{ type: 'idle', outcome: 'succeeded', time: { created: 120 } },
+    { type: 'assistant', time: { created: 110 }, content: [{ type: 'tool', name: 'shell' }] }], 'a', 100).outcome, 'unknown');
+  // The legacy `parts[]` shape keeps working when its blocks are typed text.
+  assert.equal(readManagedReport([{ type: 'idle', outcome: 'succeeded', time: { created: 120 } },
+    { type: 'assistant', time: { created: 110 }, parts: [{ type: 'text', text: 'Finished' + footer }] }], 'a', 100).outcome, 'success');
+  // A typed tool block in `content[]` that happens to carry text is not a report.
+  assert.equal(readManagedReport([{ type: 'idle', outcome: 'succeeded', time: { created: 120 } },
+    { type: 'assistant', time: { created: 110 }, content: [{ type: 'tool', name: 'shell', text: 'Finished' + footer }] }], 'a', 100).outcome, 'unknown');
 });

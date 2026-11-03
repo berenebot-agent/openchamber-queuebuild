@@ -125,9 +125,14 @@ export function readManagedReport(messages, attemptId, startedAt) {
     return info?.role === 'assistant' || info?.type === 'assistant';
   });
   for (const reply of replies) {
+    // OpenCode's message route puts reply text in `content[]`; `parts[]` is the
+    // shape older fixtures and clients used. Only text blocks are reply text, so
+    // a tool call's own output can never pass for the agent's report. Blocks are
+    // joined because one reply can split its text over several of them.
+    const text = (block) => (block?.type === 'text' ? block?.text : undefined);
+    const blocks = (list) => (Array.isArray(list) ? list.map(text).filter(Boolean).join('\n') : '');
     const pieces = [
-      reply?.text, reply?.content, reply?.message?.text,
-      ...(Array.isArray(reply?.parts) ? reply.parts.map(part => part?.text) : []),
+      reply?.text, reply?.message?.text, blocks(reply?.content), blocks(reply?.parts),
     ].filter(s => typeof s === 'string');
     for (const body of pieces) {
       const last = body.trim().split(/\r?\n/).at(-1) ?? '';
