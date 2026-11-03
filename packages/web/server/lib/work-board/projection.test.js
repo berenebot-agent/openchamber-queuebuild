@@ -60,6 +60,62 @@ describe('work board session listing', () => {
 });
 
 describe('work board projection', () => {
+  it.each(['lease', 'forced', 'live'])('suppresses the old recovery during a confirmed %s rerun without changing the journal', async kind => {
+    const recovery = { directory: '/repo', sessionId: 'rerun', attemptId: 'old', outcome: 'input_required', stashRef: 'refs/recovery/old' };
+    const other = { ...recovery, sessionId: 'other' };
+    const queue = {
+      active: kind === 'lease' ? [{ directory: '/repo', sessionId: 'rerun', startedAt: 2 }] : [],
+      forced: kind === 'forced' ? [{ directory: '/repo', sessionId: 'rerun', startedAt: 2 }] : [],
+      recoveries: [recovery, other],
+    };
+    const activity = new Map(kind === 'live' ? [['rerun', { busy: true, messages: [
+      { role: 'assistant', agent: 'build', time: { created: 2 } },
+    ] }]] : []);
+    const projection = makeProjection({ queue, activity, cards: [baseCard({ sessionId: 'rerun' })] });
+    const snapshot = await projection.snapshot('/repo');
+    expect(snapshot.queue.recoveries).toEqual([other]);
+    expect(snapshot.lanes['card-1']).toBe('queue');
+    expect(queue.recoveries).toEqual([recovery, other]);
+
+    queue.active = [];
+    queue.forced = [];
+    activity.clear();
+    expect((await projection.snapshot('/repo')).queue.recoveries).toEqual([recovery, other]);
+
+    const latest = { ...recovery, attemptId: 'new', outcome: 'failed' };
+    queue.recoveries.push(latest);
+    expect((await projection.snapshot('/repo')).queue.recoveries).toEqual([latest, other]);
+  });
+
+  it.each([
+    { active: [{ directory: '/repo', sessionId: 'rerun', phase: 'dispatching' }] },
+    { active: [{ directory: '/repo', sessionId: 'rerun', needsReview: true }] },
+    { forced: [{ directory: '/repo', sessionId: 'rerun', needsReview: true }] },
+    { queued: [{ directory: '/repo', sessionId: 'rerun', id: 'queued' }] },
+    { active: [{ directory: '/other', sessionId: 'rerun' }] },
+  ])('keeps the recovery when a rerun is not confirmed in this directory: %j', async entries => {
+    const recovery = { directory: '/repo', sessionId: 'rerun', attemptId: 'old', outcome: 'input_required', stashRef: null };
+    const projection = makeProjection({ queue: { ...entries, recoveries: [recovery] } });
+    expect((await projection.snapshot('/repo')).queue.recoveries).toEqual([recovery]);
+  });
+
+  it('keeps review and dispatch recovery visible even when session activity is busy', async () => {
+    const recovery = { directory: '/repo', sessionId: 'rerun', attemptId: 'old', outcome: 'input_required', stashRef: null };
+    const activity = new Map([['rerun', { busy: true, messages: [
+      { role: 'assistant', agent: 'build', time: { created: 2 } },
+    ] }]]);
+    for (const entries of [
+      { active: [{ directory: '/repo', sessionId: 'rerun', phase: 'dispatching' }] },
+      { active: [{ directory: '/repo', sessionId: 'rerun', needsReview: true }] },
+      { forced: [{ directory: '/repo', sessionId: 'rerun', needsReview: true }] },
+    ]) {
+      const projection = makeProjection({ cards: [baseCard({ sessionId: 'rerun' })], activity, queue: { ...entries, recoveries: [recovery] } });
+      expect((await projection.snapshot('/repo')).queue.recoveries).toEqual([recovery]);
+    }
+    const projection = makeProjection({ cards: [baseCard({ sessionId: 'rerun' })], activity, unavailable: ['rerun'], queue: { recoveries: [recovery] } });
+    expect((await projection.snapshot('/repo')).queue.recoveries).toEqual([recovery]);
+  });
+
   it('projects queue pause independently of item pauses, scoped to its directory', async () => {
     const projection = makeProjection({ queue: {
       pausedDirectories: ['/repo/'], active: [], issues: [],

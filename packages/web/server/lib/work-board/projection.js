@@ -312,6 +312,20 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       // A failed queue read leaves the board available with unknown queue state.
     }
     const queueState = queueSnapshot ? queueForDirectory(queueSnapshot, directory) : null;
+    if (queueState) {
+      const running = new Set(queueState.forced.filter(item => !item.needsReview).map(item => item.sessionId));
+      if (queueState.active && !queueState.active.needsReview && queueState.active.phase === 'running') {
+        running.add(queueState.active.sessionId);
+      }
+      for (const card of cards) {
+        if (queueState.active?.sessionId === card.sessionId || queueState.forced.some(item => item.sessionId === card.sessionId)) continue;
+        if (!unavailable.has(card.sessionId) && deriveLane(card, live.get(card.sessionId)) === 'queue') {
+          running.add(card.sessionId);
+        }
+      }
+      // A rerun supersedes the old notice only while running; the runtime keeps its recovery journal.
+      queueState.recoveries = queueState.recoveries.filter(item => !running.has(item.sessionId));
+    }
     // Enablement is its own setting, readable even when the queue snapshot
     // failed: the toggle must still show the saved choice.
     const enabled = readQueueEnabled ? await readQueueEnabled(directory).catch(() => null) : null;

@@ -99,6 +99,15 @@ An adopted build owns no queued item: the raw build snapshot omits `itemId`,
 and the board projection sends `queue.active.itemId: null`. Both UI readers
 accept this state; it offers no item-specific recovery controls.
 
+### Why recovery notices are suppressed during a rerun
+
+A confirmed running Build takes presentation precedence over the same session's
+previous recovery notice, including forced and live-only builds. Dispatching and
+review-blocked entries keep the notice; live-only builds require available activity. The projection
+only filters its response; the queue runtime retains the recovery journal and Git
+refs, so an unresolved recovery becomes visible again when the rerun stops. This
+keeps one running entry per session without discarding recoverable work.
+
 `queue.paused` projects the directory's membership in the build snapshot's
 `pausedDirectories`. It is independent of waiting rows' `paused` values, which
 remain individual entry pauses. A failed queue read returns `known: false` and
