@@ -159,6 +159,7 @@ function queueForDirectory(queue, directory) {
     active: active ? {
       sessionId: active.sessionId, itemId: active.itemId ?? null, startedAt: active.startedAt,
       needsReview: Boolean(active.needsReview), retryAvailable: Boolean(active.retryAvailable),
+      phase: active.phase ?? 'running',
       content: active.content ?? null, model: active.model ?? null,
     } : null,
     forced: forced.map(item => ({
@@ -199,8 +200,10 @@ const isDelegatedSession = (session, subagentAgentIds) =>
   Boolean(session?.parentID) || subagentAgentIds.has(session?.agent);
 
 /** What each card can do, decided once so every surface reads one contract. A
- * linked card is settled only when its status is known and no turn runs. */
-function availableActions(card, lane, status, busy, inheritedAvailable = true) {
+ * linked card is settled only when its status is known and no turn runs. A
+ * running build's queue participation is its own switch, so `includeInQueue`
+ * and `extractFromQueue` travel here too: the board never infers membership. */
+function availableActions(card, lane, status, busy, inheritedAvailable = true, queueMode = null) {
   const settled = !card.sessionId || (status === 'known' && !busy);
   const actions = [];
   if (inheritedAvailable && (lane === 'todo' || lane === 'plan' || lane === 'build') && settled) actions.push('complete');
@@ -208,6 +211,7 @@ function availableActions(card, lane, status, busy, inheritedAvailable = true) {
   if (!card.sessionId) actions.push('startPlan');
   if (card.sessionId && lane !== 'todo' && settled) actions.push('returnToTodo');
   if (lane === 'todo' && settled) actions.push('remove');
+  if (queueMode) actions.push(queueMode === 'queue' ? 'extractFromQueue' : 'includeInQueue');
   return actions;
 }
 
@@ -317,6 +321,21 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       ...(queueState?.forced ?? []).map(item => item.sessionId),
       ...(queueState?.recoveries ?? []).map(item => item.sessionId),
     ]);
+    // A running build's queue participation, the same rule the queue column
+    // paints the build with: the running lease counts, a forced build counts
+    // only when the server says it does, and a build the queue does not name
+    // runs outside it.
+    const queueModeOf = (sessionId, lane, entry) => {
+      if (!queueState || !sessionId) return null;
+      if (queueState.active?.sessionId === sessionId) {
+        return queueState.active.needsReview || queueState.active.phase === 'dispatching' ? null : 'queue';
+      }
+      const forced = queueState.forced.find(item => item.sessionId === sessionId);
+      if (forced) return forced.needsReview ? null : (forced.counts ? 'queue' : 'separate');
+      if (queueState.rows.some(row => row.sessionId === sessionId)
+        || queueState.recoveries.some(recovery => recovery.sessionId === sessionId)) return null;
+      return lane === 'queue' && entry?.busy && !waitingFor[sessionId] ? 'separate' : null;
+    };
 
     // A session that waits for the user's answer stays `busy` in OpenCode's own
     // status the whole time it waits, so the board would call it working. The
@@ -358,7 +377,7 @@ export function createWorkBoardProjection({ store, activity, readQueueSnapshot, 
       placements[card.id] = { lane, completedAt: completionTime(card, entry, lane),
         finishedAt: sweepFinishedAt(card, entry, lane),
         updatedAt: card.updatedAt, sessionId: card.sessionId };
-      return { ...card, lane, status, availableActions: availableActions(card, lane, status, Boolean(entry?.busy), sessions.available) };
+      return { ...card, lane, status, availableActions: availableActions(card, lane, status, Boolean(entry?.busy), sessions.available, queueModeOf(card.sessionId, lane, entry)) };
     });
 
     // Order within a lane: the lane's own rule, with the cards the user dropped

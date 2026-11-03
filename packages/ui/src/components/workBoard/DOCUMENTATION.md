@@ -17,8 +17,10 @@ not classify sessions itself.
   entries are the board's own (start Plan, back to To-do, remove the saved
   to-do, remove the card) and, for a card linked to a session, the session
   actions a sidebar row offers. Pin is not among them: a card already carries
-  its own place on the board. A queued row's entries are its own queue actions
-  (move up, move down, pause, force, cancel) and the same session actions.
+  its own place on the board. A queued row adds its card's available board
+  actions, the session actions, Pause/Force/Cancel and Move up/down. A running
+  build uses the same card menu and adds Include in/Extract from queue when the
+  server confirms the current queue mode.
 - `workBoardMobileLane.ts` — the last lane the phone showed, remembered per
   client and connected server.
 - `workBoardRecentProjects.ts` — the work board projects this device opened,
@@ -152,30 +154,29 @@ completion: the card leads Done and its mark returns even after a rebuild.
 ## The queued row's menu
 
 A waiting queue row carries the same menus a card carries: a three-dot menu and
-a right-click menu, both opening one list — the row's own queue actions (move
-up, move down, pause, force, cancel) first, then the session actions the other
-cards show. The row's title sits beside the menu, so an item names the action
-alone and keeps the row's name as its accessible one. A phone has neither right
-click nor a free long press, so its row keeps the touch-sized menu alone, and
-the desktop row keeps its own inline controls beside the three-dot.
+a right-click menu, both opening one list. Available card actions and session
+actions come first, then Pause/Force/Cancel and Move up/down. Cancel removes the
+waiting build from the queue and returns its prompt to the session draft. The
+row's title sits beside the menu, so an item names the action alone and keeps
+the row's name as its accessible one. A phone has neither right click nor a
+free long press, so its row keeps the touch-sized menu alone, and the desktop
+row keeps its own inline controls beside the three-dot.
 
 ### The running build's menu
 
-A running build has one queue-participation action in its three-dot menu and its
-desktop right-click menu. A lease holder or included build offers `Extract from
-queue (Q moves on)`. An outside build offers `Include in queue (queue waits)`.
-The run continues either way. All running builds render green; green does not
-imply exclusive lease ownership. On a phone, the three-dot menu is the action
-path.
+A running build has the same card and session actions in its three-dot menu and
+desktop right-click menu. A lease holder or included build also offers `Extract
+from queue (Q moves on)`. An outside build offers `Include in queue (queue
+waits)`. The projection decides whether that override is available, including
+the dispatch-review states that cannot change queue mode. The run continues
+either way. All running builds render green; green does not imply exclusive
+lease ownership. On a phone, the three-dot menu is the action path.
 
 ### Why the queued row's menu holds both lists and not only the session's
 
-A card's menu holds two lists: the card's own board actions, then the session
-actions. A queued row is a card's peer, so its menu holds the same two lists
-with the row's own queue actions where the card's board actions sit. The
-alternative — the session actions alone — opens an empty menu whenever the
-queue holds a session the board has not listed yet, and it split the row's
-actions over two menus on a phone.
+A card's menu holds its board actions, then the session actions. A queued row
+keeps those actions and adds its queue controls and order, so Cancel remains the
+way to remove a queued build and return its prompt to the session draft.
 
 ## Ambiguous Force
 
@@ -294,11 +295,12 @@ normal Force modes are refused by the server while Managed is selected.
 
 ## Manual unread and board Git controls
 
-Linked cards offer **Mark unread / Mark read** in both the three-dot and
-right-click menus. The choice is saved in the work-board store (also for a
-session-only inherited card), leaves lane/order/completion timestamps alone,
-and is cleared when that session opens from any surface. It is independent of
-OpenCode's transient notification count.
+Linked cards, queue rows and running build menus offer **Mark unread / Mark
+read** in both the three-dot and right-click menus where those menus exist. The
+choice is saved in the work-board store (also for a session-only inherited
+card), leaves lane/order/completion timestamps alone, and is cleared when that
+session opens from any surface. It is independent of OpenCode's transient
+notification count.
 
 The Build lane's head shows a Git pill (`WorkBoardGitPill`) in place of the lane
 count, fed by the same 20-second `GET /api/build-queue/git-health` poll that

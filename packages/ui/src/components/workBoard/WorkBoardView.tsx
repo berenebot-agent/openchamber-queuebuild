@@ -202,11 +202,10 @@ function WorkBoardQueueTooltip({ model, content, children }: {
  * One waiting queue row. It is sortable so the order the user drags it into is
  * the order the queue dispatches; the buttons stay as the keyboard path.
  *
- * The row carries the same menu a card carries: a three-dot menu and a
- * right-click menu, both opening the one list of the row's own queue actions
- * and the session actions the other cards show.
+ * The row carries the same menu a card carries: its board and session actions,
+ * plus the queue controls and dispatch order this row owns.
  */
-function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled, mobile, directory, onOpen, onMove, onTogglePause, onForce, onCancel }: {
+function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled, mobile, directory, onOpen, onMove, onTogglePause, onForce, onCancel, onReturnToTodo, onRemove, manualUnread, onToggleUnread }: {
   row: WorkBoardQueueRow;
   queuePaused: boolean;
   index: number;
@@ -220,6 +219,10 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
   onTogglePause: (row: { itemId: string; sessionId: string; paused: boolean }) => void;
   onForce: (row: { itemId: string; sessionId: string }) => void;
   onCancel: (row: { itemId: string; sessionId: string }) => void;
+  onReturnToTodo: (() => void) | null;
+  onRemove: (() => void) | null;
+  manualUnread: boolean;
+  onToggleUnread: (() => void) | null;
 }) {
   const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: row.itemId, disabled });
@@ -235,6 +238,10 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
     onTogglePause: () => onTogglePause(row),
     onForce: () => onForce(row),
     onCancel: () => onCancel(row),
+    onReturnToTodo,
+    onRemove,
+    manualUnread,
+    onToggleUnread,
   };
   // A phone has no right click, and a long press there belongs to dragging, so
   // its row keeps the touch-sized menu alone.
@@ -257,8 +264,8 @@ function WorkBoardQueueRowItem({ row, queuePaused, index, order, busy, disabled,
         </span>
       </button>
     </WorkBoardQueueTooltip>
-    {/* A phone gets the same actions in a touch-sized menu: the row's own
-        queue actions and the session actions a card's menu shows. Five 24px
+    {/* A phone gets the same actions in a touch-sized menu: the card's board
+        and session actions, then the queue controls and order. Five 24px
         icon buttons do not fit a row, and the hover reveal they rely on has no
         touch equivalent. The row beside the menu already names the card — as a
         full title it would make the menu wider than the phone — so an item
@@ -321,7 +328,7 @@ function WorkBoardGitPill({ health, onClick }: { health: GitHealth; onClick: () 
  * The Build queue lane. Running builds sit above the gap, and waiting items keep
  * the queue's dispatch order and controls.
  */
-function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, recoveries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onSetParticipation, onClearRecovery, onNewBuild }: {
+function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, recoveries, order, busy, error, dragged, mobile, directory, waitingForOf, onOpen, onMove, onTogglePause, onForce, onCancel, onResolveForced, onSetParticipation, onClearRecovery, onNewBuild, activeMenu, rowMenu }: {
   rows: WorkBoardQueueRow[];
   paused: boolean;
   active: { sessionId: string; needsReview?: boolean; phase?: 'dispatching' | 'running'; startedAt: number; model?: WorkBoardQueuedModel | null; content?: string | null } | undefined;
@@ -344,6 +351,10 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, reco
   onResolveForced: (row: { itemId: string; sessionId: string }) => void;
   onSetParticipation: (sessionId: string, mode: 'queue' | 'separate') => void;
   onNewBuild: () => void;
+  /** The card-shaped entries a running build's menu carries. */
+  activeMenu: (sessionId: string) => Omit<WorkBoardActiveBuildMenuInput, 'title' | 'disabled' | 'sessionId'>;
+  /** The card-shaped entries a queued row's menu carries. */
+  rowMenu: (sessionId: string) => { onReturnToTodo: (() => void) | null; onRemove: (() => void) | null; manualUnread: boolean; onToggleUnread: (() => void) | null };
 }) {
   const { t } = useI18n();
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-3">
@@ -353,13 +364,15 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, reco
     {(active || entries.length > 0) && <div className="space-y-3">
       {active && <WorkBoardActiveBuild title={activeTitle} sessionId={active.sessionId} needsReview={Boolean(active.needsReview)}
         queueMode="queue" onSetQueueMode={active.phase === 'dispatching' || active.needsReview ? undefined : onSetParticipation}
-        mobile={mobile} waitingFor={waitingForOf(active.sessionId)} model={active.model} content={active.content} onOpen={() => onOpen(active.sessionId)} />}
+        mobile={mobile} busy={busy} waitingFor={waitingForOf(active.sessionId)} model={active.model} content={active.content} onOpen={() => onOpen(active.sessionId)}
+        menu={activeMenu(active.sessionId)} />}
       {entries.map(entry => <WorkBoardActiveBuild key={entry.sessionId} title={entry.title}
         needsReview={Boolean(entry.needsReview)} checking={entry.checking} unavailable={entry.unavailable} forced={entry.forced}
-        sessionId={entry.sessionId} queueMode={entry.counts ? 'queue' : 'separate'} onSetQueueMode={onSetParticipation} mobile={mobile}
+        sessionId={entry.sessionId} queueMode={entry.queueMode ?? (entry.forced ? (entry.counts ? 'queue' : 'separate') : undefined)} onSetQueueMode={onSetParticipation} mobile={mobile}
         counts={entry.counts}
         waitingFor={waitingForOf(entry.sessionId)} model={entry.model} content={entry.content}
         onOpen={() => onOpen(entry.sessionId)}
+        menu={activeMenu(entry.sessionId)}
         resolve={entry.needsReview && entry.itemId ? { sessionId: entry.sessionId, itemId: entry.itemId } : undefined}
         busy={busy} onResolve={onResolveForced} />)}
     </div>}
@@ -392,7 +405,7 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, reco
       <div className="space-y-3">
         {rows.map((row, index) => <WorkBoardQueueRowItem key={row.itemId} row={row} queuePaused={paused} index={index} order={order}
           busy={busy} disabled={busy || dragged !== null} mobile={mobile} directory={directory} onOpen={onOpen} onMove={onMove}
-          onTogglePause={onTogglePause} onForce={onForce} onCancel={onCancel} />)}
+          onTogglePause={onTogglePause} onForce={onForce} onCancel={onCancel} {...rowMenu(row.sessionId)} />)}
       </div>
     </SortableContext>
   </div>;
@@ -406,7 +419,7 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, reco
  * ambiguous: it may or may not have started, so it takes the error treatment and
  * carries its own recovery, rather than reading as a plain running build.
  */
-function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false, unavailable = false, forced = false, counts = false, queueMode, onSetQueueMode, mobile = false, waitingFor, resolve, model, content, busy = false, onResolve, onOpen }: {
+function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false, unavailable = false, forced = false, counts = false, queueMode, onSetQueueMode, mobile = false, waitingFor, resolve, model, content, busy = false, onResolve, onOpen, menu }: {
   title: string;
   sessionId: string;
   needsReview: boolean;
@@ -425,8 +438,26 @@ function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false,
   busy?: boolean;
   onResolve?: (row: { itemId: string; sessionId: string }) => void;
   onOpen: () => void;
+  /** The card-shaped entries the build's menu carries, from its own card. */
+  menu: Omit<WorkBoardActiveBuildMenuInput, 'title' | 'disabled' | 'sessionId'>;
 }) {
   const { t } = useI18n();
+  const queueIncluded = queueMode === 'queue';
+  const canChangeMode = Boolean(queueMode && onSetQueueMode && !checking && !unavailable && !needsReview);
+  // The build has its own menu on both roots, the way a card does: its card's
+  // entries, then its queue participation. The menu trigger sits in the box's
+  // end, so the box keeps its padding for it whenever it is on screen.
+  const menuProps: WorkBoardCardMenuProps = {
+    sessionId, directory: menu.directory, title, disabled: busy || checking || unavailable,
+    manualUnread: menu.manualUnread,
+    onToggleUnread: menu.onToggleUnread,
+    onStartPlan: null,
+    onReturnToTodo: menu.onReturnToTodo,
+    onRemove: menu.onRemove,
+    onRemoveTodo: null,
+    queueMode: canChangeMode ? queueMode : undefined,
+    onSetQueueMode: canChangeMode && onSetQueueMode ? mode => onSetQueueMode(sessionId, mode) : null,
+  };
   if (resolve) {
     return <WorkBoardQueueTooltip model={model} content={content}>
       <div className="rounded-md border border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)] px-2.5 py-2">
@@ -445,17 +476,15 @@ function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false,
   // "Active" pill, and the ask named in place of "Building now". A review, a
   // forced build and an unread status are their own states above it.
   const waiting = !needsReview && !checking && !unavailable && !forced ? waitingFor : undefined;
-  const queueIncluded = queueMode === 'queue';
-  const canChangeMode = Boolean(queueMode && onSetQueueMode && !checking && !unavailable);
   const surface = needsReview
     ? 'border-[color-mix(in_srgb,var(--status-error)_50%,transparent)] bg-[var(--status-error-background)]'
     : !queueIncluded
       ? 'border-[color-mix(in_srgb,#22c55e_45%,transparent)] bg-[color-mix(in_srgb,#22c55e_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,#22c55e_18%,var(--surface-elevated))]'
       : 'border-[color-mix(in_srgb,var(--status-success)_42%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_12%,var(--surface-elevated))] hover:bg-[color-mix(in_srgb,var(--status-success)_18%,var(--surface-elevated))]';
-  const row = <WorkBoardQueueTooltip model={model} content={content}>
+  return <WorkBoardActiveBuildMenu menu={menuProps} mobile={mobile} trigger={<div className="group relative rounded-md" />}>
+    <WorkBoardQueueTooltip model={model} content={content}>
     <button type="button" onClick={onOpen}
-    className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring '
-      + surface + (canChangeMode ? ' pe-9' : '')}
+    className={'relative w-full overflow-hidden rounded-md border px-2.5 py-2 pe-9 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ' + surface}
     aria-label={checking ? t('workBoard.openSession') : t('workBoard.openBuild', { title })}>
     {!needsReview && !checking && !unavailable && !waiting && <span aria-hidden="true" className={'oc-build-stripes pointer-events-none absolute inset-0 ' + (queueIncluded ? 'oc-build-stripes-queue' : 'oc-build-stripes-outside')} />}
     <span className="relative flex min-w-0 items-center gap-2">
@@ -471,11 +500,8 @@ function WorkBoardActiveBuild({ title, sessionId, needsReview, checking = false,
       </span>}
     </span>
     </button>
-  </WorkBoardQueueTooltip>;
-  return canChangeMode && queueMode && onSetQueueMode
-    ? <WorkBoardActiveBuildMenu title={title} mode={queueMode} disabled={busy} mobile={mobile}
-        onChange={mode => onSetQueueMode(sessionId, mode)}>{row}</WorkBoardActiveBuildMenu>
-    : row;
+    </WorkBoardQueueTooltip>
+  </WorkBoardActiveBuildMenu>;
 }
 
 /**
@@ -603,6 +629,17 @@ function WorkBoardCard({ card, lane, activity, waitingFor, checking, statusUnkno
     </div>
   </WorkBoardCardContextMenu>;
 }
+
+/**
+ * The running build's card-shaped menu entries: the ones the board decides the
+ * same way for a card and for the running build box. Removal and Back to To-do
+ * come from the card the build is linked to, so both surfaces ask the server
+ * once.
+ */
+type WorkBoardActiveBuildMenuInput = Pick<WorkBoardCardMenuProps, 'title' | 'disabled' | 'manualUnread' | 'onToggleUnread' | 'onReturnToTodo' | 'onRemove'> & {
+  sessionId: string;
+  directory: string;
+};
 
 export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange, pickerOpen, onPickerOpenChange }: {
   mobile?: boolean;
@@ -1076,6 +1113,24 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // The server decides what each card can do; the board only reads it.
   const canDo = (card: WorkBoardSnapshotCard, action: WorkBoardSnapshotCard['availableActions'][number]) =>
     !loading && !error && card.availableActions.includes(action);
+  // A queue row or a running build is managed through the card that links its
+  // session: the stored card when the board has one, else the session's own
+  // inherited card. Without one there is no brief to move back and no card to
+  // remove. Delegated sessions are never cards, so their rows offer neither.
+  const cardForBuild = React.useCallback((sessionId: string): WorkBoardSnapshotCard | undefined =>
+    (loading || error) ? undefined
+      : cards.find(card => card.sessionId === sessionId && !card.id.startsWith('session:'))
+        ?? cards.find(card => card.id === `session:${sessionId}`),
+  [cards, loading, error]);
+  // The mark toggle is the board's own choice, not a server action: it is
+  // offered for any card the row or build links, and the other two only when
+  // the server allows them.
+  const queueMenuAction = (sessionId: string, action: 'returnToTodo' | 'remove' | 'toggleUnread', run: (card: WorkBoardSnapshotCard) => Promise<void>) => {
+    const card = cardForBuild(sessionId);
+    if (!card) return null;
+    if (action !== 'toggleUnread' && !canDo(card, action)) return null;
+    return () => void mutate(async () => { await run(card); });
+  };
   const canComplete = (card: WorkBoardSnapshotCard) => canDo(card, 'complete');
   const sweepCandidates = (source: typeof snapshot, hours: number, visible?: Set<string>) => {
     if (!source?.queue.known) return [];
@@ -1427,7 +1482,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // mobile tabs show the same number as the lane they open, so both read one
   // count. The queue snapshot owns managed rows; a live build without a queue
   // entry renders once per session with its queue-participation action.
-  const queueLiveBuilds = new Map<string, { sessionId: string; title: string; checking: boolean; unavailable: boolean }>();
+  const queueLiveBuilds = new Map<string, { sessionId: string; title: string; checking: boolean; unavailable: boolean; queueMode?: 'queue' | 'separate' }>();
   for (const card of orderedLanes.get('queue') ?? []) {
     if (card.sessionId && !(queue?.recoveries ?? []).some(item => item.sessionId === card.sessionId) && !queueStateFor(card)) {
       queueLiveBuilds.set(card.sessionId, {
@@ -1435,6 +1490,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
         title: sessionTitleFor(card.sessionId),
         checking: card.status !== 'known',
         unavailable: card.status === 'unavailable',
+        queueMode: card.availableActions.includes('includeInQueue') ? 'separate' : undefined,
       });
     }
   }
@@ -1624,6 +1680,33 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
             onResolveForced={resolveForcedBuild}
             onSetParticipation={setBuildParticipation}
             onNewBuild={() => newCard('queue')}
+            activeMenu={sessionId => ({
+              directory,
+              manualUnread: Boolean(cardForBuild(sessionId)?.manualUnread),
+              onToggleUnread: queueMenuAction(sessionId, 'toggleUnread', async card => {
+                await setWorkBoardCardUnread(card, !card.manualUnread);
+              }),
+              onReturnToTodo: queueMenuAction(sessionId, 'returnToTodo', async card => {
+                const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
+                await saveSessionToTodo(card.sessionId!, card.directory, actualDirectory, card.text, []);
+              }),
+              onRemove: queueMenuAction(sessionId, 'remove', async card => {
+                await deleteWorkBoardCard(card.id);
+              }),
+            })}
+            rowMenu={sessionId => ({
+              manualUnread: Boolean(cardForBuild(sessionId)?.manualUnread),
+              onToggleUnread: queueMenuAction(sessionId, 'toggleUnread', async card => {
+                await setWorkBoardCardUnread(card, !card.manualUnread);
+              }),
+              onReturnToTodo: queueMenuAction(sessionId, 'returnToTodo', async card => {
+                const actualDirectory = sessions.find(session => session.id === card.sessionId)?.directory ?? card.directory;
+                await saveSessionToTodo(card.sessionId!, card.directory, actualDirectory, card.text, []);
+              }),
+              onRemove: queueMenuAction(sessionId, 'remove', async card => {
+                await deleteWorkBoardCard(card.id);
+              }),
+            })}
           /> : <SortableContext items={inLane.map(card => card.id)} strategy={verticalListSortingStrategy}>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-3">
             {!inLane.length && <p className="px-2 py-4 text-xs text-muted-foreground">{
@@ -1654,7 +1737,7 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
                 sessionId: card.sessionId ?? null,
                 directory: card.directory,
                 title,
-                disabled: busy || loading || Boolean(error),
+                disabled: busy || queueBusy || loading || Boolean(error),
                 manualUnread: Boolean(card.manualUnread),
                 onToggleUnread: card.sessionId ? () => void mutate(async () => {
                   await setWorkBoardCardUnread(card, !card.manualUnread);
@@ -1670,6 +1753,10 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
                 onRemoveTodo: card.stage === 'todo' && !card.briefRemoved ? () => void mutate(async () => {
                   await updateWorkBoardCard(card.id, { removeBrief: true, expectedUpdatedAt: card.updatedAt });
                 }) : null,
+                queueMode: canDo(card, 'includeInQueue') || canDo(card, 'extractFromQueue')
+                  ? (canDo(card, 'extractFromQueue') ? 'queue' : 'separate') : undefined,
+                onSetQueueMode: canDo(card, 'includeInQueue') || canDo(card, 'extractFromQueue')
+                  ? mode => { if (card.sessionId) setBuildParticipation(card.sessionId, mode); } : null,
               };
               return <WorkBoardCard
                 key={card.id}

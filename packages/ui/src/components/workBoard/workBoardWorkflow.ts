@@ -147,6 +147,8 @@ export type WorkBoardActiveEntry = {
   itemId?: string | null;
   /** The build counts towards the queue, so the queue waits for it. */
   counts?: boolean;
+  /** The server-confirmed mode for a live build not named by a forced entry. */
+  queueMode?: 'queue' | 'separate';
   /** What the build was submitted with; absent for a card-derived row. */
   model?: WorkBoardQueuedModel | null;
   content?: string | null;
@@ -160,7 +162,7 @@ export type WorkBoardActiveEntry = {
  */
 export function workBoardActiveEntries(
   forced: readonly { sessionId: string; title: string; needsReview?: boolean; itemId?: string | null; counts?: boolean; model?: WorkBoardQueuedModel | null; content?: string | null }[],
-  live: readonly { sessionId: string; title: string; checking: boolean; unavailable: boolean }[],
+  live: readonly { sessionId: string; title: string; checking: boolean; unavailable: boolean; queueMode?: 'queue' | 'separate' }[],
 ): WorkBoardActiveEntry[] {
   const entries = new Map<string, WorkBoardActiveEntry>();
   for (const entry of forced) {

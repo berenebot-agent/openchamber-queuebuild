@@ -44,14 +44,14 @@ describe('build queue column', () => {
       [{ sessionId: 's1', title: 'Forced build', model: { providerID: 'anthropic', id: 'claude' }, content: 'fix it' }],
       [
         { sessionId: 's1', title: 'Card title', checking: true, unavailable: false },
-        { sessionId: 's2', title: 'Live build', checking: false, unavailable: true },
+        { sessionId: 's2', title: 'Live build', checking: false, unavailable: true, queueMode: 'separate' },
       ],
     );
     // The server-named forced row wins over the same session's card row and
     // carries the marker; the plain live build keeps its own state.
     expect(entries).toEqual([
       { sessionId: 's1', title: 'Forced build', checking: false, unavailable: false, forced: true, model: { providerID: 'anthropic', id: 'claude' }, content: 'fix it' },
-      { sessionId: 's2', title: 'Live build', checking: false, unavailable: true, forced: false },
+      { sessionId: 's2', title: 'Live build', checking: false, unavailable: true, forced: false, queueMode: 'separate' },
     ]);
   });
   test('an ambiguous forced build carries its review state and recovery target', () => {

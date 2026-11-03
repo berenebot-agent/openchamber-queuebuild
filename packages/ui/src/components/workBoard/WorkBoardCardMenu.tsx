@@ -50,6 +50,9 @@ export type WorkBoardCardMenuProps = {
   onRemove: (() => void) | null;
   /** Delete only the saved brief, keeping the session and the card. */
   onRemoveTodo: (() => void) | null;
+  /** The build's queue participation, for a running build. Absent for a card. */
+  queueMode?: 'queue' | 'separate';
+  onSetQueueMode?: ((mode: 'queue' | 'separate') => void) | null;
 };
 
 /** The session a card points at, from the shared cache the sidebar reads. */
@@ -75,7 +78,7 @@ function useDeferredCardRename(sessionId: string | null) {
   };
 }
 
-type WorkBoardCardMenuItemsProps = Pick<WorkBoardCardMenuProps, 'sessionId' | 'directory' | 'onStartPlan' | 'onReturnToTodo' | 'onRemove' | 'onRemoveTodo' | 'manualUnread' | 'onToggleUnread'> & {
+type WorkBoardCardMenuItemsProps = Pick<WorkBoardCardMenuProps, 'sessionId' | 'directory' | 'onStartPlan' | 'onReturnToTodo' | 'onRemove' | 'onRemoveTodo' | 'manualUnread' | 'onToggleUnread' | 'queueMode' | 'onSetQueueMode'> & {
   /** True while the menu showing the items is open. */
   open: boolean;
   /** The menu root's own item and separator, so one list serves both roots. */
@@ -167,13 +170,16 @@ function WorkBoardSessionMenuItems({ sessionId, directory, open, Item, Separator
  * The card's own entries, rendered into whichever root shows them: the card's
  * three-dot dropdown, or the card's own right-click menu.
  */
-function WorkBoardCardMenuItems({ sessionId, directory, open, Item, Separator, onRequestRename, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread }: WorkBoardCardMenuItemsProps) {
+function WorkBoardCardMenuItems({ sessionId, directory, open, Item, Separator, onRequestRename, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread, queueMode, onSetQueueMode }: WorkBoardCardMenuItemsProps) {
   const { t } = useI18n();
   return <>
     {onStartPlan ? <Item onClick={onStartPlan}>{t('workBoard.startPlan')}</Item> : null}
     {onReturnToTodo ? <Item onClick={onReturnToTodo}>{t('workBoard.backTodo')}</Item> : null}
     {onRemoveTodo ? <Item onClick={onRemoveTodo}>{t('workBoard.removeTodo')}</Item> : null}
     {onRemove ? <Item onClick={onRemove}>{t('workBoard.remove')}</Item> : null}
+    {queueMode && onSetQueueMode ? <Item onClick={() => onSetQueueMode(queueMode === 'queue' ? 'separate' : 'queue')}>
+      {t(queueMode === 'queue' ? 'workBoard.extractFromQueue' : 'workBoard.includeInQueue')}
+    </Item> : null}
     {onToggleUnread ? <Item onClick={onToggleUnread}><Icon name="eye" className="me-1 size-4" />{manualUnread ? 'Mark read' : 'Mark unread'}</Item> : null}
     <WorkBoardSessionMenuItems sessionId={sessionId} directory={directory} open={open} Item={Item} Separator={Separator} onRequestRename={onRequestRename} />
   </>;
@@ -184,7 +190,7 @@ function WorkBoardCardMenuItems({ sessionId, directory, open, Item, Separator, o
  * the session menu the sidebar offers. Pin is not here — a card carries its own
  * place on the board, so pinning it again says nothing.
  */
-export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread }: WorkBoardCardMenuProps) {
+export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread, queueMode, onSetQueueMode }: WorkBoardCardMenuProps) {
   const { t } = useI18n();
   const [open, setOpen] = React.useState(false);
   const rename = useDeferredCardRename(sessionId);
@@ -206,6 +212,8 @@ export function WorkBoardCardMenu({ sessionId, directory, title, disabled, onSta
           onRemove={onRemove}
           manualUnread={manualUnread}
           onToggleUnread={onToggleUnread}
+          queueMode={queueMode}
+          onSetQueueMode={onSetQueueMode}
           Item={DropdownMenuItem}
           Separator={DropdownMenuSeparator}
           onRequestRename={rename.request}
@@ -229,7 +237,7 @@ export function WorkBoardCardContextMenu({ menu, trigger, children }: {
   /** The card's content, placed inside that element. */
   children: React.ReactNode;
 }) {
-  const { sessionId, directory, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread } = menu;
+  const { sessionId, directory, disabled, onStartPlan, onReturnToTodo, onRemove, onRemoveTodo, manualUnread, onToggleUnread, queueMode, onSetQueueMode } = menu;
   const [open, setOpen] = React.useState(false);
   const rename = useDeferredCardRename(sessionId);
   return <>
@@ -246,6 +254,8 @@ export function WorkBoardCardContextMenu({ menu, trigger, children }: {
           onRemove={onRemove}
           manualUnread={manualUnread}
           onToggleUnread={onToggleUnread}
+          queueMode={queueMode}
+          onSetQueueMode={onSetQueueMode}
           Item={ContextMenuItem}
           Separator={ContextMenuSeparator}
           onRequestRename={rename.request}
@@ -276,12 +286,27 @@ export type WorkBoardQueueMenuProps = {
   onTogglePause: () => void;
   onForce: () => void;
   onCancel: () => void;
+  /** Move the row's card back to To-do, keeping its brief. */
+  onReturnToTodo?: (() => void) | null;
+  /** Remove the row's card; the queued build itself is left alone. */
+  onRemove?: (() => void) | null;
+  manualUnread?: boolean;
+  onToggleUnread?: (() => void) | null;
 };
 
+/** The queue-relative entries a row's menu shows: the ones the order names. */
+function WorkBoardQueueOrderItems({ menu, Item }: { menu: WorkBoardQueueMenuProps; Item: React.ElementType }) {
+  const { t } = useI18n();
+  const { title, disabled, first, last, onMove } = menu;
+  return <>
+    <Item aria-label={t('workBoard.moveUp', { title })} disabled={disabled || first} onClick={() => onMove(-1)}>{t('workBoard.moveUpShort')}</Item>
+    <Item aria-label={t('workBoard.moveDown', { title })} disabled={disabled || last} onClick={() => onMove(1)}>{t('workBoard.moveDownShort')}</Item>
+  </>;
+}
+
 /**
- * The queued row's entries: the row's own queue actions first, then the
- * session actions a card's menu shows. One list, so the row's three-dot menu
- * and its right-click menu can never drift apart.
+ * The queued row's entries: its available board actions and the session block,
+ * then the queue controls and order. One list keeps its two menu roots in sync.
  */
 function WorkBoardQueueMenuItems({ menu, open, Item, Separator, onRequestRename }: {
   menu: WorkBoardQueueMenuProps;
@@ -291,17 +316,30 @@ function WorkBoardQueueMenuItems({ menu, open, Item, Separator, onRequestRename 
   onRequestRename: () => void;
 }) {
   const { t } = useI18n();
-  const { title, disabled, paused, first, last, onMove, onTogglePause, onForce, onCancel } = menu;
+  const { title, disabled, paused, onTogglePause, onForce, onCancel } = menu;
   return <>
-    <Item aria-label={t('workBoard.moveUp', { title })} disabled={disabled || first} onClick={() => onMove(-1)}>{t('workBoard.moveUpShort')}</Item>
-    <Item aria-label={t('workBoard.moveDown', { title })} disabled={disabled || last} onClick={() => onMove(1)}>{t('workBoard.moveDownShort')}</Item>
+    <WorkBoardCardMenuItems
+      sessionId={menu.sessionId}
+      directory={menu.directory}
+      open={open}
+      onStartPlan={null}
+      onReturnToTodo={menu.onReturnToTodo ?? null}
+      onRemove={menu.onRemove ?? null}
+      onRemoveTodo={null}
+      manualUnread={menu.manualUnread}
+      onToggleUnread={menu.onToggleUnread}
+      Item={Item}
+      Separator={Separator}
+      onRequestRename={onRequestRename}
+    />
     <Item aria-label={t(paused ? 'workBoard.resume' : 'workBoard.pause', { title })} disabled={disabled}
       className={paused ? 'text-[var(--status-warning-text)]' : undefined} onClick={onTogglePause}>
       {t(paused ? 'workBoard.resumeShort' : 'workBoard.pauseShort')}
     </Item>
     <Item aria-label={t('workBoard.force', { title })} disabled={disabled} onClick={onForce}>{t('workBoard.forceShort')}</Item>
     <Item aria-label={t('workBoard.cancelBuild', { title })} disabled={disabled} onClick={onCancel}>{t('workBoard.cancelBuildShort')}</Item>
-    <WorkBoardSessionMenuItems sessionId={menu.sessionId} directory={menu.directory} open={open} Item={Item} Separator={Separator} onRequestRename={onRequestRename} />
+    <Separator />
+    <WorkBoardQueueOrderItems menu={menu} Item={Item} />
   </>;
 }
 
@@ -362,36 +400,48 @@ export function WorkBoardQueueContextMenu({ menu, trigger, children }: {
   </>;
 }
 
-export function WorkBoardActiveBuildMenu({ title, mode, disabled, mobile = false, onChange, children }: {
-  title: string;
-  mode: 'queue' | 'separate';
-  disabled: boolean;
+/**
+ * The running build's menu: the build's own box on the same two roots a card
+ * has — right click and a three-dot trigger — carrying the card's entries and,
+ * for a build the queue names, its queue participation. A phone has no right
+ * click, so it keeps the touch-sized trigger alone.
+ */
+export function WorkBoardActiveBuildMenu({ menu, mobile = false, trigger, children }: {
+  /** The running build's entries, exactly as a card's menu takes them. */
+  menu: WorkBoardCardMenuProps;
   mobile?: boolean;
-  onChange: (mode: 'queue' | 'separate') => void;
+  /** The build's box the menu opens on. */
+  trigger: React.ReactElement;
+  /** The build's content, placed inside that box. */
   children: React.ReactNode;
 }) {
   const { t } = useI18n();
-  const action = mode === 'queue' ? 'separate' : 'queue';
-  const label = t(mode === 'queue' ? 'workBoard.extractFromQueue' : 'workBoard.includeInQueue');
-  const items = (Item: React.ElementType) => <Item disabled={disabled} onClick={() => onChange(action)}>{label}</Item>;
+  const [contextOpen, setContextOpen] = React.useState(false);
+  const [dropdownOpen, setDropdownOpen] = React.useState(false);
+  const rename = useDeferredCardRename(menu.sessionId);
+  const label = t('workBoard.cardActions', { title: menu.title });
   return <div className="group relative">
-    <ContextMenu disabled={disabled || mobile}>
-      <ContextMenuTrigger render={<div className="rounded-md" />}>{children}</ContextMenuTrigger>
-      <ContextMenuContent>{items(ContextMenuItem)}</ContextMenuContent>
+    <ContextMenu disabled={menu.disabled || mobile} onOpenChange={setContextOpen} onOpenChangeComplete={rename.onOpenChangeComplete}>
+      <ContextMenuTrigger render={trigger}>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <WorkBoardCardMenuItems {...menu} open={contextOpen} Item={ContextMenuItem} Separator={ContextMenuSeparator} onRequestRename={rename.request} />
+      </ContextMenuContent>
     </ContextMenu>
-    <DropdownMenu>
+    <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen} onOpenChangeComplete={rename.onOpenChangeComplete}>
       <DropdownMenuTrigger asChild>
-        <button type="button" disabled={disabled}
+        <button type="button" disabled={menu.disabled}
           className={mobile
             ? 'absolute end-1 top-1 flex size-10 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:text-foreground'
             : 'absolute end-1 top-1.5 flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-40 transition-opacity hover:opacity-100 focus-visible:opacity-100 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100'}
-          title={t('workBoard.cardActions', { title })}
-          aria-label={t('workBoard.cardActions', { title })}>
+          title={label} aria-label={label}>
           <Icon name="more" className={mobile ? 'size-5' : 'size-3.5'} />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">{items(DropdownMenuItem)}</DropdownMenuContent>
+      <DropdownMenuContent align="end">
+        <WorkBoardCardMenuItems {...menu} open={dropdownOpen} Item={DropdownMenuItem} Separator={DropdownMenuSeparator} onRequestRename={rename.request} />
+      </DropdownMenuContent>
     </DropdownMenu>
+    {rename.dialog}
   </div>;
 }
 

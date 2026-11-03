@@ -110,7 +110,7 @@ describe('work board projection', () => {
   it('exposes the actions the server allows on each card', async () => {
     const cards = [
       baseCard({ id: 'brief', stage: 'todo' }),
-      baseCard({ id: 'linked', stage: 'plan', sessionId: 's1' }),
+      baseCard({ id: 'linked', stage: 'build', sessionId: 's1' }),
       baseCard({ id: 'finished', stage: 'done', sessionId: 's2', completedAt: 5 }),
     ];
     const activity = new Map([['s1', { busy: false, messages: [] }], ['s2', { busy: false, messages: [] }]]);
@@ -118,11 +118,88 @@ describe('work board projection', () => {
     const byId = Object.fromEntries(snapshot.cards.map(card => [card.id, card]));
     // An unlinked brief can start Plan, complete and be removed.
     expect(byId.brief.availableActions).toEqual(expect.arrayContaining(['complete', 'startPlan', 'remove']));
-    // A linked, settled card can complete and return to To-do, but not remove.
+    // A linked, settled build can complete and return to To-do, but not remove:
+    // its card is the session's own.
     expect(byId.linked.availableActions).toEqual(expect.arrayContaining(['complete', 'returnToTodo']));
     expect(byId.linked.availableActions).not.toContain('remove');
+    // Queue participation is offered only for a build the queue names.
+    expect(byId.linked.availableActions).not.toContain('includeInQueue');
+    expect(byId.linked.availableActions).not.toContain('extractFromQueue');
     // A completed, unseen card can be acknowledged.
     expect(byId.finished.availableActions).toContain('acknowledge');
+  });
+
+  it('offers queue participation from the queue snapshot and an outside running Build card', async () => {
+    const cards = [
+      baseCard({ id: 'running', stage: 'build', sessionId: 's-run' }),
+      baseCard({ id: 'forced', stage: 'build', sessionId: 's-forced' }),
+      baseCard({ id: 'outside', stage: 'build', sessionId: 's-outside' }),
+    ];
+    const activity = new Map([
+      ['s-run', { busy: true, messages: [] }],
+      ['s-forced', { busy: true, messages: [] }],
+      ['s-outside', { busy: true, messages: [{ id: 'build-message', sessionID: 's-outside', role: 'assistant', time: { created: 1 }, agent: 'build' }] }],
+    ]);
+    const snapshot = await makeProjection({ cards, activity, queue: {
+      active: [{ directory: '/repo', sessionId: 's-run', itemId: 'i-run', startedAt: 1 }],
+      queued: [], issues: [],
+      forced: [{ sessionId: 's-forced', directory: '/repo', startedAt: 2, counts: true }],
+    } }).snapshot('/repo');
+    const byId = Object.fromEntries(snapshot.cards.map(card => [card.id, card]));
+    // The lease and included forced build count, while a live build absent from
+    // the queue projection can be included.
+    expect(byId.running.availableActions).toContain('extractFromQueue');
+    expect(byId.forced.availableActions).toContain('extractFromQueue');
+    expect(byId.outside.availableActions).toContain('includeInQueue');
+    // A running build can be returned to To-do, never completed or removed:
+    // those actions wait for the turn to settle, and only To-do cards can be
+    // removed from the board.
+    for (const id of ['running', 'forced', 'outside']) {
+      expect(byId[id].availableActions).not.toContain('remove');
+      expect(byId[id].availableActions).not.toContain('complete');
+    }
+    expect(byId.outside.availableActions).not.toContain('returnToTodo');
+  });
+
+  it('withholds queue participation when the queue snapshot is unavailable', async () => {
+    const cards = [baseCard({ id: 'running', stage: 'build', sessionId: 's-run' })];
+    const activity = new Map([['s-run', { busy: true, messages: [
+      { id: 'build-message', sessionID: 's-run', role: 'assistant', time: { created: 1 }, agent: 'build' },
+    ] }]]);
+    const snapshot = await makeProjection({ cards, activity }).snapshot('/repo');
+    expect(snapshot.queue.known).toBe(false);
+    expect(snapshot.cards[0].availableActions).not.toContain('includeInQueue');
+    expect(snapshot.cards[0].availableActions).not.toContain('extractFromQueue');
+  });
+
+  it('withholds queue participation while dispatch or review blocks a running build', async () => {
+    const cards = [
+      baseCard({ id: 'lease', stage: 'build', sessionId: 's-lease' }),
+      baseCard({ id: 'forced', stage: 'build', sessionId: 's-forced' }),
+    ];
+    const activity = new Map(['s-lease', 's-forced'].map(id => [id, { busy: true, messages: [] }]));
+    const snapshot = await makeProjection({ cards, activity, queue: {
+      active: [{ directory: '/repo', sessionId: 's-lease', startedAt: 1, phase: 'dispatching' }],
+      queued: [], issues: [],
+      forced: [{ sessionId: 's-forced', directory: '/repo', startedAt: 2, needsReview: true, counts: true }],
+    } }).snapshot('/repo');
+    for (const card of snapshot.cards) {
+      expect(card.availableActions).not.toContain('includeInQueue');
+      expect(card.availableActions).not.toContain('extractFromQueue');
+    }
+  });
+
+  it('keeps a finished build\'s card, and a To-do card\'s removal, as they were', async () => {
+    const cards = [
+      baseCard({ id: 'finished', stage: 'build', sessionId: 's-done' }),
+      baseCard({ id: 'brief', stage: 'todo' }),
+    ];
+    const activity = new Map([['s-done', { busy: false, messages: [] }]]);
+    const snapshot = await makeProjection({ cards, activity }).snapshot('/repo');
+    const byId = Object.fromEntries(snapshot.cards.map(card => [card.id, card]));
+    // A settled build keeps its card, so it cannot be removed from the board.
+    expect(byId.finished.availableActions).not.toContain('remove');
+    expect(byId.brief.availableActions).toContain('remove');
   });
 
   it('withholds complete for a card whose session status is unavailable', async () => {
@@ -385,7 +462,7 @@ describe('work board projection', () => {
     } }).snapshot('/repo');
     expect(JSON.parse(JSON.stringify(snapshot)).queue.active).toEqual({
       sessionId: 's-run', itemId: null, startedAt: 5,
-      needsReview: false, retryAvailable: false, content: null, model: null,
+      needsReview: false, retryAvailable: false, phase: 'running', content: null, model: null,
     });
   });
 

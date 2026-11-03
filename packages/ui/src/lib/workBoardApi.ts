@@ -112,8 +112,9 @@ const snapshotCardSchema = cardSchema.extend({
   // A linked card's session status: known, unavailable (a read failed), unknown
   // (not read yet), or none (no session).
   status: z.enum(['known', 'unavailable', 'unknown', 'none']),
-  // What the user can do with this card, decided by the server once.
-  availableActions: z.array(z.enum(['complete', 'acknowledge', 'startPlan', 'returnToTodo', 'remove'])),
+  // What the user can do with this card, decided by the server once. A running
+  // build also carries its queue participation, so no surface infers it.
+  availableActions: z.array(z.enum(['complete', 'acknowledge', 'startPlan', 'returnToTodo', 'remove', 'includeInQueue', 'extractFromQueue'])),
 });
 /**
  * One history record the board's lane and feedback rules read. The server sends
