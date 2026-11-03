@@ -213,7 +213,9 @@ describe('boards needing attention', () => {
       ['paused', { count: 1, error: false, paused: 'review' }],
       ['broken', { count: 0, error: true }],
     ]);
-    expect(workBoardsNeedingAttention(['running', 'paused', 'broken'], badges, noAsks)).toBe(2);
+    // A queue that could not be read carries its own tab mark, but it does not
+    // count here: a failed read is not a call to the user.
+    expect(workBoardsNeedingAttention(['running', 'paused', 'broken'], badges, noAsks)).toBe(1);
     // A Git hold waits on the user too, on the same terms as a review.
     expect(workBoardsNeedingAttention(['git'], new Map([['git', { count: 2, error: false, paused: 'git' }]]), noAsks)).toBe(1);
   });
@@ -223,7 +225,7 @@ describe('boards needing attention', () => {
       ['permission', { question: false, permission: true }],
     ]);
     expect(workBoardsNeedingAttention(['question', 'permission', 'calm'], noBadges, asks)).toBe(2);
-    // A board with neither a bad queue nor an ask is not waiting on anyone.
+    // A board with neither a paused queue nor an ask is not waiting on anyone.
     expect(workBoardsNeedingAttention(['calm'], noBadges, noAsks)).toBe(0);
   });
 });

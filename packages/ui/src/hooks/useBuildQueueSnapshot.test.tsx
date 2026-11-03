@@ -1,14 +1,17 @@
 import React, { act } from 'react';
-import { afterAll, expect, spyOn, test } from 'bun:test';
+import { afterAll, beforeEach, expect, spyOn, test } from 'bun:test';
 import { createRoot } from 'react-dom/client';
 import { Window } from 'happy-dom';
 
 const browser = new Window({ url: 'http://localhost/' });
 Object.assign(globalThis, { window: browser, document: browser.document, navigator: browser.navigator,
   localStorage: browser.localStorage, sessionStorage: browser.sessionStorage, IS_REACT_ACT_ENVIRONMENT: true });
-const { useBuildQueueSnapshot } = await import('./useBuildQueueSnapshot');
+const { useBuildQueueSnapshot, clearBuildQueueSnapshotCache } = await import('./useBuildQueueSnapshot');
 
 afterAll(() => browser.close());
+// The last good queue survives a remount, so each test starts from a cold
+// cache the way a fresh page does.
+beforeEach(() => clearBuildQueueSnapshotCache());
 
 class MockEventSource {
   static CLOSED = 2;
@@ -109,7 +112,7 @@ test('a build queue broadcast refetches the snapshot without waiting for a poll'
   });
 });
 
-test('a failed read keeps the last snapshot and reports the error on top of it', async () => {
+test('a failed re-read keeps the last snapshot and reports nothing: it is stale, not unknown', async () => {
   await withMockEventSource(async () => {
     let fail = false;
     const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => (
@@ -124,12 +127,40 @@ test('a failed read keeps the last snapshot and reports the error on top of it',
     try {
       expect(probe.container.textContent).toBe('1/ok');
 
-      // The refresh after a mutation fails: the row stays, the error is shown.
+      // The refresh after a mutation fails: the row stays and no board paints
+      // its queue as unavailable on one failed poll.
       fail = true;
       await emit('openchamber:build-queue.updated');
-      expect(probe.container.textContent).toBe('1/error');
+      expect(probe.container.textContent).toBe('1/ok');
     } finally {
       await probe.unmount();
+      fetch.mockRestore();
+    }
+  });
+});
+
+test('a queue read before this mount is shown at once, and a failed read after it keeps it', async () => {
+  await withMockEventSource(async () => {
+    let fail = false;
+    const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => (
+      fail
+        ? new Response('', { status: 503 })
+        : Response.json({ revision: 1, active: [], issues: [], queued: [{ id: 'q1', sessionId: 's1', directory: '/repo', content: 'Build', createdAt: 1, order: 0, paused: false }] })
+    ));
+    const Probe = function Probe() {
+      const { snapshot, error } = useBuildQueueSnapshot();
+      return <span>{`${snapshot?.queued.length ?? 'none'}/${error ? 'error' : 'ok'}`}</span>;
+    };
+    const first = await mount(Probe);
+    await first.unmount();
+    // The board mounts again on a switch back from a chat, and this read fails:
+    // the queue it saw before is still the one to draw.
+    fail = true;
+    const second = await mount(Probe);
+    try {
+      expect(second.container.textContent).toBe('1/ok');
+    } finally {
+      await second.unmount();
       fetch.mockRestore();
     }
   });

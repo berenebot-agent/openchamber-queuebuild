@@ -35,7 +35,10 @@ not classify sessions itself.
   board or the folder picker, which adds a new project.
 - `WorkBoardProjectMarks.tsx` — the marks a board carries (pending asks, then the
   build queue), in one place, so the desktop tab strip and the phone's project
-  picker read a board the same way.
+  picker read a board the same way. The amber queue error stands for a queue
+  that could not be read at all: `useBuildQueueSnapshot` keeps the last good
+  queue per runtime and shows it while a read is in flight or has failed, so one
+  failed poll on a return from a chat leaves the badges as they were.
 - `WorkBoardMobileProjectPicker.tsx` — the phone's replacement for the tab strip:
   one control naming the board on screen, opening the device's recent-first list
   with each board's marks. Each tab carries its project's build load and,

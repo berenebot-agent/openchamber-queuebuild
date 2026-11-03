@@ -375,8 +375,9 @@ export function workBoardTabAsks(
 /**
  * How many of the given boards carry a mark the user must act on. A plain
  * running build is not one: the spinner says work is happening, not that
- * anything waits on the user. A board counts when its tab would show a queue
- * error, a paused queue (review or Git hold), or a pending ask.
+ * anything waits on the user. A board counts when its tab would show a paused
+ * queue (review or Git hold) or a pending ask. A queue that could not be read
+ * has its own mark on the tab, but nothing the user can do about it here.
  */
 export function workBoardsNeedingAttention(
   projectIds: readonly string[],
@@ -387,7 +388,7 @@ export function workBoardsNeedingAttention(
   for (const projectId of projectIds) {
     const badge = badges.get(projectId);
     const ask = asks.get(projectId);
-    if (badge?.error || badge?.paused || ask?.question || ask?.permission) count += 1;
+    if (badge?.paused || ask?.question || ask?.permission) count += 1;
   }
   return count;
 }
