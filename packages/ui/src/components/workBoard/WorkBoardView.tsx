@@ -352,7 +352,7 @@ function WorkBoardQueueColumn({ rows, paused, active, activeTitle, entries, reco
     </div>}
     {recoveries.length > 0 && <section aria-label="Parked managed Builds" className="mt-3 space-y-2">
       {recoveries.map(recovery => <div key={recovery.sessionId + ':' + recovery.attemptId}
-        className="w-full rounded-md border border-[var(--status-error-text)]/50 bg-[var(--status-error-bg)] px-3 py-2 text-left text-xs">
+        className="w-full rounded-md border border-[var(--status-error-text)]/50 bg-[var(--status-error-bg)] px-3 py-2 text-start text-xs">
         <span className="block font-semibold">{recovery.outcome === 'input_required' ? 'Input required' : 'Build failed'}</span>
         <span className="mt-1 block truncate">{recovery.reason || 'Previous changes were safely parked'}</span>
         <span className="mt-1 block truncate text-muted-foreground" title={recovery.stashRef ?? undefined}>{recovery.stashRef
@@ -683,7 +683,10 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   // The board is a server-owned projection: the client renders the lanes, order,
   // queue state and live activity the server derived, and never classifies
   // history or polls a five-second timer itself.
-  const { snapshot, error: snapshotError, refresh } = useWorkBoardSnapshot(directory, sessionDays);
+  // The other open tabs are read into the snapshot cache too, so switching to
+  // one shows its last state at once.
+  const warmDirectories = visibleProjectTabs.flatMap(project => project.id === projectId || !project.path ? [] : [project.path]);
+  const { snapshot, error: snapshotError, refresh } = useWorkBoardSnapshot(directory, sessionDays, true, warmDirectories);
   const [error, setError] = React.useState('');
   const [actionError, setActionError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -1175,10 +1178,9 @@ export function WorkBoardView({ mobile = false, onLeave, onAttentionCountChange,
   };
   // The board's settings are the project's own, so this opens this board's
   // project page on its Work board section, where the per-project overrides
-  // live. Closing the board first keeps the two full-window surfaces from
-  // stacking.
+  // live. The board stays open under the Settings window, so closing Settings
+  // returns to the board.
   const openBoardSettings = () => {
-    useUIStore.getState().setWorkBoardOpen(false);
     useUIStore.getState().setSettingsProjectsSelectedId(projectId);
     useUIStore.getState().requestSettingsJump('projects', 'projects.work-board');
     useUIStore.getState().setSettingsDialogOpen(true);

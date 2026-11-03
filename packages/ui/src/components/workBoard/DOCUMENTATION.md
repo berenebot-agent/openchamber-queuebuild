@@ -76,6 +76,16 @@ The hook re-reads on the server's `build-queue-updated` and
 stream reconnects. A failed read keeps the last snapshot and reports the error;
 it never replaces the board with an empty one.
 
+The hook keeps the last snapshot per runtime, directory and day window in a
+module-level cache. A board that mounts again (a tab switch, or returning from a
+card's session) starts from it and revalidates, so it does not open empty. The
+other open tabs' directories are read into the cache on the same triggers. The
+cache is cleared when the runtime endpoint changes, and the server's answer
+always replaces an entry.
+
+The board's Settings button leaves the board open under the Settings window, so
+closing Settings returns to the board.
+
 ## Writes and the boundaries they must not cross
 
 Every write goes to the server: placements (`placeWorkBoardCard`,

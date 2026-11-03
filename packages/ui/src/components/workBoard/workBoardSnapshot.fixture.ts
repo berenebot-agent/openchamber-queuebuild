@@ -27,7 +27,7 @@ export function makeSnapshot({ directory = '/repo', cards = [], queue = {}, acti
     return (right?.completedAt ?? 0) - (left?.completedAt ?? 0) || a.localeCompare(b);
   });
   const placements = Object.fromEntries(cards.map(card => [card.id, {
-    lane: card.lane, completedAt: card.completedAt ?? 0, updatedAt: card.updatedAt, sessionId: card.sessionId,
+    lane: card.lane, completedAt: card.completedAt ?? 0, finishedAt: null, updatedAt: card.updatedAt, sessionId: card.sessionId,
   }]));
   return {
     directory,
@@ -42,7 +42,7 @@ export function makeSnapshot({ directory = '/repo', cards = [], queue = {}, acti
     unavailable,
     inheritedAvailable: true,
     queue: {
-      known: true, paused: false, enabled: true, rows: [], order: [], active: null, forced: [], issue: null, preparation: null, commit: null,
+      known: true, paused: false, resumeAt: null, enabled: true, rows: [], order: [], active: null, forced: [], issue: null, preparation: null, recoveries: [], commit: null,
       ...queue,
     },
   };

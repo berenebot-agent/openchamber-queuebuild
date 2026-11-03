@@ -12,7 +12,7 @@ const idle: WorkBoardActivityMessage = { id: 'idle', sessionID: 'session1', role
 const makeProjectionWithRows = (rows: WorkBoardSnapshot['queue']['rows']): WorkBoardSnapshot => ({
   directory: '/repo', revision: 1, lanes: {}, order: { todo: [], plan: [], queue: [], build: [], done: [] },
   cards: [], placements: {}, activities: {}, waitingFor: {}, unavailable: [], inheritedAvailable: true,
-  queue: { known: true, paused: false, enabled: true, rows, order: rows.map(row => row.itemId), active: null, forced: [], issue: null, preparation: null, commit: null },
+  queue: { known: true, paused: false, resumeAt: null, enabled: true, rows, order: rows.map(row => row.itemId), active: null, forced: [], issue: null, preparation: null, recoveries: [], commit: null },
 });
 
 describe('build queue column', () => {
@@ -72,14 +72,14 @@ describe('reading the server projection', () => {
     lanes: { card1: 'plan', card2: 'queue' },
     order: { todo: [], plan: ['card1'], queue: [], build: [], done: [] },
     cards: [],
-    placements: { card1: { lane: 'plan', completedAt: 0, updatedAt: 1 }, card2: { lane: 'queue', completedAt: 0, updatedAt: 1 } },
+    placements: { card1: { lane: 'plan', completedAt: 0, finishedAt: null, updatedAt: 1 }, card2: { lane: 'queue', completedAt: 0, finishedAt: null, updatedAt: 1 } },
     activities: {}, waitingFor: {}, unavailable: [], inheritedAvailable: true,
     queue: {
-      known: true, paused: false, enabled: true,
+      known: true, paused: false, resumeAt: null, enabled: true,
       rows: [{ itemId: 'i1', sessionId: 'session1', directory: '/repo', content: 'wait', paused: false, position: 0, model: null }],
       order: ['i1'],
       active: { sessionId: 'session2', itemId: 'i2', startedAt: 1, needsReview: true, retryAvailable: false, content: 'run', model: null },
-      forced: [], issue: null, preparation: null, commit: null,
+      forced: [], issue: null, preparation: null, recoveries: [], commit: null,
     },
   };
   test('a card reads its lane straight from the projection', () => {

@@ -101,9 +101,9 @@ test('a failed read keeps the last snapshot and reports the error on top of it',
 
 test('a malformed payload is an error, never an empty board', async () => {
   await withMockEventSource(async () => {
-    const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ directory: '/repo' }));
+    const fetch = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ directory: '/malformed' }));
     const probe = await mount(function Probe() {
-      const { snapshot, error } = useWorkBoardSnapshot('/repo');
+      const { snapshot, error } = useWorkBoardSnapshot('/malformed');
       return <span>{`${snapshot ? 'snapshot' : 'none'}/${error ? 'error' : 'ok'}`}</span>;
     });
     try {
@@ -128,6 +128,54 @@ test('no directory reads nothing', async () => {
     } finally {
       await probe.unmount();
       fetch.mockRestore();
+    }
+  });
+});
+
+test('a board that mounts again shows its cached snapshot while the read is in flight', async () => {
+  await withMockEventSource(async () => {
+    const first = spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json(makeSnapshot({ directory: '/cached' })));
+    const Probe = function Probe() {
+      const { snapshot } = useWorkBoardSnapshot('/cached');
+      return <span>{snapshot ? 'loaded' : 'unknown'}</span>;
+    };
+    const one = await mount(Probe);
+    expect(one.container.textContent).toBe('loaded');
+    await one.unmount();
+    first.mockRestore();
+
+    const pending = spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => undefined));
+    const two = await mount(Probe);
+    try {
+      expect(two.container.textContent).toBe('loaded');
+    } finally {
+      await two.unmount();
+      pending.mockRestore();
+    }
+  });
+});
+
+test('other open boards are read into the cache so switching to one is instant', async () => {
+  await withMockEventSource(async () => {
+    const fetch = spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      Response.json(makeSnapshot({ directory: String(input).includes('%2Fwarm') ? '/warm' : '/active' })));
+    const one = await mount(function Probe() {
+      useWorkBoardSnapshot('/active', 30, true, ['/warm']);
+      return null;
+    });
+    await one.unmount();
+    fetch.mockRestore();
+
+    const pending = spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => undefined));
+    const two = await mount(function Probe() {
+      const { snapshot } = useWorkBoardSnapshot('/warm');
+      return <span>{snapshot ? 'loaded' : 'unknown'}</span>;
+    });
+    try {
+      expect(two.container.textContent).toBe('loaded');
+    } finally {
+      await two.unmount();
+      pending.mockRestore();
     }
   });
 });

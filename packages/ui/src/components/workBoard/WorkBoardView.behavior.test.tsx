@@ -852,8 +852,8 @@ test('the board header opens this project\'s settings and closes the board', asy
     const settingsButton = container.querySelector<HTMLButtonElement>('button[title="Board settings"]');
     expect(settingsButton).not.toBeNull();
     await act(async () => { settingsButton!.click(); await new Promise(resolve => setTimeout(resolve, 20)); });
-    // The board is a full-window surface; it steps aside so the Settings dialog is not behind it.
-    expect(useUIStore.getState().isWorkBoardOpen).toBe(false);
+    // The board stays open under the Settings window, so closing Settings returns to it.
+    expect(useUIStore.getState().isWorkBoardOpen).toBe(true);
     expect(useUIStore.getState().isSettingsDialogOpen).toBe(true);
     // The project's own overrides live on its page, so the jump selects this
     // board's project and targets the Work board section that holds them.
